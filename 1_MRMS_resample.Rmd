@@ -40,10 +40,14 @@ Create a bounding box to crop for multi-QPE and QPE rasters
 
 ```{r}
 
+# ETF watersheds - don't need right now
+et_sheds <- vect('./data/watershed_bnd_UTM.shp') %>%
+  terra::project(., 'EPSG:26913')
+
 # all rain sensors for CPF, ETF, Bennett
 rain <- read_csv('./data/sensor_coords.csv') %>%
   filter(type == 'rain') %>%
-  drop_na() %>%
+  drop_na(y) %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
   st_transform(crs = st_crs(et_sheds))
 
@@ -59,10 +63,12 @@ bbox[3] <- bbox[3] + (0.1 * xrange) # xmax - right
 bbox[2] <- bbox[2] - (0.1 * yrange) # ymin - bottom
 bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
 
+#mapview(bbox)
 ```
 
 # 1. MutliQPE/QPE
 Need to divide MultiQPE by QPE to get the correction used
+
 (below is a test and/or example)
 
 ```{r}
@@ -240,9 +246,9 @@ Get rid of .grib2 from all the filenames
 
 ```
 
-# 2. Resample divide result to 2-min 
+# 2. Resample the divide result to 2-min 
 
-Repeat this chunk for 2022
+Repeat this chunk for 2021 and 2022
 
 ```{r}
 
@@ -294,5 +300,104 @@ lapply(new_filenames, function(to) {
 
 ```
 
+# 3. Multiple the 2-min correction by the SPR product
+
+Pre-processing below
+
+```{r}
+# Below chunk was to move at the files into one folder instead of separated by year
+# # Set the source and destination folders
+# source_folder <- "/Users/megansears/Documents/MRMS/SPR/2021"
+# destination_folder <- "/Users/megansears/Documents/MRMS/SPR"
+# 
+# # Get the list of files in the source folder
+# files <- list.files(source_folder)
+# 
+# # Move each file to the destination folder
+# for (file in files) {
+#   source_path <- file.path(source_folder, file)
+#   destination_path <- file.path(destination_folder, file)
+#   
+#   file.rename(source_path, destination_path)
+# }
+
+# unzip all grib2.gz (only do this once) - this is for the SPR
+# zip <- list.files(path = '/Users/megansears/Documents/MRMS/SPR', pattern = '.gz',
+#                   full.names = T)
+# 
+# #unzip all listed files
+# unzip <- lapply(zip, gunzip)
+
+# need to remove the extra hyphens in the data of the 2min divid result rasters
+# Set the folder path
+folder_path <- "/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/2min"
+
+# Get the list of files in the folder
+# files <- list.files(folder_path, pattern = "*.tif", full.names = TRUE)
+# 
+# # Rename each file with modified name
+# for (file in files) {
+#   file_name <- basename(file)
+#   new_file_name <- gsub("^([^\\-]+)-([^\\-]+)-", "\\1\\2", file_name)
+#   new_file_path <- file.path(dirname(file), new_file_name)
+#   
+#   file.rename(file, new_file_path)
+# }
+
+```
+
+More pre-processing: project and crop the 2-min SPR and save as tif so it can be multiplied by the correction later
+
+Trying my hand at parallel processing
+
+```{r}
+
+library(terra)
+library(foreach)
+library(doParallel)
+library(magrittr)
+#library(parallel)
+
+# Set the folder path
+folder_path <- "/Users/megansears/Documents/MRMS/SPR"
+
+# Get the list of GRIB2 files in the folder
+files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
+
+# Set the number of cores to use (adjust according to your system)
+num_cores <- 6
+
+# Initialize parallel processing
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+
+# Define a function to process a single GRIB2 file
+process_file <- function(file) {
+  # Read the GRIB2 file as a raster
+  r <- rast(file) %>%
+    project('EPSG:26913')
+  
+  # Crop the raster
+  r <- crop(r, ext(bbox))
+  
+  # Save the raster as .tif
+  new_file_name <- paste0(tools::file_path_sans_ext(basename(file)), "_processed.tif")
+  new_file_path <- file.path(folder_path, new_file_name)
+  writeRaster(r, filename = new_file_path, overwrite = TRUE)
+  
+  # Remove unnecessary objects
+  rm(r)
+}
+
+# Use parallel processing with foreach
+foreach(file = files, .packages = c("terra", "magrittr")) %dopar% {
+  process_file(file)
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+
+```
 
 
