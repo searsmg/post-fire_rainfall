@@ -300,7 +300,7 @@ lapply(new_filenames, function(to) {
 
 ```
 
-# 3. Multiple the 2-min correction by the SPR product
+# 3. Project and crop the 2-min data
 
 Pre-processing below
 
@@ -400,4 +400,94 @@ stopCluster(cl)
 
 ```
 
+# 4. Multiple the 2-min correction by the SPR product
+
+```{r}
+
+# remove '_processed' from file name
+setwd('/Users/megansears/Documents/MRMS/SPR')
+
+# Set the directory path where your files are located
+dir <- '/Users/megansears/Documents/MRMS/SPR'
+
+# Get the list of files in the directory
+file_list <- list.files(dir)
+
+# Define a function to rename the files
+rename_files <- function(file) {
+  new_name <- gsub("_processed", "", file)
+  file.rename(file.path(dir, file), file.path(dir, new_name))
+}
+
+# Use lapply to apply the renaming function to each file
+lapply(file_list, rename_files)
+
+# now edit the 2 min correction to add 00 before .tif (so that it matches the date on the SPR files)
+addDoubleZeroToTIF <- function(folder_path) {
+  # Get the list of filenames in the folder
+  filenames <- list.files(folder_path, pattern = "\\.tif$", full.names = TRUE)
+  
+  # Iterate through each filename and rename with "00" added before ".tif"
+  for (filename in filenames) {
+    new_filename <- gsub("\\.tif$", "00.tif", filename)
+    file.rename(filename, new_filename)
+  }
+}
+
+folder_path <- "/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/2min"
+
+addDoubleZeroToTIF(folder_path)
+
+```
+
+Multiply the rasters
+
+```{r}
+
+# Set the working directory to the folder containing your rasters
+setwd("/Users/megansears/Documents/MRMS")
+
+# Retrieve the file names of the rasters in each folder
+folder1_rasters <- list.files("./SPR", pattern = ".tif", full.names = TRUE)
+folder2_rasters <- list.files("./MultiSensor_QPE_divide/2min", pattern = ".tif", full.names = TRUE)
+
+# Define a function to perform the division operation and save the result
+perform_multiply <- function(raster1, raster2, result_folder) {
+  
+  # Extract the last 15 digits from the file name (datetime)
+  last_19_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 18, 1))
+  last_19_digits2 <- substring(basename(raster2), max(nchar(basename(raster2)) - 18, 1))
+  
+  if (last_19_digits1 == last_19_digits2) {
+    r1 <- rast(raster1) 
+    
+    r2 <- rast(raster2)
+    
+    result_raster <- r1 * r2 # multiply SPR * correction
+    
+    # Save the resulting raster
+    output_file <-
+      file.path(result_folder, paste0("corrspr_", last_19_digits1, ".tif"))
+    
+    writeRaster(result_raster, output_file, overwrite = TRUE)
+  }
+}
+
+# Apply the function to each pair of matching rasters
+result_folder <- "./correctedSPR"  # Path to the folder to store the resulting rasters
+
+# Find matching rasters and perform division using lapply and mapply
+lapply(folder1_rasters, function(raster1) {
+  # Extract the last 19 digits from the file name of raster1
+  last_19_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 18, 1))
+  
+  # Find matching rasters in folder2
+  matching_rasters <- grep(last_19_digits1, folder2_rasters, value = TRUE)
+  
+  # Perform multiplication for each matching raster
+  mapply(perform_multiply, raster1, matching_rasters, MoreArgs = list(result_folder = result_folder))
+})
+
+
+```
 
