@@ -491,3 +491,74 @@ lapply(folder1_rasters, function(raster1) {
 
 ```
 
+Need to remove .tif from the filenames
+
+```{r}
+
+setwd('/Users/megansears/Documents/MRMS/correctedSPR')
+
+# Set the directory path where your files are located
+dir <- '/Users/megansears/Documents/MRMS/correctedSPR'
+
+# Get the list of files in the directory
+file_list <- list.files(dir)
+
+# Define a function to rename the files
+rename_files <- function(file) {
+  new_name <- sub(".tif$", "", file)
+  file.rename(file.path(dir, file), file.path(dir, new_name))
+}
+
+# Use lapply to apply the renaming function to each file
+lapply(file_list, rename_files)
+
+
+```
+
+move the json files
+
+```{r}
+
+# Set the source and destination directory paths
+source_dir <- '/Users/megansears/Documents/MRMS/correctedSPR'
+destination_dir <- '/Users/megansears/Documents/MRMS/correctedSPR/json'
+
+# Get the list of files in the source directory that end with ".json"
+file_list <- list.files(source_dir, pattern = "\\.json$")
+
+# Move each file to the destination directory
+for (file in file_list) {
+  source_path <- file.path(source_dir, file)
+  destination_path <- file.path(destination_dir, file)
+  
+  # Copy the file to the destination directory
+  file.copy(source_path, destination_path)
+  
+  # Remove the original file from the source directory
+  file.remove(source_path)
+}
+
+###############################################################
+# Set the source and destination directory paths
+source_dir <- '/Users/megansears/Documents/MRMS/correctedSPR'
+destination_dir <- '/Users/megansears/Documents/MRMS/correctedSPR/2022'
+
+# Get the list of files in the source directory that have 2022
+file_list <- list.files(source_dir, pattern = '2022')
+
+# Move each file to the destination directory
+for (file in file_list) {
+  source_path <- file.path(source_dir, file)
+  destination_path <- file.path(destination_dir, file)
+  
+  # Copy the file to the destination directory
+  file.copy(source_path, destination_path)
+  
+  # Remove the original file from the source directory
+  file.remove(source_path)
+}
+
+
+```
+
+

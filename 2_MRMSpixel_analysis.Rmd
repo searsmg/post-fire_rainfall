@@ -51,7 +51,7 @@ benn_sheds <- vect('./data/mulch_study_watersheds.shp') %>%
 # all rain sensors for CPF, ETF, Bennett
 rain <- read_csv('./data/sensor_coords.csv') %>%
   filter(type == 'rain') %>%
-  drop_na() %>%
+  #drop_na() %>%
   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
   st_transform(crs = st_crs(et_sheds))
 
@@ -72,6 +72,101 @@ bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
 #mapview(bbox) + mapview(rain)
 
 ```
+
+# doing a test of Dry Creek pixel for summer 2022
+
+```{r}
+
+dry_rain <- rain %>%
+  filter(site == 'dry')
+
+setwd('/Users/megansears/Documents/MRMS/correctedSPR/2022')
+
+filenames <- list.files(".", pattern='.tif', full.names=F)   
+
+  for(fileName in filenames) {
+
+#pull in raster
+r <- rast(fileName)
+
+names(r) <- 'p_mmhr'
+
+#extract using terra bc it has more functions :)
+extract <- terra::extract(r, dry_rain)
+extract$name <- dry_rain$site
+
+timestamp <- substr(fileName, 9, 23)
+
+extract <- extract %>%
+  mutate(datetime = ymd_hms(timestamp)) %>%
+  mutate(datetime = datetime - (7 * 60 * 60)) %>%
+  mutate(doy = yday(datetime)) %>%
+  mutate(hour = hour(datetime),
+         min = minute(datetime))
+
+write.csv(extract, paste0('extract_', extract$doy[1],'_', extract$hour[1],'_', extract$min[1],'.csv'))
+
+  }
+
+# move the csvs into another folder
+# Set the source and destination directory paths
+source_dir <- '/Users/megansears/Documents/MRMS/correctedSPR/2022'
+destination_dir <- '/Users/megansears/Documents/MRMS/correctedSPR/dry_pixel_2022'
+
+# Get the list of files in the source directory that have 2022
+file_list <- list.files(source_dir, pattern = '.csv')
+
+# Move each file to the destination directory
+for (file in file_list) {
+  source_path <- file.path(source_dir, file)
+  destination_path <- file.path(destination_dir, file)
+  
+  # Copy the file to the destination directory
+  file.copy(source_path, destination_path)
+  
+  # Remove the original file from the source directory
+  file.remove(source_path)
+}
+
+# #compile all CSVs
+pixel_dry_test <- list.files(path='/Users/megansears/Documents/MRMS/correctedSPR/dry_pixel_2022', full.names = T) %>%
+  lapply(read_csv) %>%
+  bind_rows
+
+# #remove random columns
+# pixel_21 <- pixel_21 %>%
+#   dplyr::select(-c(...1, ID))
+# 
+# write_csv(pixel_21, 'mrms_pixel_21.csv')
+# write_csv(pixel_22, 'mrms_pixel_22.csv')
+
+# trying to batch it
+pixel_dry_test <- list.files(path = '/Users/megansears/Documents/MRMS/correctedSPR/dry_pixel_2022', full.names = TRUE)
+
+result <- NULL
+batch_size <- 1000
+
+for (i in seq(1, length(pixel_dry_test), by = batch_size)) {
+  batch_files <- pixel_dry_test[i:min(i + batch_size - 1, length(pixel_dry_test))]
+  batch_data <- lapply(batch_files, read_csv)
+  batch_combined <- bind_rows(batch_data)
+  
+  if (is.null(result)) {
+    result <- batch_combined
+  } else {
+    result <- bind_rows(result, batch_combined)
+  }
+  
+  rm(batch_data, batch_combined)  # Remove intermediate objects to free memory
+  gc()  # Trigger garbage collection to release memory
+}
+
+pixel_dry_test <- result
+
+write_csv(pixel_dry_test, '/Users/megansears/Documents/MRMS/correctedSPR/dry_pixel_2022/pixel_dry_test.csv')
+
+```
+
 
 # TB PIXEL ANAYLSIS
 
