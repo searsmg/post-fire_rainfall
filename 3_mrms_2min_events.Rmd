@@ -1,0 +1,1421 @@
+---
+title: "2-min MRMS event analysis"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+knitr::opts_chunk$set(echo = F,
+                      message = F,
+                      fig.width = 12,
+                      fig.height = 6)
+
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(plotly)
+library(kableExtra)
+library(here)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(zoo)
+library(corrplot)
+library(stats)
+
+```
+
+# Functions
+Create as Rdata functions down the line
+
+```{r}
+
+# get events - some initial steps nbeed to happen before
+# add into function eventually: filtering less than 0.3 mm out (which also takes care of 0 mm)
+get_mrms_events <- function(df, datetime) {
+  df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
+  df$datenumeric=as.numeric(df$datetime)
+
+  for (i in 2:nrow(df)) {
+    df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
+  }
+  df$dt_hr=as.numeric(df$dt)/60/60
+  
+  #start new event if time between rows is  >=6
+  df$event=1
+  for (i in 2:nrow(df)) {
+    df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
+  }
+  return(df)
+}
+
+
+```
+
+
+# Event analysis
+Derived from 2-min MRMS data
+
+```{r rainfall metrics, echo=FALSE}
+
+# load in 2021 and 2022 data
+all_2021 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2021/catchments_all_extract/catchments_2021_mrms.csv') %>%
+  dplyr::select(-1)
+
+all_2022 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2022/catchments_2022_mrms.csv') %>%
+  dplyr::select(-1)
+
+# bind them 2021 and 2022 together & resample to 10 min
+all <- bind_rows(all_2021, all_2022) %>%
+  mutate(year = year(datetime),
+         timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  group_by(ID, timestamps_10min) %>%
+  summarize(rain_mm = sum(p_mm)) %>%
+  rename(datetime = timestamps_10min)
+
+#try for all sites
+get_mrms_all_events <- function(all, ID_name) {
+  
+  events <- all %>%
+  filter(ID == ID_name,
+         rain_mm > 0.3) %>%
+  get_mrms_events(., datetime) %>%
+  group_by(event) %>%
+  mutate(start_time = min(datetime),
+         end_time = max(datetime)) %>%
+  dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
+  complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
+  arrange(event, datetime) %>%
+  fill(start_time, end_time, ID) %>%
+  ungroup() %>%
+  mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
+    
+  return(events)
+}
+
+# list out sites 
+sites <- unique(all$ID)
+
+# get events for all sites
+all_events <- map(sites, ~ get_mrms_all_events(all, .)) %>%
+  bind_rows(.)
+
+```
+
+# Intensity analysis
+
+```{r}
+
+# get 10, 20, 30, 60 min intensities
+
+#start with 1 site
+get_mrms_intensities <- function(all_events, ID_name) {
+
+intens <- all_events %>%
+  filter(ID == ID_name) %>%
+  group_by(event) %>%
+  mutate(max10_mm = max(rain_mm),
+         sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
+         max20_mm = max(sum20_mm),
+         sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
+         max30_mm = max(sum30_mm),
+         sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
+         max60_mm = max(sum60_mm),
+         event_sum_mm = sum(rain_mm),
+         MI10_mmhr = max10_mm*6,
+         MI20_mmhr = max20_mm*3,
+         MI30_mmhr = max30_mm*2,
+         MI60_mmhr = max60_mm) %>%
+  dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
+            sum20_mm, sum30_mm, sum60_mm, datetime,
+            rain_mm)) %>%
+  ungroup() %>%
+  distinct(start_time, .keep_all = T) %>%
+  mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
+  filter(event_sum_mm > 1)
+  
+}
+
+sites <- unique(all$ID)
+
+# get events for all sites
+all_intens <- map(sites, ~ get_mrms_intensities(all_events, .)) %>%
+  bind_rows(.)
+
+all_intens <- all_intens %>%
+  group_by(ID) %>%
+  arrange(event) %>%
+  mutate(event = 1:n())
+
+#write.csv(all_intens, 'mrms_intensities.csv')
+
+```
+
+# Stage response analysis
+
+## Read in stage and prep
+
+```{r}
+
+benn <- read_csv(here('data/stage/bennett_all_2021_2022_stage.csv')) %>%
+  mutate(Stage_cm = Stage_mm/10) %>%
+  dplyr::select(datetime, Stage_cm, site) %>%
+  filter(site %in% c('me', 'mm', 'mw',
+                     'ue', 'uw', 'um'))
+  
+
+
+et <- read_csv(here('data/stage/et_stage_sensors.csv')) %>%
+  dplyr::select(datetime, Stage_cm, site) %>%
+  mutate(datetime = datetime - 25200)
+
+
+stage <- bind_rows(benn, et)
+
+```
+
+# Response
+
+## ME
+
+```{r}
+####### Precip #########
+me_precip <- all %>%
+  filter(ID == 'me')
+
+######### Stage #########
+me_intens <- all_intens %>%
+  filter(ID == 'me')
+
+me_stage <- stage %>%
+  filter(site == 'me')
+
+me_intens <- me_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+me_stage_test <- me_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(me_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) #%>% #,
+         #lag2peak_hr = as.numeric(datetime_maxstage - starttime_rain))
+  #filter(stage_rise_cm > 2)
+  
+# Create a list of plots, one for each event
+# plots_list <- me_stage_test %>%
+#   group_split(event) %>%
+#   map(~ ggplot(.x, aes(x = datetime, y = Stage_cm)) +
+#           geom_line() +
+#           labs(title = paste("Event", unique(.x$event))))
+# 
+# # View the individual plots
+# walk(plots_list, print)
+
+######################################
+
+## join precip and stage
+me_both <- full_join(me_precip, me_stage_test, by = 'datetime')
+
+me_precip_stage <- me_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(me_precip_stage)
+
+########################################
+# response summary
+me_response_summary <- me_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(me_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  #filter(stage_rise_cm > 2) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(me_response_summary, 'me_response_summary.csv')
+
+me_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/me_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+me_response_summary <- left_join(me_response_summary, me_manual, by = 'event') %>%
+  mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+## MM
+
+```{r}
+####### Precip #########
+mm_precip <- all %>%
+  filter(ID == 'mm')
+
+######### Stage #########
+mm_intens <- all_intens %>%
+  filter(ID == 'mm')
+
+mm_stage <- stage %>%
+  filter(site == 'mm')
+
+mm_intens <- mm_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+mm_stage_test <- mm_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+mm_both <- full_join(mm_precip, mm_stage_test, by = 'datetime')
+
+mm_precip_stage <- mm_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point() +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mm_precip_stage)
+
+########################################
+# response summary
+mm_response_summary <- mm_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(mm_response_summary, here('data/response_summaries/mm_response_summary.csv'))
+
+mm_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mm_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+mm_response_summary <- left_join(mm_response_summary, mm_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+mm_response_summary <- mm_response_summary %>%
+    mutate(stage_rise_cm = if_else(event == 77, 58.7, stage_rise_cm),
+           lag2p_hr = if_else(event == 77, 3.333, lag2p_hr))
+
+  
+```
+
+## MW
+
+```{r}
+####### Precip #########
+mw_precip <- all %>%
+  filter(ID == 'mw')
+
+######### Stage #########
+mw_intens <- all_intens %>%
+  filter(ID == 'mw')
+
+mw_stage <- stage %>%
+  filter(site == 'mw')
+
+mw_intens <- mw_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+mw_stage_test <- mw_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mw_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+mw_both <- full_join(mw_precip, mw_stage_test, by = 'datetime')
+
+mw_precip_stage <- mw_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mw_precip_stage)
+
+########################################
+# response sumwary
+mw_response_summary <- mw_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mw_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(mw_response_summary, here('data/response_summaries/mw_response_summary.csv'))
+
+mw_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mw_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+mw_response_summary <- left_join(mw_response_summary, mw_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+
+## UE
+
+```{r}
+####### Precip #########
+ue_precip <- all %>%
+  filter(ID == 'ue')
+
+######### Stage #########
+ue_intens <- all_intens %>%
+  filter(ID == 'ue')
+
+ue_stage <- stage %>%
+  filter(site == 'ue')
+
+ue_intens <- ue_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+ue_stage_test <- ue_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(ue_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+ue_both <- full_join(ue_precip, ue_stage_test, by = 'datetime')
+
+ue_precip_stage <- ue_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(ue_precip_stage)
+
+########################################
+# response suueary
+ue_response_summary <- ue_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(ue_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60/60,
+                            NA))
+
+#write.csv(ue_response_summary, here('data/response_summaries/ue_response_summary.csv'))
+
+ue_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/ue_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+ue_response_summary <- left_join(ue_response_summary, ue_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60/60,
+                            NA))
+
+```
+
+## UM
+
+```{r}
+####### Precip #########
+um_precip <- all %>%
+  filter(ID == 'um')
+
+######### Stage #########
+um_intens <- all_intens %>%
+  filter(ID == 'um')
+
+um_stage <- stage %>%
+  filter(site == 'um')
+
+um_intens <- um_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+um_stage_test <- um_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(um_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+um_both <- full_join(um_precip, um_stage_test, by = 'datetime')
+
+um_precip_stage <- um_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(um_precip_stage)
+
+########################################
+# response suumary
+um_response_summary <- um_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(um_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(um_response_summary, here('data/response_summaries/um_response_summary.csv'))
+
+um_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/um_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+um_response_summary <- left_join(um_response_summary, um_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+## UW
+
+```{r}
+####### Precip #########
+uw_precip <- all %>%
+  filter(ID == 'uw')
+
+######### Stage #########
+uw_intens <- all_intens %>%
+  filter(ID == 'uw')
+
+uw_stage <- stage %>%
+  filter(site == 'uw')
+
+uw_intens <- uw_intens %>%
+    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+uw_stage_test <- uw_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(uw_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+uw_both <- full_join(uw_precip, uw_stage_test, by = 'datetime')
+
+uw_precip_stage <- uw_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(uw_precip_stage)
+
+########################################
+# response suuwary
+uw_response_summary <- uw_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(uw_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60/60,
+                            NA))
+
+#write.csv(uw_response_summary, here('data/response_summaries/uw_response_summary.csv'))
+
+uw_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/uw_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+uw_response_summary <- left_join(uw_response_summary, uw_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60/60,
+                            NA))
+
+
+
+```
+
+## HM
+
+```{r}
+####### Precip #########
+hm_precip <- all %>%
+  filter(ID == 'HighMulch')
+
+######### Stage #########
+hm_intens <- all_intens %>%
+  filter(ID == 'HighMulch')
+
+hm_stage <- stage %>%
+  filter(site == 'hm')
+
+hm_intens <- hm_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 6 * 60 * 60)
+
+# get resposne and keep all stage data
+hm_stage_test <- hm_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(hm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+hm_both <- full_join(hm_precip, hm_stage_test, by = 'datetime')
+
+hm_precip_stage <- hm_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(hm_precip_stage)
+
+########################################
+# response suhmary
+hm_response_summary <- hm_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(hm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(hm_response_summary, here('data/response_summaries/hm_response_summary.csv'))
+
+hm_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/hm_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+hm_response_summary <- left_join(hm_response_summary, hm_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+## HUM
+
+```{r}
+####### Precip #########
+hum_precip <- all %>%
+  filter(ID == 'HighUnmulch')
+
+######### Stage #########
+hum_intens <- all_intens %>%
+  filter(ID == 'HighUnmulch')
+
+hum_stage <- stage %>%
+  filter(site == 'hum')
+
+hum_intens <- hum_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get resposne and keep all stage data
+hum_stage_test <- hum_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(hum_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+hum_both <- full_join(hum_precip, hum_stage_test, by = 'datetime')
+
+hum_precip_stage <- hum_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(hum_precip_stage)
+
+########################################
+# response suhumary
+hum_response_summary <- hum_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(hum_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(hum_response_summary, here('data/response_summaries/hum_response_summary.csv'))
+
+hum_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/hum_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+hum_response_summary <- left_join(hum_response_summary, hum_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+## MPM
+
+```{r}
+
+####### Precip #########
+mpm_precip <- all %>%
+  filter(ID == 'MiddlePartialMulch')
+
+######### Stage #########
+mpm_intens <- all_intens %>%
+  filter(ID == 'MiddlePartialMulch')
+
+mpm_stage <- stage %>%
+  filter(site == 'mpm')
+
+mpm_intens <- mpm_intens %>%
+    mutate(endtime_plus12 = end_time + 15 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+mpm_stage_test <- mpm_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mpm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+mpm_both <- full_join(mpm_precip, mpm_stage_test, by = 'datetime')
+
+mpm_precip_stage <- mpm_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mpm_precip_stage)
+
+########################################
+# response sumpmary
+mpm_response_summary <- mpm_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mpm_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(mpm_response_summary, here('data/response_summaries/mpm_response_summary.csv'))
+
+mpm_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mpm_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+mpm_response_summary <- left_join(mpm_response_summary, mpm_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+```
+
+## MUM
+
+```{r}
+
+####### Precip #########
+mum_precip <- all %>%
+  filter(ID == 'MiddleUnmulch')
+
+######### Stage #########
+mum_intens <- all_intens %>%
+  filter(ID == 'MiddleUnmulch')
+
+mum_stage <- stage %>%
+  filter(site == 'mum')
+
+mum_intens <- mum_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+mum_stage_test <- mum_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mum_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+mum_both <- full_join(mum_precip, mum_stage_test, by = 'datetime')
+
+mum_precip_stage <- mum_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mum_precip_stage)
+
+########################################
+# response sumumary
+mum_response_summary <- mum_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mum_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(mum_response_summary, here('data/response_summaries/mum_response_summary.csv'))
+
+mum_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mum_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+mum_response_summary <- left_join(mum_response_summary, mum_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+```
+
+## MUB
+
+```{r}
+
+####### Precip #########
+mub_precip <- all %>%
+  filter(ID == 'MiddleUnburned')
+
+######### Stage #########
+mub_intens <- all_intens %>%
+  filter(ID == 'MiddleUnburned')
+
+mub_stage <- stage %>%
+  filter(site == 'mub')
+
+mub_intens <- mub_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+mub_stage_test <- mub_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mub_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+mub_both <- full_join(mub_precip, mub_stage_test, by = 'datetime')
+
+mub_precip_stage <- mub_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mub_precip_stage)
+
+########################################
+# response sumubary
+mub_response_summary <- mub_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mub_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(mub_response_summary, here('data/response_summaries/mub_response_summary.csv'))
+
+mub_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mub_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+mub_response_summary <- left_join(mub_response_summary, mub_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+```
+
+## P1
+
+```{r}
+####### Precip #########
+p1_precip <- all %>%
+  filter(ID == 'Pass 1')
+
+######### Stage #########
+p1_intens <- all_intens %>%
+  filter(ID == 'Pass 1')
+
+p1_stage <- stage %>%
+  filter(site == 'p1')
+
+p1_intens <- p1_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+p1_stage_test <- p1_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(p1_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+p1_both <- full_join(p1_precip, p1_stage_test, by = 'datetime')
+
+p1_precip_stage <- p1_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(p1_precip_stage)
+
+########################################
+# response sup1ary
+p1_response_summary <- p1_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(p1_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(p1_response_summary, here('data/response_summaries/p1_response_summary.csv'))
+
+p1_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/p1_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+p1_response_summary <- left_join(p1_response_summary, p1_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+```
+
+## P2
+
+```{r}
+####### Precip #########
+p2_precip <- all %>%
+  filter(ID == 'Pass 2')
+
+######### Stage #########
+p2_intens <- all_intens %>%
+  filter(ID == 'Pass 2')
+
+p2_stage <- stage %>%
+  filter(site == 'p2')
+
+p2_intens <- p2_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 1 * 60 * 60)
+
+# get resposne and keep all stage data
+p2_stage_test <- p2_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(p2_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm))
+
+## join precip and stage
+p2_both <- full_join(p2_precip, p2_stage_test, by = 'datetime')
+
+p2_precip_stage <- p2_both %>%
+  filter(!is.na(Stage_cm)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Stage_cm)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(p2_precip_stage)
+
+########################################
+# response sup2ary
+p2_response_summary <- p2_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(p2_stage, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(stage_rise_cm = max(Stage_cm) - first(Stage_cm)) %>% 
+  filter(Stage_cm == max(Stage_cm)) %>%
+  rename(Stage_cm_max = Stage_cm) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(stage_rise_cm > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+#write.csv(p2_response_summary, here('data/response_summaries/p2_response_summary.csv'))
+
+p2_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/p2_response_summary.csv') %>%
+  dplyr::select(event, response_manual)
+
+p2_response_summary <- left_join(p2_response_summary, p2_manual, by = 'event') %>%
+    mutate(lag2p_hr = if_else(response_manual == 'Y', 
+                            as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+```
+
+## Bind all together
+
+```{r}
+
+response_all <- bind_rows(me_response_summary,
+                          mm_response_summary,
+                          mw_response_summary,
+                          ue_response_summary,
+                          um_response_summary,
+                          uw_response_summary) %>% 
+                          #hum_response_summary,
+                          #hm_response_summary,
+                          #mpm_response_summary,
+                          #mum_response_summary,
+                          #mub_response_summary,
+                          #p1_response_summary,
+                          #p2_response_summary) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9))
+
+write.csv(bennett_events)
+
+response_all <- response_all %>%
+  mutate(treatment = if_else(site %in% c('me',
+                                         'mw',
+                                         'mm',
+                                         'mpm',
+                                         'hm'),
+                             'Mulch',
+                             'NoMulch'),
+         burn = if_else(site %in% c('mub',
+                                    'p1'),
+                                    'Unburned',
+                                    'Burned'),
+         area = if_else(site %in% c('me',
+                                    'mm',
+                                    'mw',
+                                    'ue',
+                                    'um',
+                                    'uw'),
+                        'Bennett', 'ET'),
+         year = if_else(end_time < '2021-12-01 00:00:00',
+                        '2021', '2022'),
+         cat = if_else(site %in% c('me',
+                                   'mw',
+                                   'mm',
+                                   'mpm',
+                                   'hm'),
+                       'Mulch, Burned',
+                       'Burned'),
+         cat = if_else(site %in% c('mub', 'p1'),
+                       'Unburned', cat)) %>%
+  rename('')
+
+## Add area to response
+area <- read_csv(here('data/areas.csv')) %>%
+  dplyr::select(site = Catchment, Area_km2)
+
+response_all <- left_join(response_all, area, by = 'site')
+
+response_all <- response_all %>%
+  mutate(stage_area = stage_rise_cm/Area_km2)
+
+## Stage response box plots
+benn_stage_rise_box <- response_all %>%
+  filter(area =='Bennett',
+         response_manual == 'Y') %>%
+  ggplot(., aes(site, stage_rise_cm, fill=cat)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_manual(values=c("#F7340B", "#C2B280")) +
+  ylab('Stage rise (cm)') +
+  xlab('') +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=28, 
+                            family = 'Times New Roman')) +
+  scale_x_discrete(labels = function(x) toupper(x))
+
+benn_stage_rise_box
+
+ggsave(here('figures/benn_stage_box.jpg'), benn_stage_rise_box, dpi=800)
+
+et_stage_rise_box <- response_all %>%
+  filter(
+         response_manual == 'Y') %>%
+  mutate(site = factor(site, levels = c('me', 'mm', 'mw', 'ue', 'um', 'uw','p1','p2','hum','hm','mum','mpm','mub'))) %>%
+  ggplot(., aes(site, stage_rise_cm, fill=cat)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_manual(values=c("#F7340B", "#C2B280", 'darkgreen')) +
+  ylab('Stage rise (cm)') +
+  xlab('') +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=28)) +
+    theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=28, 
+                            family = 'Times New Roman')) +
+  scale_x_discrete(labels = function(x) toupper(x))
+
+et_stage_rise_box
+
+ggsave(here('figures/et_stage_box.jpg'), et_stage_rise_box, dpi=800)
+
+## Lag to peak box plots
+benn_lag_box <- response_all %>%
+  filter(area =='Bennett',
+         response_manual == 'Y') %>%
+  ggplot(., aes(site, lag2p_hr, color=treatment)) +
+  geom_boxplot() +
+  ggtitle('Lag to peak')
+
+benn_lag_box
+
+et_lag_box <- response_all %>%
+  filter(area =='ET',
+         response_manual == 'Y') %>%
+  mutate(site = factor(site, levels = c('p1','p2','hum','hm','mum','mpm','mub'))) %>%
+  ggplot(., aes(site, lag2p_hr, color=treatment)) +
+  geom_boxplot() +
+  ggtitle('Lag to peak')
+
+et_lag_box
+
+## Add area to repsponse (don't need now)
+area <- read_csv(here('data/areas.csv')) %>%
+  dplyr::select(site = Catchment, Area_km2)
+
+response_all <- left_join(response_all, area, by = 'site')
+
+## Precip vars vs stage rise
+scatter_mi60_benn <- response_all %>%
+  filter(area == 'Bennett',
+         response_manual == 'Y') %>%
+  ggplot(., aes(MI60_mmhr, stage_rise_cm, 
+                         shape=year,
+                         color=cat)) +
+  geom_point(size=12) +
+  scale_color_manual(values=c("#F7340B", "#C2B280")) +
+  scale_shape_manual(values = c(17, 15)) +
+  #ggtitle('Bennett') +
+  xlab('MI60 (mm/hr)') +
+  ylab("Stage rise (cm)") +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=40, 
+                            family = 'Times New Roman')) +
+  geom_smooth(aes(group = cat), method = lm, se = FALSE) +
+  geom_smooth(aes(group = year, linetype=year), method = lm, se = FALSE, color='black')
+  
+scatter_mi60_benn
+
+ggsave(here('figures/benn_mi60_stage.jpg'), scatter_mi60_benn, dpi=800)
+
+## r2
+# Iterate through each level of 'cat' and calculate R-squared
+r2_benn_cat <- response_all %>%
+   filter(area == 'Bennett',
+         response_manual == 'Y',
+         year == '2022') %>%
+  summarize(r_squared = round(summary(lm(stage_rise_cm ~ MI60_mmhr, data = .))$r.squared, 3))
+#0.292 for burned
+#0.383 for mulch, burned
+#0.516 for 2021
+#0.08 for 2022
+
+
+scatter_mi60_et <- response_all %>%
+  filter(area == 'ET',
+         response_manual == 'Y') %>%
+  ggplot(., aes(MI60_mmhr, stage_rise_cm, 
+                         color=cat)) +
+  geom_point(size=12, shape = 15) +
+  scale_color_manual(values=c("#F7340B", "#C2B280", 'darkgreen')) +
+  xlab('MI60 (mm/hr)') +
+  ylab("Stage rise (cm)") +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=40, 
+                            family = 'Times New Roman')) +
+  geom_smooth(method=lm, se=F)
+
+scatter_mi60_et
+
+ggsave(here('figures/et_mi60_stage.jpg'), scatter_mi60_et, dpi=800)
+
+r2_et_cat <- response_all %>%
+   filter(area == 'ET',
+         response_manual == 'Y',
+         cat == 'Unburned') %>%
+  summarize(r_squared = round(summary(lm(stage_rise_cm ~ MI60_mmhr, data = .))$r.squared, 3))
+#0.177 for burned
+#0.265 for mulch, burned
+#0.106 for unburned
+
+
+scatter_mi60 <- response_all %>%
+  filter(response_manual == 'Y') %>%
+  ggplot(., aes(MI60_mmhr, stage_rise_cm, 
+                         fill=area,
+                shape = area)) +
+  geom_point(size=14, alpha = 0.75) +
+  scale_fill_manual(values=c("black", "blue")) +
+  scale_shape_manual(values=c(19,23)) +
+  xlab('MI60 (mm/hr)') +
+  ylab("Stage rise (cm)") +
+  theme(legend.title=element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=34,
+                            family = 'Times New Roman'))
+
+scatter_mi60
+
+ggsave(here('figures/scatter_mi60.jpg'), scatter_mi60, dpi=800)
+
+# summary stats
+intens_summary <- all_intens %>%
+  group_by(ID) %>%
+  summarize(max_mi60 = max(MI60_mmhr),
+            count_events = n(),
+            max_rain_event_amount = max(event_sum_mm))
+  
+
+write.csv(intens_summary, 'intens_summary.csv')
+
+response_summary <- response_all %>%
+  group_by(ID) %>%
+  filter(response_manual == 'Y') %>%
+  summarize(max_rise = max(stage_rise_cm),
+            percent_response = n(),
+            sum_p_all = sum(event_sum_mm))
+
+write.csv(response_summary, 'response_summary.csv')
+
+count <- response_all %>%
+  group_by(ID) %>%
+  summarize(count = n())
+
+```
+
+## Correlations between precip and stage vars
+
+```{r}
+## corr for precip and stage vars
+cor_init <- response_all %>%
+  mutate(duration_hr = as.numeric(duration_hr)) %>%
+  dplyr::select(event_sum_mm,
+                MI10_mmhr,
+                MI20_mmhr,
+                MI30_mmhr,
+                MI60_mmhr,
+                duration_hr,
+                stage_rise_cm,
+                lag2p_hr)
+
+cor(cor_init, use='complete.obs')
+
+corrplot(cor(cor_init, use='complete.obs'))
+
+## p value for treatment and stage rise 
+benn_pval <- response_all %>%
+  filter(area =='Bennett') %>%
+  mutate(treatment2 = if_else(treatment == "Mulch",
+                          1, 0))
+
+benn_pval <- wilcox.test(benn_pval$treatment2, benn_pval$stage_rise_cm)
+#0.77 p value between stage rise and treatment
+
+et_pval <- response_all %>%
+  filter(area =='ET') %>%
+  mutate(treatment2 = if_else(treatment == "Mulch",
+                          1, 0))
+
+et_pval <- wilcox.test(et_pval$treatment2, et_pval$stage_rise_cm)
+
+## corr plots between input vars (soil, etc) and stage vars
+
+
+```
+
+
+
