@@ -543,3 +543,4 @@ ggarrange(high,mid,ncol=1,nrow=2)
 ggplot()+geom_line(data=willow_stage,aes(x=datetime,y=stage_cm))+
   geom_line(data=willow_res,aes(x=datetime,y=Q_cfs/9+150),color='blue')+ggtitle('Low elevation')
 
+

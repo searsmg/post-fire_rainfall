@@ -590,6 +590,7 @@ et_estimated_discharge <- bind_rows(hm_adjust, hum_adjust,
 write.csv(et_estimated_discharge, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/et_estimated_q.csv')
 
 
+
 ```
 
 
