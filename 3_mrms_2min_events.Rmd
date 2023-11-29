@@ -1218,7 +1218,6 @@ hm_response_summary2 <- hm_intens %>%
 
 
 # Plot MI15 vs stage rise vs q rise 
-
 ggplot(hm_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
   geom_point(data = hm_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
 
@@ -1292,6 +1291,9 @@ response_all <- left_join(response_all, area, by = 'site')
 
 response_all <- response_all %>%
   mutate(stage_area = stage_rise_cm/Area_km2)
+
+write.csv(response_all, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_all.csv')
+
 ```
 
 # Misc figures
@@ -1516,21 +1518,3 @@ et_pval <- wilcox.test(et_pval$treatment2, et_pval$stage_rise_cm)
 
 
 ```
-
-# Model inputs
-
-```{r}
-
-model_inputs <- response_all %>%
-  select(ID, event,
-         MI10_mmhr, MI20_mmhr, MI30_mmhr,
-         MI60_mmhr, year, stage_rise_cm,
-         stage_area, lag2p_hr, duration_hr,
-         response_manual, event_sum_mm, month,
-         treatment, burn, area, cat, Area_km2,
-         start_time,end_time)
-  
-
-```
-
-
