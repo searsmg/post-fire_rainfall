@@ -166,7 +166,7 @@ all_intens <- all_intens %>%
 ggplot(all_intens, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
 ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
-#write.csv(all_intens, 'mrms_intensities.csv')
+write.csv(all_intens, 'mrms_intensities.csv')
 
 ```
 
@@ -178,14 +178,15 @@ ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
 benn <- read_csv(here('data/stage/bennett_all_stage.csv')) %>%
   mutate(Stage_cm = Stage_mm/10,
-         datetime = mdy_hm(datetime)) %>%
+         datetime = mdy_hm(datetime, tz = 'MST')) %>%
   dplyr::select(datetime, Stage_cm, site) %>%
   filter(site %in% c('me', 'mm', 'mw',
                      'ue', 'uw', 'um'))
   
 et <- read_csv(here('data/stage/et_stage_sensors.csv')) %>%
   dplyr::select(datetime, Stage_cm, site) %>%
-  mutate(datetime = datetime - 25200)
+  mutate(datetime = datetime - 25200) %>%
+  mutate(datetime = force_tz(datetime, tzone = "MST"))
 
 
 stage <- bind_rows(benn, et)
@@ -406,9 +407,9 @@ mw_response_summary <- mw_intens %>%
   mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
          response = if_else(stage_rise_cm > 2, 'Y', 'N'),
          lag2p_hr = if_else(response == 'Y', 
-                            as.numeric(datetime_maxstage - start_time)/60,
-                            NA))
-
+                   as.numeric(datetime_maxstage - start_time)/60/60,
+                   NA))
+         
 #write.csv(mw_response_summary, here('data/response_summaries/mw_response_summary.csv'))
 
 mw_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_summaries/mw_response_summary.csv') %>%
@@ -416,7 +417,7 @@ mw_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data
 
 mw_response_summary <- left_join(mw_response_summary, mw_manual, by = 'event') %>%
     mutate(lag2p_hr = if_else(response_manual == 'Y', 
-                            as.numeric(datetime_maxstage - start_time)/60,
+                            as.numeric(datetime_maxstage - start_time)/60/60,
                             NA))
 
 # MW: data looked strange after 7/28/22 event, but it did pick up 6/11/23 event. I guess exclude everything between and after those two events
@@ -553,7 +554,7 @@ um_response_summary <- um_intens %>%
   mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
          response = if_else(stage_rise_cm > 2, 'Y', 'N'),
          lag2p_hr = if_else(response == 'Y', 
-                            as.numeric(datetime_maxstage - start_time)/60,
+                            as.numeric(datetime_maxstage - start_time)/60/60,
                             NA))
 
 #write.csv(um_response_summary, here('data/response_summaries/um_response_summary.csv'))
@@ -563,7 +564,7 @@ um_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data
 
 um_response_summary <- left_join(um_response_summary, um_manual, by = 'event') %>%
     mutate(lag2p_hr = if_else(response_manual == 'Y', 
-                            as.numeric(datetime_maxstage - start_time)/60,
+                            as.numeric(datetime_maxstage - start_time)/60/60,
                             NA))
 
 ```
@@ -1005,7 +1006,7 @@ mub_response_summary <- left_join(mub_response_summary, mub_manual, by = 'event'
 
 ```
 
-## P1
+## P1 - DONE
 
 ```{r}
 
@@ -1155,7 +1156,9 @@ p2_response_summary <- left_join(p2_response_summary, p2_manual, by = 'event') %
 ```{r}
 
 etf_q <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/et_estimated_q.csv') %>%
-  select(-1)
+  select(-1) %>%
+  mutate(datetime = force_tz(datetime, tzone = "MST"))
+  
 
 
 
@@ -1221,9 +1224,512 @@ hm_response_summary2 <- hm_intens %>%
 ggplot(hm_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
   geom_point(data = hm_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
 
+hm_compare <- hm_response_summary %>%
+  select(event, stage_rise_cm)
+
+hm_temp <- hm_response_summary2 %>%
+  select(event, Q_rise)
+
+hm_compare <- left_join(hm_compare, hm_temp, by = 'event')
+
+ggplot(hm_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+hm_compare <- hm_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'hm')
+
+cor(hm_compare$stage_rank, hm_compare$q_rank)
+
+# do this for all sites then make 1 giant stage vs Q plot to see if one is deceptively high
+
 
 ```
 
+## HUM Q response
+
+```{r}
+
+hum_q <- etf_q %>%
+  filter(site == 'hum')
+
+hum_intens <- hum_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+hum_q_test <- hum_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(hum_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+hum_both2 <- full_join(hum_precip, hum_q_test, by = 'datetime')
+
+hum_precip_q <- hum_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(hum_precip_q)
+
+########################################
+# response suhumary
+hum_response_summary2 <- hum_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(hum_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(hum_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = hum_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+hum_compare <- hum_response_summary %>%
+  select(event, stage_rise_cm)
+
+hum_temp <- hum_response_summary2 %>%
+  select(event, Q_rise)
+
+hum_compare <- left_join(hum_compare, hum_temp, by = 'event')
+
+ggplot(hum_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+hum_compare <- hum_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'hum')
+
+cor(hum_compare$stage_rank, hum_compare$q_rank)
+
+```
+
+## MPM Q response
+
+```{r}
+
+mpm_q <- etf_q %>%
+  filter(site == 'mpm')
+
+mpm_intens <- mpm_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+mpm_q_test <- mpm_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mpm_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+mpm_both2 <- full_join(mpm_precip, mpm_q_test, by = 'datetime')
+
+mpm_precip_q <- mpm_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mpm_precip_q)
+
+########################################
+# response sumpmary
+mpm_response_summary2 <- mpm_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mpm_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(mpm_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = mpm_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+mpm_compare <- mpm_response_summary %>%
+  select(event, stage_rise_cm)
+
+mpm_temp <- mpm_response_summary2 %>%
+  select(event, Q_rise)
+
+mpm_compare <- left_join(mpm_compare, mpm_temp, by = 'event')
+
+ggplot(mpm_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+mpm_compare <- mpm_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'mpm')
+
+cor(mpm_compare$stage_rank, mpm_compare$q_rank)
+
+```
+
+## MUM Q response
+
+```{r}
+
+mum_q <- etf_q %>%
+  filter(site == 'mum')
+
+mum_intens <- mum_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+mum_q_test <- mum_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mum_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+mum_both2 <- full_join(mum_precip, mum_q_test, by = 'datetime')
+
+mum_precip_q <- mum_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mum_precip_q)
+
+########################################
+# response sumumary
+mum_response_summary2 <- mum_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mum_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(mum_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = mum_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+mum_compare <- mum_response_summary %>%
+  select(event, stage_rise_cm)
+
+mum_temp <- mum_response_summary2 %>%
+  select(event, Q_rise)
+
+mum_compare <- left_join(mum_compare, mum_temp, by = 'event')
+
+ggplot(mum_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+mum_compare <- mum_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'mum')
+
+cor(mum_compare$stage_rank, mum_compare$q_rank)
+
+```
+
+## MUB Q response
+
+```{r}
+
+mub_q <- etf_q %>%
+  filter(site == 'mub')
+
+mub_intens <- mub_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+mub_q_test <- mub_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(mub_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+mub_both2 <- full_join(mub_precip, mub_q_test, by = 'datetime')
+
+mub_precip_q <- mub_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(mub_precip_q)
+
+########################################
+# response sumubary
+mub_response_summary2 <- mub_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(mub_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(mub_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = mub_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+mub_compare <- mub_response_summary %>%
+  select(event, stage_rise_cm)
+
+mub_temp <- mub_response_summary2 %>%
+  select(event, Q_rise)
+
+mub_compare <- left_join(mub_compare, mub_temp, by = 'event')
+
+ggplot(mub_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+mub_compare <- mub_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'mub')
+
+cor(mub_compare$stage_rank, mub_compare$q_rank)
+
+```
+
+## P1 Q response
+
+```{r}
+
+p1_q <- etf_q %>%
+  filter(site == 'p1')
+
+p1_intens <- p1_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+p1_q_test <- p1_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(p1_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+p1_both2 <- full_join(p1_precip, p1_q_test, by = 'datetime')
+
+p1_precip_q <- p1_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(p1_precip_q)
+
+########################################
+# response sup1ary
+p1_response_summary2 <- p1_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(p1_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(p1_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = p1_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+p1_compare <- p1_response_summary %>%
+  select(event, stage_rise_cm)
+
+p1_temp <- p1_response_summary2 %>%
+  select(event, Q_rise)
+
+p1_compare <- left_join(p1_compare, p1_temp, by = 'event')
+
+ggplot(p1_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+p1_compare <- p1_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'p1')
+
+cor(p1_compare$stage_rank, p1_compare$q_rank)
+
+```
+
+## P2 Q response
+
+```{r}
+
+p2_q <- etf_q %>%
+  filter(site == 'p2')
+
+p2_intens <- p2_intens %>%
+    mutate(endtime_plus12 = end_time + 8 * 60 * 60,
+           starttime_minus1 = start_time - 4 * 60 * 60)
+
+# get response and keep all Q data
+p2_q_test <- p2_intens %>%
+  rowwise() %>%
+  mutate(filtered_times = list(filter(p2_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls))
+
+## join precip and Q
+p2_both2 <- full_join(p2_precip, p2_q_test, by = 'datetime')
+
+p2_precip_q <- p2_both2 %>%
+  filter(!is.na(Q_Ls)) %>%
+  filter(!is.na(rain_mm)) %>% 
+  ggplot(., aes(x=datetime, y = Q_Ls)) +
+  geom_line() + geom_point(shape=1, color='blue') +
+  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_point(aes(y=event))
+
+ggplotly(p2_precip_q)
+
+########################################
+# response sup2ary
+p2_response_summary2 <- p2_intens %>%
+    rowwise() %>%
+  mutate(filtered_times = list(filter(p2_q, datetime >= starttime_minus1 & datetime <= endtime_plus12))) %>%
+  unnest(filtered_times) %>%
+  group_by(event) %>%
+  mutate(Q_rise = max(Q_Ls) - first(Q_Ls)) %>% 
+  filter(Q_Ls == max(Q_Ls)) %>%
+  rename(Stage_cm_max = Q_Ls) %>%
+  group_by(event) %>%
+  filter(datetime == max(datetime)) %>%
+  rename(datetime_maxstage = datetime) %>%
+  ungroup() %>% 
+  mutate(crossover = if_else(endtime_plus12 > lead(start_time), 'Y', 'N'),
+         response = if_else(Q_rise > 2, 'Y', 'N'),
+         lag2p_hr = if_else(response == 'Y', 
+                           as.numeric(datetime_maxstage - start_time)/60,
+                            NA))
+
+
+# Plot MI15 vs stage rise vs q rise 
+ggplot(p2_response_summary2, aes(MI30_mmhr, Q_rise)) + geom_point(size = 3) +
+  geom_point(data = p2_response_summary, aes(MI30_mmhr, stage_rise_cm), color = 'blue', size = 3)
+
+p2_compare <- p2_response_summary %>%
+  select(event, stage_rise_cm)
+
+p2_temp <- p2_response_summary2 %>%
+  select(event, Q_rise)
+
+p2_compare <- left_join(p2_compare, p2_temp, by = 'event')
+
+ggplot(p2_compare, aes(stage_rise_cm, Q_rise)) + 
+  geom_point()
+
+p2_compare <- p2_compare %>%
+  mutate(stage_rank = rank(stage_rise_cm),
+         q_rank = rank(Q_rise),
+         site = 'p2')
+
+cor(p2_compare$stage_rank, p2_compare$q_rank)
+
+```
+
+## Look at Q all together
+
+```{r}
+
+stage_q_compare <- bind_rows(p2_compare,
+                             p1_compare,
+                             mub_compare,
+                             mum_compare,
+                             mpm_compare,
+                             hum_compare,
+                             hm_compare)
+
+
+compare <- ggplot(stage_q_compare, aes(stage_rise_cm, Q_rise, color = site)) + 
+  geom_point(size=2.5)
+
+ggplotly(compare)
+
+compare
+
+```
 
 
 
@@ -1240,7 +1746,7 @@ response_all <- bind_rows(me_response_summary,
                           mw_response_summary,
                           ue_response_summary,
                           um_response_summary,
-                          uw_response_summary, 
+                          uw_response_summary,
                           hum_response_summary,
                           hm_response_summary,
                           mpm_response_summary,
@@ -1292,7 +1798,7 @@ response_all <- left_join(response_all, area, by = 'site')
 response_all <- response_all %>%
   mutate(stage_area = stage_rise_cm/Area_km2)
 
-write.csv(response_all, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_all.csv')
+#write.csv(response_all, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_all.csv')
 
 ```
 

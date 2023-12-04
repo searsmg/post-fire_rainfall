@@ -61,3 +61,22 @@ write_csv(benn_soil_summary, './data/benn_soil_wmean.csv')
 
 ```
 
+# Extracting some precip time series for SK
+
+```{r}
+
+dates_to_filter <- c("2022-07-6", "2022-07-15", "2022-07-27")
+
+all_2022 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2022/catchments_2022_mrms.csv') %>%
+  dplyr::select(-1) %>%
+  filter(date(datetime) %in% ymd(dates_to_filter),
+         ID %in% c('me', 'mm', 'mw', 'ue', 'um', 'uw'))
+
+looking <- ggplot(all_2022, aes(datetime, p_mm)) + geom_line()
+
+ggplotly(looking)
+
+write.csv(all_2022, 'mrms_july_2022_benn.csv')
+
+```
+
