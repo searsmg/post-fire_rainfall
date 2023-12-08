@@ -41,13 +41,12 @@ response_all <- read_csv(here('data/response_all.csv')) %>%
   select(-c(1, endtime_plus12, starttime_minus1,
          crossover, response,
          treatment, burn,
-         area, cat,
-         site)) %>%
+         area, cat)) %>%
   mutate(response_manual = if_else(response_manual == 'Y', # change Y/N to 0/1
                                    1, 0)) %>%
   rename(stage_cm_norm_area = stage_area) %>%
   arrange(start_time) %>%
-  group_by(ID, year) %>%
+  group_by(site, year) %>%
   mutate(time_since_laststorm_hr = as.numeric(start_time - lag(start_time)), # add time since last storm (soil moist proxy)
          response_p10 = if_else(event_sum_mm > 10 & 
                                   response_manual == 1,
@@ -63,29 +62,38 @@ response_all <- read_csv(here('data/response_all.csv')) %>%
 
 # read in the GIS inputs csv
 gis <- read_csv(here('data/gis_inputs.csv')) %>%
-  select(-Total_area_km2) # drop area here because it's included already
+  select(-Total_area_km2) %>% # drop area here because it's included already
+  rename(site = ID)
 
 # join to response_all csv and remove NDVI columns (need to put as one column)
-reponse_all <- left_join(response_all, gis, by = 'ID') %>%
+response_all <- left_join(response_all, gis, by = 'site') %>%
   select(-c(NDVI_2021, NDVI_2022, NDVI_2023))
 
 # make NDVI data long
 ndvi <- gis %>%
-  select(ID, NDVI_2021, NDVI_2022, NDVI_2023) %>%
-  pivot_longer(!ID, names_to = 'year', values_to = 'NDVI') %>%
+  select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
+  pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
   mutate(year = as.numeric(sub("^NDVI_", "", year)))
 
 # join NDVI with response_all df
-response_all <- left_join(reponse_all, ndvi, by = c('ID', 'year')) %>%
+response_all <- left_join(response_all, ndvi, by = c('site', 'year')) %>%
   ungroup() %>%
-  mutate(fire = if_else(fire == 'etf',
+  mutate(fire = ifelse(fire == 'etf',
                         2,
                         1),
-         geology = if_else(geology == 'ig_met',
+         geology = ifelse(geology == 'ig_met',
                            1,
-                           2)) # made fire (etf [2] and cpf [1]) and geology numeric
+                           2)) %>%  # made fire (etf [2] and cpf [1]) and geology numeric
+  unite(event_IDs, site, event, year, sep = "_",
+        remove = F) %>%
+  mutate(site_numeric = as.numeric(as.factor(site)))
+  
 
-#write.csv(response_all, 'model_variables.csv')
+write.csv(response_all, 'model_variables.csv')
+
+findsite <- response_all %>%
+  distinct(site, site_numeric)
+
 
 ```
 
@@ -160,7 +168,8 @@ cor_pred <- response_all %>%
             response_manual,
             stage_cm_norm_area,
             response_p10,
-            response_stage4))
+            response_stage4,
+            site))
 
 matrix_cor_pred <- cor(cor_pred, use = 'complete.obs')
 

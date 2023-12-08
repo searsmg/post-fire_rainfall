@@ -66,14 +66,18 @@ Derived from 2-min MRMS data
 # load in 2021 and 2022 data
 all_2023 <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/2023_mrms_extract.csv') %>%
   dplyr::select(-1) %>%
-  rename(ID = catchment)
+  rename(ID = catchment) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'))
+  
 
 # load in 2021 and 2022 data
 all_2021 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2021/catchments_all_extract/catchments_2021_mrms.csv') %>%
-  dplyr::select(-1)
+  dplyr::select(-1) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'))
 
 all_2022 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2022/catchments_2022_mrms.csv') %>%
-  dplyr::select(-1)
+  dplyr::select(-1) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'))
 
 # bind them 2021 and 2022 together & resample to 10 min
 all <- bind_rows(all_2021, all_2022, all_2023) %>%
@@ -432,7 +436,9 @@ mw_response_summary <- mw_response_summary %>%
 ```{r}
 ####### Precip #########
 ue_precip <- all %>%
-  filter(ID == 'ue')
+  filter(ID == 'ue') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'))
+  
 
 ######### Stage #########
 ue_intens <- all_intens %>%
@@ -442,7 +448,7 @@ ue_stage <- stage %>%
   filter(site == 'ue')
 
 ue_intens <- ue_intens %>%
-    mutate(endtime_plus12 = end_time + 6 * 60 * 60,
+    mutate(endtime_plus12 = end_time + 12 * 60 * 60,
            starttime_minus1 = start_time - 1 * 60 * 60)
 
 # get resposne and keep all stage data
@@ -1796,7 +1802,8 @@ area <- read_csv(here('data/areas.csv')) %>%
 response_all <- left_join(response_all, area, by = 'site')
 
 response_all <- response_all %>%
-  mutate(stage_area = stage_rise_cm/Area_km2)
+  mutate(stage_area = stage_rise_cm/Area_km2) %>%
+  drop_na(response_manual)
 
 #write.csv(response_all, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/response_all.csv')
 
