@@ -85,11 +85,7 @@ all <- bind_rows(all_2021, all_2022, all_2023) %>%
          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
   group_by(ID, timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
-  rename(datetime = timestamps_10min) %>%
-  filter(!ID %in% c('Bighorn', 'washout',
-                    'mt_campus', 'montgomery',
-                    'michigan_river', 'aspen',
-                    'dry', 'dadd', 'bl4'))
+  rename(datetime = timestamps_10min)
 
 #try for all sites
 get_mrms_all_events <- function(all, ID_name) {
@@ -177,6 +173,8 @@ write.csv(all_intens, 'mrms_intensities.csv')
 # Stage response analysis
 
 ## Read in stage and prep
+
+Need to add all CPF sites in for 2021-2023
 
 ```{r}
 
