@@ -36,18 +36,19 @@ Create a bounding box to crop MRMS rasters (multi-QPE, QPE only, and SPR)
 ```{r}
 
 # ETF watersheds - don't need right now
-et_sheds <- vect('./data/watershed_bnd_UTM.shp') %>%
-  terra::project(., 'EPSG:26913')
+extra <- vect('./data/GIS/extra_mrms.shp') %>%
+  terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
 
-# All rain sensors for CPF, ETF, Bennett
-rain <- read_csv('./data/sensor_coords.csv') %>%
-  filter(type == 'rain') %>%
-  drop_na(y) %>%
-  st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
-  st_transform(crs = st_crs(et_sheds))
+# # All rain sensors for CPF, ETF, Bennett
+# rain <- read_csv('./data/sensor_coords.csv') %>%
+#   filter(type == 'rain') %>%
+#   drop_na(y) %>%
+#   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
+#   st_transform(crs = st_crs(et_sheds))
 
 # Bounding box based on rain sensors to crop MRMS data
-bbox <- st_bbox(rain)
+extra1 <- as(extra, 'Spatial')
+bbox <- st_bbox(extra1)
 
 # Bounding box cuts off some points so expand it
 xrange <- bbox$xmax - bbox$xmin # range of x values
@@ -60,6 +61,8 @@ bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
 
 # Check bbox 
 #mapview(bbox)
+
+
 
 ```
 
@@ -79,6 +82,24 @@ unzip_all <- lapply(unzip, gunzip)
 
 ```
 
+testing cropping before projecting
+
+```{r}
+
+test <- raster('/Users/megansears/Documents/MRMS/MultiSensor/2022/MultiSensor_QPE_01H_Pass2_00.00_20220501-120000.grib2')
+
+crs(test) <- "+proj=longlat +datum=WGS84 +no_defs"
+#crs(test) <- "ESRI:102009"
+
+plot(test)
+mapview(test)
+
+test1 <- raster::crop(test, bbox)
+
+mapview(test1) + mapview(extra1)
+
+```
+
 # 1. MutliQPE/QPE
 
 Need to divide MultiQPE by QPE to get the correction used (this later gets applied to 2min data)
@@ -88,8 +109,8 @@ Need to divide MultiQPE by QPE to get the correction used (this later gets appli
 setwd("/Users/megansears/Documents/MRMS")
 
 # File names of the rasters in Multi Sensor QPE and QPE only
-multi_rasters <- list.files("./MultiSensor_rastersSensor/2021", pattern = ".grib2", full.names = TRUE)
-folder2_rasters <- list.files("./QPE/2021", pattern = "grib2", full.names = TRUE)
+multi_rasters <- list.files("./MultiSensor/2022", pattern = ".grib2", full.names = TRUE)
+folder2_rasters <- list.files("./QPE/2022", pattern = "grib2", full.names = TRUE)
 
 # Function to perform the division (multi_qpe / qpe) and save raster
 perform_division <- function(raster1, raster2, result_folder) {
@@ -103,13 +124,13 @@ perform_division <- function(raster1, raster2, result_folder) {
   if (last_21_digits1 == last_21_digits2) {
     r1 <- raster(raster1) 
     
-    r1 <- projectRaster(r1, crs = '+init=EPSG:26913')
+    crs(r1) <- "+proj=longlat +datum=WGS84 +no_defs"
     
     r1 <- raster::crop(r1, bbox)
     
     r2 <- raster(raster2) 
     
-    r2 <- projectRaster(r2, crs = '+init=EPSG:26913')
+    crs(r2) <- "+proj=longlat +datum=WGS84 +no_defs"
     
     r2 <- raster::crop(r2, bbox)
     
@@ -128,7 +149,7 @@ perform_division <- function(raster1, raster2, result_folder) {
 }
 
 # Apply the function to each pair of matching rasters
-result_folder <- "./MultiSensor_QPE_divide/2021"  # Path to the folder to store the resulting rasters
+result_folder <- "./MultiSensor_QPE_divide/extra_2022"  # Path to the folder to store the resulting rasters
 
 # Set the number of cores to use for parallel processing
 num_cores <- 8
@@ -161,7 +182,7 @@ Get rid of .grib2 from all the filenames
 ```{r}
 
 # Dir path where files are located
-dir <- './MultiSensor_QPE_divide/2022'
+dir <- './MultiSensor_QPE_divide/extra_2022'
 
 # List the files in directory
 file_list <- list.files(dir)
@@ -208,27 +229,27 @@ Project and crop the 2-min SPR and save as tif so it can be multiplied by the co
 ```{r}
 
 # Path to 2 min data
-spr_path <- "/Volumes/Sears_ARS/spr_2021_jun_jul/batch2"
+folder_path <- '/Volumes/Kampf/Private/SearsM/MRMS_2023_preciprate'
 
 # Get the list of GRIB2 files in the folder
-files <- list.files(spr_path, pattern = "*.grib2", full.names = TRUE)
+files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
 
-# Set the number of cores (8-10 max on this machine)
-num_cores <- 7
+# Set the number of cores to use (adjust according to your system)
+num_cores <- 8
 
-# Parallel processing
+# Initialize parallel processing
 cl <- makeCluster(num_cores)
 registerDoParallel(cl)
 
-# Read grib2, project raster
+# Define a function to process a single GRIB2 file
 process_file <- function(file) {
   
   # Read the GRIB2 file as a raster
   r <- raster(file)
   
-  r <- projectRaster(r, crs = '+init=EPSG:26913')
+  crs(r) <- "+proj=longlat +datum=WGS84 +no_defs"
   
-  # Crop to bounding box 
+  # Crop the raster
   r <- raster::crop(r, bbox)
   
   # Save the raster as .tif
@@ -236,16 +257,16 @@ process_file <- function(file) {
   new_file_path <- file.path(folder_path, new_file_name)
   writeRaster(r, filename = new_file_path, overwrite = TRUE)
   
-  # Remove unnecessary objects (or will fill up memory on machine)
+  # Remove unnecessary objects
   rm(r)
 }
 
-# Parallel processing using foreach
+# Use parallel processing with foreach
 foreach(file = files, .packages = c("raster")) %dopar% {
   process_file(file)
 }
 
-# Stop
+# Stop parallel processing
 stopCluster(cl)
 
 ```
@@ -259,7 +280,7 @@ First remove 'processed' from the projected and cropped SPR (2min) data
 ```{r}
 
 # Set the folder path
-dir <- "/Users/megansears/Documents/MRMS/SPR/2021/processed_tifs/batch2"
+dir <- '/Users/megansears/Documents/MRMS/SPR/2022/done_grib2'
 
 # Get the list of files in the folder
 file_list <- list.files(dir, full.names = TRUE)
@@ -288,9 +309,9 @@ Now multiply
 ```{r}
 
 # Define the folder paths for the result (result of the divide) and precip rate rasters
-result_folder <- "/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/2021"
-precip_folder <- "/Users/megansears/Documents/MRMS/SPR/2021/processed_tifs/batch2"
-multiplied_folder <- "/Users/megansears/Documents/MRMS/correctedSPR/2021" # where the rasters will go
+result_folder <- "/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/extra_2022"
+precip_folder <- "/Users/megansears/Documents/MRMS/SPR/2022/done_grib2"
+multiplied_folder <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022" # where the rasters will go
 
 # List of precip rate raster files
 precip_files <- list.files(precip_folder, pattern = "^PrecipRate_.*\\.tif$", full.names = TRUE)

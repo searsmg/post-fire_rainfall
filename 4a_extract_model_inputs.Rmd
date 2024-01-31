@@ -1,0 +1,198 @@
+---
+title: "4a_extract_model_inputs"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Below will be used to extract model inputs for the rainfall-runoff response at CPF, Bennett, and ETF sites.
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(R.utils) #to unzip the gz files
+library(here)
+library(tidyverse)
+library(lubridate)
+library(terra)
+library(raster)
+library(sf)
+library(mapview)
+library(terra)
+library(tmap)
+library(AOI) # for gridmet
+library(climateR) # for gridmet
+library(dataRetrieval)
+
+```
+
+The following inputs need to be spatially extracted.
+- dNBR
+- catchemnt area
+- snow persistence
+- % treated (mulched)
+- geology
+- soils?
+- slope?
+
+Already extracted:
+- NDVI (need for lower ETf sites still)
+
+# Bring in catchment boundaries
+
+```{r}
+
+# benn sites
+benn <- vect(here('./data/GIS/bennett_catchments.shp')) 
+# make the name consistent with the etf and cpf sites
+benn$site <- benn$Name
+
+# etf and cpf sites
+sites <- vect(here('./data/GIS/etf_cpf_noBenn_catchments.shp'))
+
+all_sites <- union(sites, benn)
+
+# view the sites
+plot(all_sites)
+
+```
+
+# dNBR
+
+```{r}
+
+dnbr_etf <- rast(here('./data/GIS/co4020310623920201014_20200904_20210907_dnbr.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+dnbr_cpf <- rast(here('./data/GIS/co4060910587920200813_20180915_20210907_dnbr.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+# get mean dNBR value for each catchment
+mean_dnbr_cpf <- dnbr_cpf %>%
+  extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, mean_dnbr_cpf = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_dnbr = 2) %>%
+  drop_na()
+
+mean_dnbr_etf <- dnbr_etf %>%
+  extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, mean_dnbr_etf = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_dnbr = 2) %>%
+  drop_na()
+
+
+mean_dnbr_all <- bind_rows(mean_dnbr_cpf, mean_dnbr_etf)
+
+```
+
+# Catchment area
+
+```{r}
+
+# Assuming you have a vector object: all_sites
+area <- all_sites %>%
+  as('Spatial') %>%
+  st_as_sf() %>%
+  mutate(area_km2 = as.numeric(st_area(.) / 1e6)) %>%
+  dplyr::select(site, area_km2) %>%
+  st_drop_geometry()
+
+```
+
+# Snow persistence
+
+From 2020
+
+```{r}
+
+sp <- rast(here('./data/GIS/MOD10A2_SCI_2020.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+mean_sp <- sp %>%
+  extract(all_sites, fun=mean, na.rm=T) %>%
+  data.frame(site = all_sites$site, mean_sp = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_sp = 2)
+
+```
+
+# Potential water deficit
+
+```{r}
+# Pull gridmet data
+# Precip
+system.time({
+  gridmet_p = getGridMET(AOI = all_sites,
+                 varname = c('pr'),
+                 startDate = "2020-10-1",
+                 endDate  = "2023-09-30")
+})
+
+gridmet_p <- gridmet_p[[1]] %>% # remove it from a list to just spatraster
+  terra::project('EPSG:26913')
+
+all_sites_test <- as(all_sites, 'Spatial') # tmap won't plot spatvector
+
+# quick look at some of the rasters
+tm_shape(gridmet_p) +
+  tm_raster() +
+  tm_shape(all_sites_test) +
+  tm_borders()
+
+# determine weighted mean
+calculate_weighted_mean <- function(nlyr) {
+  one_layer <- gridmet_p[[nlyr]]
+  terra::zonal(one_layer, all_sites, weights = TRUE)
+ }
+
+# weighted means - comes out as a list, each item is a day
+weighted_means <- map(1:dim(gridmet_p)[3], 
+                      calculate_weighted_mean) # 3 equals the third dimension aka the "layers" or stack
+
+
+# Add a site column, create date column, rename the first column to p_mm
+tidy_up <- function(df, all_sites) {
+  
+  # Extract the name of the first column/header
+  first_header <- names(df)[1]
+  
+  # Drop the "pr_" prefix from the name of the first header
+  new_first_header <- sub("^pr_", "", first_header)
+  
+  # Use the modified name as the date column values
+  df$date <- new_first_header
+  
+  # Add the site column
+  df$site <- all_sites$site
+  
+  # Rename the first column to "p_mm"
+  names(df)[1] <- "p_mm"
+  
+  return(df)
+}
+
+# Use map to apply tidy_up to each dataframe in the list, make 1 df, add WY
+gridmet_p <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date) %>%
+  group_by(site, waterYear) %>%
+  mutate(p_cumu_mm = cumsum(p_mm))
+
+###################################################
+
+# Pull ET (etr [mm])
+
+
+
+```
+

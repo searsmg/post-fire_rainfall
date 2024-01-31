@@ -1,0 +1,324 @@
+---
+title: "whitebox"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(here)
+library(tidyverse)
+library(whitebox)
+library(terra)
+library(raster) # delete once workflow is complete
+library(mapview) # delete once workflow is complete
+library(tmap)
+library(sf) # delete once workflow is complete
+library(tidyterra)
+library(beepr)
+library(stringr)
+
+```
+
+```{r}
+
+#whitebox::install_whitebox() # I think this only has to be done once
+
+```
+
+# Prep the shp and tif files
+
+```{r}
+
+# catchments
+etf_cpf <- vect('./data/GIS/etf_cpf_noBenn_catchments.shp') %>%
+  tidyterra::select(-c(ELONGATION, RC_CIRCLE)) # get rid of these (only necessary if they are alreay there)
+
+benn <- vect('./data/GIS/bennett_catchments.shp') %>%
+  tidyterra::select(Shape_Leng, Shape_Area, site = Name)
+
+catchments <- union(etf_cpf, benn) %>% # union only needed if joining 2 shps
+  tidyterra::mutate(ID = row_number()) # add ID numbers to identify later
+
+writeVector(catchments, './data/GIS/catchments_all_lidar.shp', overwrite = T)
+
+# use this whenever the catchments path is needed in wbt functions
+catchments_path <- './data/GIS/catchments_all_lidar.shp'
+
+###########
+
+lidar_path <- './data/GIS/lidar_all.tif'
+
+# mask the lidar to polygons first (we don't need elevation values outside of the catchments)
+lidar <- rast(lidar_path)
+catchments <- vect(catchments_path)
+
+lidar_mask <- mask(x = lidar, mask = catchments)
+writeRaster(lidar_mask, './data/GIS/clipped_lidar.tif', overwrite = T) # output
+
+# update the lidar path to the clipped lidar
+lidar_path <- './data/GIS/clipped_lidar.tif'
+
+```
+
+# Elongation ratio
+
+```{r}
+
+# Run the elongation tool - note, values append to the shp attribute table
+wbt_elongation_ratio(catchments_path)
+
+# can read it in to check it
+elong <- vect(catchments_path)
+head(elong) # sample top few rows
+
+```
+
+# Related circumscribing circle 
+
+Mcgarigal et al. 2002
+
+```{r}
+
+wbt_related_circumscribing_circle(catchments_path)
+
+# can read it in to check it
+circle <- vect(catchments_path)
+head(circle) # sample top few rows
+
+```
+
+# Geomorphons
+
+More info and key: https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#Geomorphons
+
+-After getting the geomorphon data: get the fraction of valley & hollow in the catchment
+-Then somehow valley bottom width (possibly do in Arc) -- STILL NEEDS TO BE DONE
+
+```{r}
+
+wbt_geomorphons(
+    dem = lidar_path, 
+    output = './data/GIS/geomorphons.tif')
+
+# make sure it looks right, view with mapview
+geomorphons <- rast('./data/GIS/geomorphons.tif')
+plot(geomorphons)
+
+# get the valley/holllow fraction
+values <- extract(x = geomorphons,
+                y = catchments,
+                touches = T)
+
+valley_frac <- values %>%
+  group_by(ID) %>% # group by site
+  mutate(valley_hollow = if_else(geomorphons %in% c(7,9),
+                               1, 0)) %>%
+  summarize(frac_valley = sum(valley_hollow)/n(),
+            count = n())
+
+# join back to the catchments attribute table  
+metrics <- left_join(valley_frac, 
+                         as.data.frame(catchments), 
+                         by = 'ID')
+
+```
+
+# Flow accumulation
+ 
+```{r}
+
+# get flow accumulation
+wbt_flow_accumulation_full_workflow(
+  dem = lidar_path,
+  out_dem = './data/GIS/dem_flow.tif',
+  out_pntr = './data/GIS/pntr_flow.tif',
+  out_accum = './data/GIS/flow_accum.tif')
+
+# filter out by 50k
+flow <- rast('./data/GIS/flow_accum.tif')
+
+filter <- ifel(flow < 50000, NA, 1) # filter by 50,000 ## CHECK TO SEE IF BENNY GETS FILTERED OUT
+
+
+
+# raster to polyline
+wbt_raster_to_vector_lines(
+    filter, 
+    output = 'flow_lines.shp') # update so it doest go to main dir
+
+# need slope then filter slope by <10
+wbt_slope(dem = lidar_path,
+                   output = './data/GIS/slope.tif')
+
+# read it in
+slope <- rast('./data/GIS/slope.tif')
+plot(slope)
+
+# filter by 10
+flat <- ifel(slope > 10, NA, 1)
+beep(sound = 8)
+plot(flat)
+
+writeRaster(flat, './data/GIS/flat_areas.tif', overwrite=T) 
+
+wbt_raster_to_vector_polygons(
+    input = './data/GIS/flat_areas.tif', 
+    output = './data/GIS/flat_polygons.shp')
+beep(sound=8)
+
+# read in the flat areas shp
+flat_areas <- vect('./data/GIS/flat_polygons.shp')
+plot(flat_areas)
+
+# now intersect flat polygons with flow lines
+flow_lines <- vect('./data/GIS/flow_lines.shp')
+plot(flow_lines) # take a quick look
+
+# make shp files valid (may not be needed)
+flat_cor <- makeValid(flat_areas)
+flow_cor <- makeValid(flow_lines)
+
+# intersect flat and flow and create pairs so we know which flat polygons to keep
+flat_flow <- terra::relate(flat_cor, flow_cor, relation = 'intersects', pairs = T) %>%
+  as.data.frame()
+
+# filter it by flat_cor$FID by values in flat_flow$id.x (id.x comes from the x in relate above)
+filtered_flat_cor <- flat_cor[flat_cor$FID %in% flat_flow$id.x, ]
+
+plot(filtered_flat_cor)
+
+writeVector(filtered_flat_cor, './data/GIS/test1.shp', overwrite = T) # plotted in arcgis - that worked
+# but some of the polygons are large - check on this
+
+plot(filtered_flat_cor,)
+
+filtered_flat_cor <- vect('./data/GIS/test1.shp')
+
+##########################################################3
+
+# now also filter by geomorphons for 7,8,9 with the flat_flow area (slope less than 10 & 50k flow)
+# first extract geomporphons 7,8,9 (hollow,footslope, valley)
+
+# Specify the values to keep in geomorphons
+keep <- c(7, 8, 9)
+
+# Mask geomorphons based on the specified values
+geomor_789 <- clamp(geomorphons, 
+                   lower = 7,
+                   upper = 9,
+                   values = F)
+beep(sound=8)
+
+writeRaster(geomor_789, './data/GIS/geomor789.tif')
+
+# geomor789_poly <- as.polygons(geomor_789,
+#                               na.rm = T)
+# beep(sound=8)
+# 
+# plot(geomor789_poly)
+# 
+# writeVector(geomor789_poly, './data/GIS/geomor789_poly.shp', overwrite=T)
+# beep(sound=8)
+
+wbt_raster_to_vector_polygons(
+    input = './data/GIS/geomor789.tif', 
+    output = './data/GIS/geomor789_poly.shp')
+beep(sound=8)
+
+geomor789_poly <- vect('./data/GIS/geomor789_poly.shp')
+
+plot(geomor789_poly)
+
+geomor789_poly <- makeValid(geomor789_poly)
+
+geomor789_flat_50k <- intersect(filtered_flat_cor, geomor789_poly)
+beep(sound=8)
+
+plot(geomor789_flat_50k)
+beep(sound=8)
+
+writeVector(geomor789_flat_50k, './data/GIS/geomor789_flat_50k.shp')
+beep(sound=8)
+
+```
+
+# Hypsometric analyses
+
+```{r}
+
+
+wbt_vector_polygons_to_raster(
+    input = catchments_path,
+    output = './data/GIS/catchemnts_outline.tif',
+    field = 'ID',
+    base = lidar_path)
+beep(sound=8)
+
+test <- rast('./data/GIS/catchemnts_outline.tif')
+
+plot(test) + plot(lidar_mask, add = T)
+
+
+wbt_hypsometric_analysis(
+  inputs=lidar_path,
+  output='./data/GIS/hypso.csv',
+  watershed = './data/GIS/catchemnts_outline.tif')
+beep(sound=8)
+
+# have csv and has values for each catchment but need to get into R properly
+
+help <- read_csv('./data/GIS/hypso.csv', skip = 70) %>%
+  slice(-c(3:672)) %>%
+  separate(1, into = paste0("new_col", 1:3076), sep = ",")
+help_x <- slice(help, 1) %>%
+  pivot_longer(everything()) %>%
+  rename(x=value)
+
+help_y <- slice(help, 2) %>%
+  pivot_longer(everything()) %>%
+  rename(y=value)
+
+help_almostdone <- left_join(help_x, help_y, by = 'name') %>%
+  mutate(id = cumsum(grepl("\\[", x))) %>%
+  select(-name) %>%
+  mutate(x = str_replace_all(x, "[^0-9.]", "")) %>%
+  mutate(y = str_replace_all(y, "[^0-9.]", ""))
+         
+
+
+
+
+
+
+```
+
+# Flowpath length
+
+```{r}
+
+wbt_downslope_flowpath_length(
+  d8_pntr = './data/GIS/pntr_flow.tif',
+  output = 'flow_length.tif',
+  watersheds = './data/GIS/catchemnts_outline.tif')
+beep(sound=8)
+
+flow_length <- rast('./data/GIS/flow_length.tif')
+plot(flow_length)
+
+max_length <- terra::extract(flow_length, catchments, fun = max, ID=T) # this is in meters
+
+max_length <- left_join(max_length, 
+                         as.data.frame(catchments), 
+                         by = 'ID') 
+
+```
+
+
