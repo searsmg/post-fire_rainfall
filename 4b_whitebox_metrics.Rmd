@@ -1,5 +1,5 @@
 ---
-title: "whitebox"
+title: "whitebox_metrics"
 author: "Megan Sears"
 date: "`r Sys.Date()`"
 output: html_document
@@ -17,10 +17,6 @@ library(here)
 library(tidyverse)
 library(whitebox)
 library(terra)
-library(raster) # delete once workflow is complete
-library(mapview) # delete once workflow is complete
-library(tmap)
-library(sf) # delete once workflow is complete
 library(tidyterra)
 library(beepr)
 library(stringr)
@@ -37,34 +33,23 @@ library(stringr)
 
 ```{r}
 
-# catchments
-etf_cpf <- vect('./data/GIS/etf_cpf_noBenn_catchments.shp') %>%
-  tidyterra::select(-c(ELONGATION, RC_CIRCLE)) # get rid of these (only necessary if they are alreay there)
-
-benn <- vect('./data/GIS/bennett_catchments.shp') %>%
-  tidyterra::select(Shape_Leng, Shape_Area, site = Name)
-
-catchments <- union(etf_cpf, benn) %>% # union only needed if joining 2 shps
-  tidyterra::mutate(ID = row_number()) # add ID numbers to identify later
-
-writeVector(catchments, './data/GIS/catchments_all_lidar.shp', overwrite = T)
-
-# use this whenever the catchments path is needed in wbt functions
+# create catchments path and pull in data (will need both)
 catchments_path <- './data/GIS/catchments_all_lidar.shp'
+catchments <- vect('./data/GIS/catchments_all_lidar.shp')
 
-###########
-
-lidar_path <- './data/GIS/lidar_all.tif'
-
+# create lidar (DEM) path and pull in data (will need both)
+# the script assumes the DEM is clipped to the catchments
+# if not use code commented out below
 # mask the lidar to polygons first (we don't need elevation values outside of the catchments)
-lidar <- rast(lidar_path)
-catchments <- vect(catchments_path)
-
-lidar_mask <- mask(x = lidar, mask = catchments)
-writeRaster(lidar_mask, './data/GIS/clipped_lidar.tif', overwrite = T) # output
+# lidar <- rast(lidar_path)
+# catchments <- vect(catchments_path)
+# 
+# lidar_mask <- mask(x = lidar, mask = catchments)
+# writeRaster(lidar_mask, './data/GIS/clipped_lidar.tif', overwrite = T) # output
 
 # update the lidar path to the clipped lidar
 lidar_path <- './data/GIS/clipped_lidar.tif'
+lidar <- rast('./data/GIS/clipped_lidar.tif')
 
 ```
 
@@ -99,8 +84,8 @@ head(circle) # sample top few rows
 
 More info and key: https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#Geomorphons
 
--After getting the geomorphon data: get the fraction of valley & hollow in the catchment
--Then somehow valley bottom width (possibly do in Arc) -- STILL NEEDS TO BE DONE
+-After getting the geomorphon data: get the fraction of valley & hollow in the catchment (done)
+-Then somehow valley bottom width (possibly do in Arc) - done manually, but data read in below
 
 ```{r}
 
@@ -110,19 +95,21 @@ wbt_geomorphons(
 
 # make sure it looks right, view with mapview
 geomorphons <- rast('./data/GIS/geomorphons.tif')
-plot(geomorphons)
+plot(geomorphons) # take a quick look
 
 # get the valley/holllow fraction
-values <- extract(x = geomorphons,
+# first extract cell values within catchments
+values <- terra::extract(x = geomorphons,
                 y = catchments,
                 touches = T)
 
+# find the valley and hollows (7 & 9)
 valley_frac <- values %>%
   group_by(ID) %>% # group by site
   mutate(valley_hollow = if_else(geomorphons %in% c(7,9),
                                1, 0)) %>%
   summarize(frac_valley = sum(valley_hollow)/n(),
-            count = n())
+            count = n()) # sum the valley & hollow cells and divide by total cells in catchment
 
 # join back to the catchments attribute table  
 metrics <- left_join(valley_frac, 
@@ -132,6 +119,10 @@ metrics <- left_join(valley_frac,
 ```
 
 # Flow accumulation
+
+The code below gets flow accumulation, filters values by >50k, converts the raster flow lines to polylines,
+finds flat areas in slope tif (less than 10), then intersects the flat/50k polygons with geomorphons 7,8,9,
+and finds the portion of watersheds that have these polygons (flat,50k, and geomorphons 7,8,9).
  
 ```{r}
 
@@ -147,8 +138,6 @@ flow <- rast('./data/GIS/flow_accum.tif')
 
 filter <- ifel(flow < 50000, NA, 1) # filter by 50,000 ## CHECK TO SEE IF BENNY GETS FILTERED OUT
 
-
-
 # raster to polyline
 wbt_raster_to_vector_lines(
     filter, 
@@ -158,17 +147,16 @@ wbt_raster_to_vector_lines(
 wbt_slope(dem = lidar_path,
                    output = './data/GIS/slope.tif')
 
-# read it in
+# read it in slope
 slope <- rast('./data/GIS/slope.tif')
-plot(slope)
 
-# filter by 10
+# filter slope by 10
 flat <- ifel(slope > 10, NA, 1)
 beep(sound = 8)
-plot(flat)
 
 writeRaster(flat, './data/GIS/flat_areas.tif', overwrite=T) 
 
+# flat areas tif to polygons
 wbt_raster_to_vector_polygons(
     input = './data/GIS/flat_areas.tif', 
     output = './data/GIS/flat_polygons.shp')
@@ -176,11 +164,10 @@ beep(sound=8)
 
 # read in the flat areas shp
 flat_areas <- vect('./data/GIS/flat_polygons.shp')
-plot(flat_areas)
 
 # now intersect flat polygons with flow lines
+# read in flow lines
 flow_lines <- vect('./data/GIS/flow_lines.shp')
-plot(flow_lines) # take a quick look
 
 # make shp files valid (may not be needed)
 flat_cor <- makeValid(flat_areas)
@@ -193,68 +180,81 @@ flat_flow <- terra::relate(flat_cor, flow_cor, relation = 'intersects', pairs = 
 # filter it by flat_cor$FID by values in flat_flow$id.x (id.x comes from the x in relate above)
 filtered_flat_cor <- flat_cor[flat_cor$FID %in% flat_flow$id.x, ]
 
-plot(filtered_flat_cor)
+# export flat areas with flow >50k as shp
+writeVector(filtered_flat_cor, './data/GIS/test1.shp', overwrite = T)
+# !!!! some of the polygons capture ridges so filter for geomorphons 789 now
 
-writeVector(filtered_flat_cor, './data/GIS/test1.shp', overwrite = T) # plotted in arcgis - that worked
-# but some of the polygons are large - check on this
-
-plot(filtered_flat_cor,)
-
+# read in flat areas with 50k flow
 filtered_flat_cor <- vect('./data/GIS/test1.shp')
 
-##########################################################3
-
-# now also filter by geomorphons for 7,8,9 with the flat_flow area (slope less than 10 & 50k flow)
-# first extract geomporphons 7,8,9 (hollow,footslope, valley)
-
+# now also filter by geomorphons for 7,8,9 with the flat_flow area (slope less than 10 & 50k flow
 # Specify the values to keep in geomorphons
 keep <- c(7, 8, 9)
 
-# Mask geomorphons based on the specified values
+# Clamp geomorphons based on the specified values
 geomor_789 <- clamp(geomorphons, 
                    lower = 7,
                    upper = 9,
                    values = F)
 beep(sound=8)
 
+# export
 writeRaster(geomor_789, './data/GIS/geomor789.tif')
 
-# geomor789_poly <- as.polygons(geomor_789,
-#                               na.rm = T)
-# beep(sound=8)
-# 
-# plot(geomor789_poly)
-# 
-# writeVector(geomor789_poly, './data/GIS/geomor789_poly.shp', overwrite=T)
-# beep(sound=8)
-
+# make geomorph 789 tif to polygons
 wbt_raster_to_vector_polygons(
     input = './data/GIS/geomor789.tif', 
     output = './data/GIS/geomor789_poly.shp')
 beep(sound=8)
 
+# read in geomorphons 789 polygon
 geomor789_poly <- vect('./data/GIS/geomor789_poly.shp')
-
-plot(geomor789_poly)
 
 geomor789_poly <- makeValid(geomor789_poly)
 
+# intersect the flat, 50k & slope <10 with geomorphons 789 polygons
 geomor789_flat_50k <- intersect(filtered_flat_cor, geomor789_poly)
 beep(sound=8)
 
-plot(geomor789_flat_50k)
-beep(sound=8)
-
+# export
 writeVector(geomor789_flat_50k, './data/GIS/geomor789_flat_50k.shp')
 beep(sound=8)
+
+# read in polygons that contain flat areas, slope < 10, and geomorphons 789)
+geomor789_flat_50 <- vect('./data/GIS/geomor789_flat_50k.shp') 
+
+# find area that has this criteria in each catchment
+# first intersect the 3 criteria w/ catchments
+flat_50_789_site <- intersect(geomor789_flat_50, catchments) %>%
+  mutate(unique_id = row_number()) %>% # unique id that will be joined later
+  tidyterra::select(c(unique_id, site)) # keep only unqiue id and site
+
+# we have recharge areas now from intersect above
+# find the area using expanse function
+recharge_area <- expanse(flat_50_789_site, unit = 'km') %>%
+  as.data.frame() %>%
+  rename(recharge_area_km2 = 1) %>%
+  mutate(unique_id = row_number())
+
+# join the recharge area df back to flat_50_789 and group by site
+# summarize the areas for each polygon that fits the criteria (by site)
+recharge <- as.data.frame(flat_50_789_site) %>%
+  left_join(., recharge_area, by = 'unique_id') %>%
+  group_by(site) %>%
+  summarize(recharge_total_km2 = sum(recharge_area_km2))
+
+# join to metrics df
+metrics <- left_join(metrics, recharge, by = 'site') %>%
+  mutate(catchment_area_km2 = Shape_Area / 1e6) %>%
+  mutate(frac_recharge_area = recharge_total_km2 / catchment_area_km2)
+         
 
 ```
 
 # Hypsometric analyses
 
 ```{r}
-
-
+# vector to raster (hypso wants catchments as rasters)
 wbt_vector_polygons_to_raster(
     input = catchments_path,
     output = './data/GIS/catchemnts_outline.tif',
@@ -262,62 +262,98 @@ wbt_vector_polygons_to_raster(
     base = lidar_path)
 beep(sound=8)
 
-test <- rast('./data/GIS/catchemnts_outline.tif')
-
-plot(test) + plot(lidar_mask, add = T)
-
-
+# hypsometric analysis
 wbt_hypsometric_analysis(
   inputs=lidar_path,
   output='./data/GIS/hypso.csv',
   watershed = './data/GIS/catchemnts_outline.tif')
 beep(sound=8)
 
-# have csv and has values for each catchment but need to get into R properly
-
-help <- read_csv('./data/GIS/hypso.csv', skip = 70) %>%
+# read in hypsometric csv and edit a few things
+hypso <- read_csv('./data/GIS/hypso.csv', skip = 70) %>%
   slice(-c(3:672)) %>%
-  separate(1, into = paste0("new_col", 1:3076), sep = ",")
-help_x <- slice(help, 1) %>%
+  separate(1, into = paste0("new_col", 1:3076), sep = ",") # this needs to be updated in future to know how many columns
+
+# get the x values 
+hypso_x <- slice(hypso, 1) %>%
   pivot_longer(everything()) %>%
   rename(x=value)
 
-help_y <- slice(help, 2) %>%
+# get the y values
+hypso_y <- slice(hypso, 2) %>%
   pivot_longer(everything()) %>%
   rename(y=value)
 
-help_almostdone <- left_join(help_x, help_y, by = 'name') %>%
+# value of a/A at h/H=0.25, 0.50, 0.75
+# 
+# at 0.25, 1-a/A is the fraction of watershed area in the lower elevation quartile
+# 0.5, a/A is the fraction of watershed area in the upper half of elevations
+# 0.75, a/A is the fraction of watershed area in the upper elevation quartile
+
+# get values above
+hypso_join <- left_join(hypso_x, hypso_y, by = 'name') %>%
   mutate(id = cumsum(grepl("\\[", x))) %>%
   select(-name) %>%
   mutate(x = str_replace_all(x, "[^0-9.]", "")) %>%
-  mutate(y = str_replace_all(y, "[^0-9.]", ""))
+  mutate(y = str_replace_all(y, "[^0-9.]", "")) %>%
+  rename(relative_area = x, relative_elev = y) %>%
+  mutate(relative_area = as.numeric(relative_area),
+         relative_elev = as.numeric(relative_elev)) %>%
+  group_by(id) %>%
+    filter(abs(relative_area-25)==min(abs(relative_area-25)) |
+           abs(relative_area-50)==min(abs(relative_area-50)) |
+           abs(relative_area-75)==min(abs(relative_area-75))) %>% # this code filters relative area by value closest to 25, 50, 75
+  rename(ID = id) # rename so it can match metrics df
          
-
-
-
-
-
+# add to metrics df
+metrics <- left_join(metrics, hypso_join, by = 'ID')
 
 ```
 
 # Flowpath length
 
 ```{r}
-
+# get flowpath length
 wbt_downslope_flowpath_length(
   d8_pntr = './data/GIS/pntr_flow.tif',
   output = 'flow_length.tif',
   watersheds = './data/GIS/catchemnts_outline.tif')
 beep(sound=8)
 
+# load in flowpath length
 flow_length <- rast('./data/GIS/flow_length.tif')
-plot(flow_length)
 
+# find the max length
 max_length <- terra::extract(flow_length, catchments, fun = max, ID=T) # this is in meters
 
-max_length <- left_join(max_length, 
-                         as.data.frame(catchments), 
-                         by = 'ID') 
+# join back to metrics df
+metrics <- left_join(max_length, 
+                         metrics, 
+                         by = 'ID') %>%
+  rename(flow_length_m = flow_length)
+
+```
+
+# Valley bottom width
+
+```{r}
+
+# done in arc gis
+vb_width <- read_csv('./data/GIS/valley_bottom_width.csv') %>%
+  dplyr::select(-3) %>%
+  group_by(site) %>%
+  summarize(avg_vbw_m = mean(v_bottom_width_m))
+
+# join to metrics
+metrics <- left_join(metrics, vb_width, by = 'site')
+
+```
+
+# Index of connectivity
+
+```{r}
+
+
 
 ```
 
