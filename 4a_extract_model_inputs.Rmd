@@ -28,6 +28,7 @@ library(tmap)
 library(AOI) # for gridmet
 library(climateR) # for gridmet
 library(dataRetrieval)
+library(beepr)
 
 ```
 
@@ -47,18 +48,12 @@ Already extracted:
 
 ```{r}
 
-# benn sites
-benn <- vect(here('./data/GIS/bennett_catchments.shp')) 
-# make the name consistent with the etf and cpf sites
-benn$site <- benn$Name
-
-# etf and cpf sites
-sites <- vect(here('./data/GIS/etf_cpf_noBenn_catchments.shp'))
-
-all_sites <- union(sites, benn)
+all_sites <- vect('./data/GIS/catchments_all_lidar.shp')
 
 # view the sites
 plot(all_sites)
+
+clipped_lidar <- rast('./data/GIS/clipped_lidar.tif')
 
 ```
 
@@ -74,19 +69,18 @@ dnbr_cpf <- rast(here('./data/GIS/co4060910587920200813_20180915_20210907_dnbr.t
 
 # get mean dNBR value for each catchment
 mean_dnbr_cpf <- dnbr_cpf %>%
-  extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  terra::extract(all_sites, fun=mean, na.rm=TRUE) %>%
   data.frame(site = all_sites$site, mean_dnbr_cpf = .) %>%
   dplyr::select(-2) %>%
   rename(mean_dnbr = 2) %>%
   drop_na()
 
 mean_dnbr_etf <- dnbr_etf %>%
-  extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  terra::extract(all_sites, fun=mean, na.rm=TRUE) %>%
   data.frame(site = all_sites$site, mean_dnbr_etf = .) %>%
   dplyr::select(-2) %>%
   rename(mean_dnbr = 2) %>%
   drop_na()
-
 
 mean_dnbr_all <- bind_rows(mean_dnbr_cpf, mean_dnbr_etf)
 
@@ -116,7 +110,7 @@ sp <- rast(here('./data/GIS/MOD10A2_SCI_2020.tif')) %>%
   terra::project(., 'EPSG:26913')
 
 mean_sp <- sp %>%
-  extract(all_sites, fun=mean, na.rm=T) %>%
+  terra::extract(all_sites, fun=mean, na.rm=T) %>%
   data.frame(site = all_sites$site, mean_sp = .) %>%
   dplyr::select(-2) %>%
   rename(mean_sp = 2)
@@ -124,6 +118,10 @@ mean_sp <- sp %>%
 ```
 
 # Potential water deficit
+
+This uses etr b/c et0 is not available. Talk to SK about this.
+
+This is a dynamic variable.
 
 ```{r}
 # Pull gridmet data
@@ -191,6 +189,106 @@ gridmet_p <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
 ###################################################
 
 # Pull ET (etr [mm])
+system.time({
+  gridmet_et = getGridMET(AOI = all_sites,
+                 varname = c('etr'),
+                 startDate = "2020-10-1",
+                 endDate  = "2023-09-30")
+})
+
+
+gridmet_et <- gridmet_et[[1]] %>% # remove it from a list to just spatraster
+  terra::project('EPSG:26913')
+
+# determine weighted mean
+calculate_weighted_mean_et <- function(nlyr) {
+  one_layer <- gridmet_et[[nlyr]]
+  terra::zonal(one_layer, all_sites, weights = TRUE)
+ }
+
+# weighted means - comes out as a list, each item is a day
+weighted_means <- map(1:dim(gridmet_et)[3], 
+                      calculate_weighted_mean_et) # 3 equals the third dimension aka the "layers" or stack
+
+
+# Add a site column, create date column, rename the first column to p_mm
+tidy_up <- function(df, all_sites) {
+  
+  # Extract the name of the first column/header
+  first_header <- names(df)[1]
+  
+  # Drop the "pr_" prefix from the name of the first header
+  new_first_header <- sub("^etr_", "", first_header)
+  
+  # Use the modified name as the date column values
+  df$date <- new_first_header
+  
+  # Add the site column
+  df$site <- all_sites$site
+  
+  # Rename the first column to "p_mm"
+  names(df)[1] <- "et_mm"
+  
+  return(df)
+}
+
+# Use map to apply tidy_up to each dataframe in the list, make 1 df, add WY
+gridmet_et <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date) %>%
+  group_by(site, waterYear) %>%
+  mutate(et_cumu_mm = cumsum(et_mm))
+
+####################3
+
+pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
+  dplyr::select(-waterYear.y) %>%
+  dplyr::rename(WY = waterYear.x) %>%
+  mutate(pwd = p_cumu_mm - et_cumu_mm) %>%
+  mutate(lag_pwd = lag(pwd))
+
+```
+
+# Soil
+
+```{r}
+
+
+
+```
+
+
+# Slope
+
+Should I get a weighted mean or regular mean?
+
+```{r}
+
+slope <- terrain(clipped_lidar, 
+                 v = 'slope',
+                 unit = 'degrees')
+
+slope_avg <- zonal(slope,
+                   all_sites,
+                   fun = 'mean',
+                   as.polygons = T,
+                   na.rm = T)
+
+
+plot(slope_avg)
+beep(sound=8)
+
+```
+
+# Geology
+
+```{r}
+
+
+
 
 
 
