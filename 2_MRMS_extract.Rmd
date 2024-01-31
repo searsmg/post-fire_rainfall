@@ -23,7 +23,6 @@ library(R.utils) #to unzip the gz files
 library(tidyverse)
 library(lubridate)
 library(raster)
-library(rgdal)
 library(sf)
 library(sp)
 library(mapview)
@@ -94,10 +93,10 @@ catchments_all <- vect(catchments) %>%
 
 ```{r}
 
-setwd("/Users/megansears/Documents/MRMS/correctedSPR")
+setwd("/Users/megansears/Documents/MRMS/correctedSPR/extra_2022")
 
 # Output dir
-output_dir <- "/Users/megansears/Documents/MRMS/correctedSPR/hillslopes_me_mm/"
+output_dir <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022_csv/"
 
 # List raster filenames
 filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
@@ -110,8 +109,12 @@ registerDoParallel(cl)
 foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
   
   # Bring in all catchments
-  hillslopes_all <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/hillslopes_new/me_mm_hills_updated.shp') %>% # UPDATE BASED ON SITE
-    terra::project(., 'EPSG:26913')
+  # etf_lower <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/etf_lower.shp') %>% # UPDATE BASED ON SITE
+  #   terra::project(., 'EPSG:26913')
+  # 
+
+  catchments_all <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/extra_mrms.shp') %>%
+    terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
   
   # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
   # catchments <- as(catchments_all, 'Spatial') %>%
@@ -140,10 +143,10 @@ foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')
   names(r) <- "p_mmhr"
   
   # Extract using terra- zonal stats, weighted mean
-  extract <- terra::zonal(r, hillslopes_all, weighted = T)
+  extract <- terra::zonal(r, catchments_all, weights = T)
   
-  extract$catchment <- hillslopes_all$catchment
-  extract$ID <- hillslopes_all$ID
+  extract$catchment <- catchments_all$site
+  #extract$ID <- hillslopes_all$ID
   
   timestamp <- substr(fileName, 12, 26)
   
@@ -174,7 +177,7 @@ stopCluster(cl)
 ```{r}
 
 # Location of individual CSVs
-csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/hillslopes_me_mm"
+csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022_csv"
 
 # List them
 csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
@@ -221,6 +224,6 @@ final_data <- final_data %>%
   rename(MI2_mmhr = p_mmhr)
            
 # Write the combined data to csv
-write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/hillslopes_me_mm/me_mm_hillslopes_mrms.csv')
+write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/extra_2022_csv/extra_mrms_2022.csv')
 
 ```
