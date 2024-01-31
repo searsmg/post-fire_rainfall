@@ -54,7 +54,6 @@ get_mrms_events <- function(df, datetime) {
   }
   return(df)
 }
-
 ```
 
 # Event analysis
