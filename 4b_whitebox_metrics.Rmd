@@ -35,7 +35,9 @@ library(stringr)
 
 # create catchments path and pull in data (will need both)
 catchments_path <- './data/GIS/catchments_all_lidar.shp'
-catchments <- vect('./data/GIS/catchments_all_lidar.shp')
+
+catchments <- vect('./data/GIS/catchments_all_lidar.shp') %>%
+  mutate(site = ifelse(site == "mm", "mm_et", site))
 
 # create lidar (DEM) path and pull in data (will need both)
 # the script assumes the DEM is clipped to the catchments
@@ -95,7 +97,7 @@ wbt_geomorphons(
 
 # make sure it looks right, view with mapview
 geomorphons <- rast('./data/GIS/geomorphons.tif')
-plot(geomorphons) # take a quick look
+#plot(geomorphons) # take a quick look
 
 # get the valley/holllow fraction
 # first extract cell values within catchments
@@ -118,7 +120,7 @@ metrics <- left_join(valley_frac,
 
 ```
 
-# Flow accumulation
+# Flow accumulation and recharge areas
 
 The code below gets flow accumulation, filters values by >50k, converts the raster flow lines to polylines,
 finds flat areas in slope tif (less than 10), then intersects the flat/50k polygons with geomorphons 7,8,9,
@@ -251,6 +253,8 @@ metrics <- left_join(metrics, recharge, by = 'site') %>%
 
 ```
 
+Everything above is done and final <3
+
 # Hypsometric analyses
 
 ```{r}
@@ -308,28 +312,92 @@ hypso_join <- left_join(hypso_x, hypso_y, by = 'name') %>%
 # add to metrics df
 metrics <- left_join(metrics, hypso_join, by = 'ID')
 
+
+```
+
+# Hysometric analyses
+Above did not work so try using a map function
+
+```{r}
+
+get_hypso_csv <- function(site_name) {
+  # Filter the data for the specified site
+  site_data <- catchments %>%
+    tidyterra::filter(site == site_name)
+
+  # Mask the lidar data for the specified site
+  site_rast <- terra::crop(clipped_lidar, 
+                           site_data,
+                           mask = T)
+
+  # Write the masked lidar data to a GeoTIFF file
+  writeRaster(site_rast, paste0('./data/GIS/', site_name, '_lidar.tif'), overwrite = TRUE)
+
+  # Hypsometric analysis
+  wbt_hypsometric_analysis(
+    inputs = paste0('./data/GIS/', site_name, '_lidar.tif'),
+    output = paste0('./data/GIS/', site_name, '_hypso.csv'))
+  
+  beep(sound = 8)
+}
+
+site_names <- catchments$site  # Assuming your site names are in the 'site' column
+map(site_names, get_hypso_csv)
+
+# now we need to get the csv into R (next step)
+
 ```
 
 # Flowpath length
 
 ```{r}
-# get flowpath length
-wbt_downslope_flowpath_length(
-  d8_pntr = './data/GIS/pntr_flow.tif',
-  output = 'flow_length.tif',
-  watersheds = './data/GIS/catchemnts_outline.tif')
+
+# Assuming all_sites is your data frame with site names
+site_names <- catchments$site
+
+# Define a function to run downslope flowpath length for a given site
+run_downslope_flowpath <- function(site_name) {
+  current_site_flowpath <- paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif')
+  current_site_lidar <- paste0('./data/GIS/site_lidar/', site_name, '_lidar.tif')
+
+  wbt_downslope_flowpath_length(
+    d8_pntr = './data/GIS/pntr_flow.tif',
+    output = current_site_flowpath,
+    watersheds = current_site_lidar
+  )
+}
+
+# Use map to apply the function for each site in site_names
+map(site_names, run_downslope_flowpath)
+
+#######################################################################################
+# find the max length
+site_names <- catchments$site
+
+get_flowlength <- function(site_name){
+
+fl <- rast(paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif'))
+
+site_catch <- catchments %>%
+  tidyterra::filter(site == site_name)
+
+
+max_length <- terra::zonal(fl, site_catch, fun = 'max') %>% # this is in meters
+  mutate(site = site_name) %>%
+  rename(flow_length = 1)
+
+}
+
+
+all_fl <- map_df(site_names, get_flowlength) %>%
+  bind_rows()
+
 beep(sound=8)
 
-# load in flowpath length
-flow_length <- rast('./data/GIS/flow_length.tif')
-
-# find the max length
-max_length <- terra::extract(flow_length, catchments, fun = max, ID=T) # this is in meters
-
 # join back to metrics df
-metrics <- left_join(max_length, 
-                         metrics, 
-                         by = 'ID') %>%
+metrics <- left_join(metrics, 
+                     all_fl, 
+                         by = 'site') %>%
   rename(flow_length_m = flow_length)
 
 ```
@@ -340,7 +408,6 @@ metrics <- left_join(max_length,
 
 # done in arc gis
 vb_width <- read_csv('./data/GIS/valley_bottom_width.csv') %>%
-  dplyr::select(-3) %>%
   group_by(site) %>%
   summarize(avg_vbw_m = mean(v_bottom_width_m))
 
@@ -351,7 +418,82 @@ metrics <- left_join(metrics, vb_width, by = 'site')
 
 # Index of connectivity
 
+Following are needed:
+-Slope
+-Flow direction
+-Flow accumulation filtered by 1000
+-DEM
+-Downstream flow length
+
+Lets do this workflow for one site to start
+
 ```{r}
+# slope for all sites, then +0.005
+slope <- rast('./data/GIS/slope.tif')
+s <- slope + 0.005
+
+dadd_boundary <- catchments %>%
+  tidyterra::filter(site == 'dadd')
+
+dadd_slope <- terra::crop(s, 
+                          dadd_boundary,
+                          mask = T)
+# flow accumulation for all sites, then +1
+flow_acc <- rast('./data/GIS/flow_accum.tif')
+flow_acc1 <- flow_acc + 1
+
+dadd_acc <- terra::crop(flow_acc1,
+                        dadd_boundary,
+                        mask = T)
+
+# flow direction - come back to
+flow_dir <- rast('./data/GIS/pntr_flow.tif')
+
+
+# inverse of c*s (c = clipped lidar [or DEM])
+inv_cs <- 1 / (clipped_lidar * s)
+
+# crop inv_cs by site
+dadd_inv_cs <- terra::crop(inv_cs,
+                           dadd_boundary,
+                           mask = T)
+
+writeRaster(dadd_inv_cs, './data/GIS/site_flowlength/weighted/dadd_weight.tif')
+
+# crop pntr flow by site
+dadd_dir <- terra::crop(rast('./data/GIS/pntr_flow.tif'),
+                        dadd_boundary,
+                        mask = T)
+
+writeRaster(dadd_dir, './data/GIS/flowdir/dadd_dir.tif')
+
+##############################################
+# downstream flow length weighted by inv_cs 
+
+# Define a function to run downslope flowpath length for a given site
+current_site_flowpath <- './data/GIS/site_flowlength/weighted/dadd_flow_length.tif'
+current_site_dir <- './data/GIS/flowdir/dadd_dir.tif'
+current_site_lidar <- './data/GIS/site_lidar/dadd_lidar.tif'
+current_site_weight <- './data/GIS/site_flowlength/weighted/dadd_weight.tif'
+
+wbt_downslope_flowpath_length(
+    d8_pntr = current_site_dir,
+    output = current_site_flowpath,
+    weights = current_site_weight,
+    watersheds = current_site_lidar)
+
+
+dadd_X <- rast(current_site_flowpath)
+
+
+dadd_ddn <- ifel(dadd_X == 0, 
+                 dadd_inv_cs + dadd_X,
+                 dadd_X)
+
+# D up for Cmean and Smean is done in arc gis pro
+# whitebox cannot weight flow accumulation
+
+
 
 
 
