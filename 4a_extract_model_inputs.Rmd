@@ -29,6 +29,8 @@ library(AOI) # for gridmet
 library(climateR) # for gridmet
 library(dataRetrieval)
 library(beepr)
+library(FedData)
+library(foreign) # read in dbf of soil data
 
 ```
 
@@ -48,7 +50,8 @@ Already extracted:
 
 ```{r}
 
-all_sites <- vect('./data/GIS/catchments_all_lidar.shp')
+all_sites <- vect('./data/GIS/catchments_all_lidar.shp') %>%
+  mutate(site = ifelse(site == "mm", "mm_et", site))
 
 # view the sites
 plot(all_sites)
@@ -254,16 +257,147 @@ pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
 
 # Soil
 
+Soil database found here:
+https://www.sciencebase.gov/catalog/item/631405c8d34e36012efa31ff (sand clay silt in text, ksat in layer)
+
 ```{r}
+# soil database to be used in function below
+avg_soil_type <- read.dbf('./data/GIS/soil/Text.dbf') %>%
+  rename(MUKEY = mukey) %>%
+  mutate_at(vars(AVG_SAND, AVG_CLAY, AVG_SILT), ~ifelse(. == -9999, NA, .))
 
+# list out site names
+site_name <- all_sites$site
 
+get_soil_contents <- function(site_name){
+
+  # get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+  soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+  soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY))
+
+  # project so same as site_poly, then join to database to the spatial data
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913') %>%
+    left_join(., avg_soil_type, by = 'MUKEY')
+
+  # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+}
+
+soil_means <- map_df(site_name, get_soil_contents) %>%
+  bind_rows()
+
+# do above but for ksat using the layer instead of text
+# soil database to be used in function below
+avg_ksat <- read.dbf('./data/GIS/soil/Layer.dbf') %>%
+  rename(MUKEY = mukey) %>%
+  mutate(AVG_KSAT = ifelse(AVG_KSAT == -9999, NA, AVG_KSAT))
+
+# list out site names
+site_name <- all_sites$site
+
+get_soil_contents <- function(site_name){
+
+  # get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+  soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+  soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY))
+
+  # project so same as site_poly, then join to database to the spatial data
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913') %>%
+    left_join(., avg_ksat, by = 'MUKEY')
+
+  # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+}
+
+soil_ksat_means <- map_df(site_name, get_soil_contents) %>%
+  bind_rows() %>%
+  select(site, AVG_KSAT)
+
+soils_means <- soil_means %>%
+  select(site, AVG_CLAY, AVG_SAND, AVG_SILT)
+
+soils_avg <- left_join(soils_means, soil_ksat_means, by = 'site')
+
+####################################################################
+
+# get average weighted available water storage and bedrock min depth
+# both located in the muaggatt txt file
+
+get_soil_depth <- function(site_name){
+
+# get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY)) %>%
+  left_join(., soil$tabular$muaggatt, by = 'mukey')
+
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913')
+  
+    # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+# aws0150wta 
+# brockdepmin
+# https://www.nrcs.usda.gov/sites/default/files/2022-08/SSURGO-Metadata-Tables-and-Columns-Report.pdf
+
+soil_depths <- soil_mean %>%
+  select(site, aws0150wta, brockdepmin)
+
+}
+
+soil_depths_all <- map_df(site_name, get_soil_depth) %>%
+  bind_rows()
+  
 
 ```
 
-
 # Slope
-
-Should I get a weighted mean or regular mean?
 
 ```{r}
 
@@ -277,9 +411,58 @@ slope_avg <- zonal(slope,
                    as.polygons = T,
                    na.rm = T)
 
+slope_avg_df <- as.data.frame(slope_avg)
+
+slope_avg_df$site <- all_sites$site
 
 plot(slope_avg)
 beep(sound=8)
+
+# frac of slope above 30
+get_slope30_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope30 = if_else(slope >= 30, 1, 0)) %>%
+  summarize(slope30_frac = sum(slope30) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope30_frac <- map(site_name, get_slope30_frac) %>%
+  bind_rows()
+
+# frac of slope above 40
+get_slope40_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope40 = if_else(slope >= 40, 1, 0)) %>%
+  summarize(slope40_frac = sum(slope40) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope40_frac <- map(site_name, get_slope40_frac) %>%
+  bind_rows()
 
 ```
 
@@ -293,4 +476,22 @@ beep(sound=8)
 
 
 ```
+
+# Join metrics
+
+```{r}
+
+# join metrics (except for PWD since that is dynamic [time dependent])
+inputs <- left_join(mean_dnbr_all, area, by = 'site') %>%
+  left_join(., mean_sp, by = 'site') %>%
+  left_join(., soils_avg, by = 'site') %>%
+  left_join(., slope_avg_df, by = 'site') %>%
+  left_join(., slope30_frac, by = 'site') %>%
+  left_join(., slope40_frac, by = 'site') %>%
+  left_join(., soil_depths_all, by = 'site')
+
+write_csv(inputs, './data/final_model_inputs/inputs1.csv')
+
+```
+
 
