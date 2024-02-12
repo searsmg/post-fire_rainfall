@@ -56,34 +56,72 @@ get_mrms_events <- function(df, datetime) {
 }
 ```
 
-# Event analysis
-Derived from 2-min MRMS data
+# Prep data
 
 ```{r rainfall metrics, echo=FALSE}
 
+# load in 2021-2023 data
+all_2023 <- read_csv('./data/final/mrms/catchments_2023_mrms.csv') %>%
+  dplyr::select(-1) %>%
+  rename(ID = catchment) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(!ID == 'MiddleUnburned')
+  
 # load in 2021 and 2022 data
-all_2023 <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/2023_mrms_extract.csv') %>%
+all_2021 <- read_csv('./data/final/mrms/catchments_2021_mrms.csv') %>%
+  dplyr::select(-1) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(!ID == 'MiddleUnburned')
+
+all_2022 <- read_csv('./data/final/mrms/catchments_2022_mrms.csv') %>%
+  dplyr::select(-1) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(!ID == 'MiddleUnburned')
+
+# load in lower ET sites (including mub - delete mub from above dataframes)
+lower_et_2022 <- read_csv('./data/final/mrms/2022_mrms_lowerET.csv') %>%
   dplyr::select(-1) %>%
   rename(ID = catchment) %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST'))
-  
 
-# load in 2021 and 2022 data
-all_2021 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2021/catchments_all_extract/catchments_2021_mrms.csv') %>%
+lower_et_2023 <- read_csv('./data/final/mrms/2023_mrms_lowerET.csv') %>%
   dplyr::select(-1) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST'))
-
-all_2022 <- read_csv('/Users/megansears/Documents/MRMS/correctedSPR/2022/catchments_2022_mrms.csv') %>%
-  dplyr::select(-1) %>%
+  rename(ID = catchment) %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 
 # bind them 2021 and 2022 together & resample to 10 min
-all <- bind_rows(all_2021, all_2022, all_2023) %>%
+all <- bind_rows(all_2021, 
+                 all_2022, 
+                 all_2023) %>%
+  mutate(ID = case_when(
+      ID == 'Pass 1' ~ 'p1',
+      ID == 'Pass 2' ~ 'p2',
+      ID == 'HighUnmulch' ~ 'hum',
+      ID == 'HighMulch' ~ 'hm',
+      ID == 'MiddleUnmulch' ~ 'mum',
+      ID == 'MiddlePartialMulch' ~ 'mpm',
+      ID == 'MiddleMulch' ~ 'mm_et',
+      TRUE ~ ID)) %>%
+  bind_rows(.,
+            lower_et_2023,
+            lower_et_2022)
+
+# export all as 2 min mrms precip for all sites
+write_csv(all, './data/final/mrms/all_combined.csv')
+
+all <- all %>%
   mutate(year = year(datetime),
          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
   group_by(ID, timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
   rename(datetime = timestamps_10min)
+
+```
+
+# Events
+Derived from 2-min MRMS data
+
+```{r}
 
 #try for all sites
 get_mrms_all_events <- function(all, ID_name) {
@@ -164,7 +202,7 @@ all_intens <- all_intens %>%
 ggplot(all_intens, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
 ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
-write.csv(all_intens, 'mrms_intensities.csv')
+write.csv(all_intens, './data/final/mrms/all_mrms_intensities.csv')
 
 ```
 
