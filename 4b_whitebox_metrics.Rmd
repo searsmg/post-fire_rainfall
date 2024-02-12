@@ -253,75 +253,14 @@ metrics <- left_join(metrics, recharge, by = 'site') %>%
 
 ```
 
-Everything above is done and final <3
-
-# Hypsometric analyses
-
-```{r}
-# vector to raster (hypso wants catchments as rasters)
-wbt_vector_polygons_to_raster(
-    input = catchments_path,
-    output = './data/GIS/catchemnts_outline.tif',
-    field = 'ID',
-    base = lidar_path)
-beep(sound=8)
-
-# hypsometric analysis
-wbt_hypsometric_analysis(
-  inputs=lidar_path,
-  output='./data/GIS/hypso.csv',
-  watershed = './data/GIS/catchemnts_outline.tif')
-beep(sound=8)
-
-# read in hypsometric csv and edit a few things
-hypso <- read_csv('./data/GIS/hypso.csv', skip = 70) %>%
-  slice(-c(3:672)) %>%
-  separate(1, into = paste0("new_col", 1:3076), sep = ",") # this needs to be updated in future to know how many columns
-
-# get the x values 
-hypso_x <- slice(hypso, 1) %>%
-  pivot_longer(everything()) %>%
-  rename(x=value)
-
-# get the y values
-hypso_y <- slice(hypso, 2) %>%
-  pivot_longer(everything()) %>%
-  rename(y=value)
-
-# value of a/A at h/H=0.25, 0.50, 0.75
-# 
-# at 0.25, 1-a/A is the fraction of watershed area in the lower elevation quartile
-# 0.5, a/A is the fraction of watershed area in the upper half of elevations
-# 0.75, a/A is the fraction of watershed area in the upper elevation quartile
-
-# get values above
-hypso_join <- left_join(hypso_x, hypso_y, by = 'name') %>%
-  mutate(id = cumsum(grepl("\\[", x))) %>%
-  select(-name) %>%
-  mutate(x = str_replace_all(x, "[^0-9.]", "")) %>%
-  mutate(y = str_replace_all(y, "[^0-9.]", "")) %>%
-  rename(relative_area = x, relative_elev = y) %>%
-  mutate(relative_area = as.numeric(relative_area),
-         relative_elev = as.numeric(relative_elev)) %>%
-  group_by(id) %>%
-    filter(abs(relative_area-25)==min(abs(relative_area-25)) |
-           abs(relative_area-50)==min(abs(relative_area-50)) |
-           abs(relative_area-75)==min(abs(relative_area-75))) %>% # this code filters relative area by value closest to 25, 50, 75
-  rename(ID = id) # rename so it can match metrics df
-         
-# add to metrics df
-metrics <- left_join(metrics, hypso_join, by = 'ID')
-
-
-```
-
 # Hysometric analyses
-Above did not work so try using a map function
 
 ```{r}
 
+# run the hypsometric analysis on each site and export to csv
 get_hypso_csv <- function(site_name) {
-  # Filter the data for the specified site
+  
+  # Filter the data for site polygon
   site_data <- catchments %>%
     tidyterra::filter(site == site_name)
 
@@ -335,16 +274,57 @@ get_hypso_csv <- function(site_name) {
 
   # Hypsometric analysis
   wbt_hypsometric_analysis(
-    inputs = paste0('./data/GIS/', site_name, '_lidar.tif'),
+    inputs = paste0('./data/GIS/', site_name, '_lidar.tif'), # input the site specific lidar
     output = paste0('./data/GIS/', site_name, '_hypso.csv'))
-  
-  beep(sound = 8)
+
 }
 
-site_names <- catchments$site  # Assuming your site names are in the 'site' column
+# list site names
+site_names <- catchments$site 
+
 map(site_names, get_hypso_csv)
 
-# now we need to get the csv into R (next step)
+# read in hypsometric csv and edit a few things to get .25, 0.5, and .75 relative elevation
+get_hypso_values <- function(site_name){
+  
+hypso <- read_csv(paste0('./data/GIS/hypso/', site_name, '_hypso.csv'), skip = 70) %>%
+  slice(-c(3:672)) %>%
+  separate(1, into = paste0("new_col", 1:300), sep = ",") # this needs to be updated in future to know how many columns
+
+# get the x values 
+hypso_x <- slice(hypso, 1) %>%
+  pivot_longer(everything()) %>%
+  rename(x=value)
+
+# get the y values
+hypso_y <- slice(hypso, 2) %>%
+  pivot_longer(everything()) %>%
+  rename(y=value)
+
+# get values above
+hypso_join <- left_join(hypso_x, hypso_y, by = 'name') %>%
+  mutate(site = site_name) %>% 
+  select(-name) %>%
+  mutate(x = as.numeric(str_replace_all(x, "[^0-9.eE-]", ""))) %>%
+  mutate(y = as.numeric(str_replace_all(y, "[^0-9.eE-]", ""))) %>%
+  drop_na() %>% 
+  rename(relative_area = x, 
+         relative_elev = y) %>%
+    filter(abs(relative_elev-0.25)==min(abs(relative_elev-0.25)) |
+           abs(relative_elev-0.50)==min(abs(relative_elev-0.50)) |
+           abs(relative_elev-0.75)==min(abs(relative_elev-0.75))) # this code filters relative area by value closest to 25, 50, 75
+
+}
+
+# list out sites
+site_name <- catchments$site
+
+# map through each site then bind the dataframes together
+all_hypso <- map_df(site_name, get_hypso_values) %>%
+  bind_rows()
+
+# add to metrics df
+metrics <- left_join(metrics, all_hypso, by = 'site')
 
 ```
 
@@ -352,10 +332,10 @@ map(site_names, get_hypso_csv)
 
 ```{r}
 
-# Assuming all_sites is your data frame with site names
+# list site names
 site_names <- catchments$site
 
-# Define a function to run downslope flowpath length for a given site
+# function to run downslope flowpath length for each site
 run_downslope_flowpath <- function(site_name) {
   current_site_flowpath <- paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif')
   current_site_lidar <- paste0('./data/GIS/site_lidar/', site_name, '_lidar.tif')
@@ -370,10 +350,7 @@ run_downslope_flowpath <- function(site_name) {
 # Use map to apply the function for each site in site_names
 map(site_names, run_downslope_flowpath)
 
-#######################################################################################
-# find the max length
-site_names <- catchments$site
-
+# find the max length for each site next
 get_flowlength <- function(site_name){
 
 fl <- rast(paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif'))
@@ -388,7 +365,7 @@ max_length <- terra::zonal(fl, site_catch, fun = 'max') %>% # this is in meters
 
 }
 
-
+# map through each site's max flow length
 all_fl <- map_df(site_names, get_flowlength) %>%
   bind_rows()
 
@@ -499,4 +476,13 @@ dadd_ddn <- ifel(dadd_X == 0,
 
 ```
 
+# Export
+
+```{r}
+
+# all but connecitvity are in here
+write_csv(metrics, './data/final_model_inputs/inputs2.csv')
+
+
+```
 
