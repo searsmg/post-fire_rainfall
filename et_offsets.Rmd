@@ -591,4 +591,59 @@ write.csv(et_estimated_discharge, '/Users/megansears/Documents/Repos/post-fire_r
 
 ```
 
+# CPF prep
+
+```{r}
+
+# Manual Q, field notes, raw stage data
+aspen_stage <- read_csv(here('./data/stage/Aspen_stage_composite.csv')) %>%
+  mutate(datetime = mdy_hm(datetime), tz = 'MST') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(datetime > ymd_hms('2021-05-01 00:00:00', tz = 'MST'),
+         datetime < ymd_hms('2023-10-01 00:00:00', tz = 'MST'))
+
+dadd_stage <- read_csv(here('./data/stage/Dadd_stage_composite.csv')) %>%
+  select(-4) %>%
+  mutate(datetime = mdy_hm(datetime), tz = 'MST') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(datetime > ymd_hms('2021-05-01 00:00:00', tz = 'MST'),
+         datetime < ymd_hms('2023-10-01 00:00:00', tz = 'MST'))
+
+mtcamp <- read_csv(here('./data/stage/mtcampus_stage_composite.csv')) %>%
+  rename(datetime = TIMESTAMP) %>% 
+  mutate(datetime = mdy_hm(datetime), tz = 'MST') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  filter(datetime > ymd_hms('2021-05-01 00:00:00', tz = 'MST'),
+         datetime < ymd_hms('2023-10-01 00:00:00', tz = 'MST'))
+
+# manual Q
+cpf_manual_q <- read_csv(here('./data/stage/cpf_discharge_google.csv')) %>%
+  filter(site %in% c('dadd', 'mtcampus', 'aspen'))
+
+
+```
+
+
+# Dadd
+
+```{r}
+
+dadd_stage_raw <- ggplot(dadd_stage)+
+  geom_line(aes(x=datetime,y=Stage_mm)) +
+  geom_point(aes(x=datetime,y=Stage_mm)) 
+
+ggplotly(dadd_stage_raw)
+
+Dadd_stage_hourly$Stage_corr_cm=ifelse(Dadd_stage_hourly$DateTime>'2021-05-18 14:30:00',
+                                       Dadd_stage_hourly$Stage_corr_cm+0.6,Dadd_stage_hourly$Stage_corr_cm)
+
+Dadd_stage_hourly$Stage_corr_cm=ifelse(Dadd_stage_hourly$DateTime>'2021-06-14 11:00:00',
+                                       Dadd_stage_hourly$Stage_corr_cm+0.9,Dadd_stage_hourly$Stage_corr_cm)
+
+```
+
+
+# Aspen
+
+# Mt. Campus
 
