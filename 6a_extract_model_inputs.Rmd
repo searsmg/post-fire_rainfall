@@ -467,15 +467,25 @@ slope40_frac <- map(site_name, get_slope40_frac) %>%
 ```
 
 # Geology
+https://ngmdb.usgs.gov/Prodesc/proddesc_68589.htm
 
 ```{r}
 
-
-
-
-
+geo <- read_csv('./data/final_model_inputs/ndvi&geo.csv') %>%
+  select(site = ID, geology, geo_general)
 
 ```
+
+# NDVI
+done in GEE using landsat 8 collection
+
+```{r}
+
+ndvi <- read_csv('./data/final_model_inputs/ndvi&geo.csv') %>%
+  select(site = ID, NDVI_2021, NDVI_2022, NDVI_2023)
+
+```
+
 
 # Join metrics
 
@@ -489,6 +499,14 @@ inputs <- left_join(mean_dnbr_all, area, by = 'site') %>%
   left_join(., slope30_frac, by = 'site') %>%
   left_join(., slope40_frac, by = 'site') %>%
   left_join(., soil_depths_all, by = 'site')
+
+#write_csv(inputs, './data/final_model_inputs/inputs1.csv')
+
+# after the fact, adding geo and ndvi to the inputs1 csv
+# if I run this code start to finish again then add this up above to original left joins
+inputs <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  left_join(., geo, by = 'site') %>%
+  left_join(., ndvi, by = 'site')
 
 write_csv(inputs, './data/final_model_inputs/inputs1.csv')
 
