@@ -1,0 +1,730 @@
+---
+title: "mrms vs TB"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(here)
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(terra)
+library(parallel)
+library(doParallel)
+library(data.table)
+
+# load the functions to process TB events
+load('./R/rain_metrics.Rdata')
+
+```
+
+# Read in TB points 
+
+```{r}
+
+tb_locations <- vect('./data/GIS/tb_locations.shp') %>%
+  terra::project(., 'EPSG:26913')
+
+plot(tb_locations)
+
+```
+
+# Extract the TB pixels
+
+```{r}
+
+setwd("/Users/megansears/Documents/MRMS/correctedSPR/extra_2022")
+
+# Output dir
+output_dir <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022/tb_extra_2022/"
+
+# List raster filenames
+filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
+
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
+
+  tb_locations <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/tb_locations.shp') %>%
+    #terra::project(., 'EPSG:26913')
+    terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+  
+  # Pull in raster
+  r <- terra::rast(fileName)
+  
+  names(r) <- "p_mmhr"
+  
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::extract(r, tb_locations)
+  
+  extract$site <- tb_locations$site
+  
+  timestamp <- substr(fileName, 12, 26)
+  
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime),
+           hour = hour(datetime),
+           min = minute(datetime))
+  
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
+  
+  write.csv(extract, file = output_filename)
+  
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+```
+
+# Combine csvs into 1
+
+```{r}
+
+# Location of individual CSVs
+csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022/tb_extra_2022"
+
+# List them
+csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
+
+# Set cores for parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Function to read CSV files using data.table
+read_csv_file <- function(file) {
+  dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A"))
+  
+  # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates
+  if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) &&
+      all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) {
+    dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime
+  }
+  
+  # Convert the "datetime" column to POSIXct format (consistent date-time format)
+  dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S")
+  
+  dt
+}
+
+# Use foreach to read all CSV files in parallel
+result <- foreach(file = csv_files, .packages = "data.table") %dopar% {
+  read_csv_file(file)
+}
+
+# Stop
+stopCluster(cl)
+
+# Combine the list of data.tables into a single data.table
+final_data <- rbindlist(result)
+
+# Check the dimensions of the final_data
+print(dim(final_data))
+
+final_data <- final_data %>%
+  arrange(datetime) %>%
+  mutate(p_mmhr = if_else(p_mmhr < 0, 0, p_mmhr),
+         p_mm = p_mmhr*(1/30)) %>%
+  dplyr::select(-c(V1, doy, hour, min)) %>%
+  rename(MI2_mmhr = p_mmhr)
+           
+# Write the combined data to csv
+write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/extra_2022/tb_extra_2022/tb_extra_2022.csv')
+
+```
+
+Ran the above for all the groups (2021, 2022, 2022, 2023 (vpn), and 2023 extra (vpn))
+
+# Load in data
+
+A few notes about the data:
+-Get rid of Drowsy in 2023, that area is not covered
+-2022 is good for all ET sites (and Benn and CPF)
+-2023 does not include Drowsy or Lpm so need extra 2023 dataset for lpm
+
+The next steps:
+-Load in and prep the pixel TB mrms data and get events & intensities for each pixel
+-For TB data, pull time windows that align with mrms, then get the events & intens for that
+
+```{r}
+
+# load in pixel data
+pixel21 <- read_csv('./data/final/mrms/tb_2021.csv') %>%
+  select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+pixel22 <- read_csv('./data/final/mrms/tb_2022.csv') %>%
+  select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+# get rid of lpm and drowsy bc they aren't covered here
+pixel23 <- read_csv('./data/final/mrms/tb_2023.csv') %>%
+  select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  filter(!site %in% c('LPm', 'drowsy')) %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+# lpm for 2023 [drowsy not covered at all in 2023]
+pixel23_lpm <- read_csv('./data/final/mrms/tb_extra_2023.csv') %>%
+  select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  filter(site %in% c('LPm')) %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+# add lpm 2023 back to 2023 dataset
+pixel23 <- bind_rows(pixel23, pixel23_lpm) %>%
+  arrange(datetime)
+
+rm(pixel23_lpm)
+
+# bind together all - now I think we want to find the events & intens
+pixel <- bind_rows(pixel21, pixel22, pixel23) %>%
+  mutate(year = year(datetime))
+
+```
+
+# Pixel events
+
+```{r}
+
+# function for mrms events
+get_mrms_events <- function(df, datetime) {
+  df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
+  df$datenumeric=as.numeric(df$datetime)
+
+  for (i in 2:nrow(df)) {
+    df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
+  }
+  df$dt_hr=as.numeric(df$dt)/60/60
+  
+  #start new event if time between rows is  >=6
+  df$event=1
+  for (i in 2:nrow(df)) {
+    df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
+  }
+  return(df)
+}
+
+###############################################################################
+
+# right now getting it into 10 min timesteps since the smallest MI we do is 10
+# talk to SK about this
+pixel10 <- pixel %>%
+  mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  group_by(site, timestamps_10min) %>%
+  summarize(rain_mm = sum(p_mm)) %>%
+  rename(datetime = timestamps_10min)
+
+# get events
+get_mrms_all_events <- function(all, ID_name) {
+  
+  events <- all %>%
+  filter(site == ID_name,
+         rain_mm >= 0.254) %>%
+  get_mrms_events(., datetime) %>%
+  group_by(event) %>%
+  mutate(start_time = min(datetime),
+         end_time = max(datetime)) %>%
+  dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
+  complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
+  arrange(event, datetime) %>%
+  fill(start_time, end_time, site) %>%
+  ungroup() %>%
+  mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
+    
+  return(events)
+}
+
+# list out sites 
+sites <- unique(pixel10$site)
+
+# get events for all sites
+pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
+  bind_rows()
+
+# get intensities
+get_mrms_intensities <- function(all_events, ID_name) {
+
+intens <- all_events %>%
+  filter(site == ID_name) %>%
+  group_by(event) %>%
+  mutate(max10_mm = max(rain_mm),
+         sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
+         max20_mm = max(sum20_mm),
+         sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
+         max30_mm = max(sum30_mm),
+         sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
+         max60_mm = max(sum60_mm),
+         event_sum_mm = sum(rain_mm),
+         MI10_mmhr = max10_mm*6,
+         MI20_mmhr = max20_mm*3,
+         MI30_mmhr = max30_mm*2,
+         MI60_mmhr = max60_mm) %>%
+  dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
+            sum20_mm, sum30_mm, sum60_mm, datetime,
+            rain_mm)) %>%
+  ungroup() %>%
+  distinct(start_time, .keep_all = T) %>%
+  mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
+  filter(event_sum_mm > 1)
+  
+}
+
+# get intens for all sites
+pixel_intens <- map(sites, ~ get_mrms_intensities(pixel_events, .)) %>%
+  bind_rows(.)
+
+pixel_intens <- pixel_intens %>%
+  group_by(site) %>%
+  arrange(event) %>%
+  mutate(event = 1:n()) %>%
+  mutate(year = year(start_time)) %>%
+  filter(!site %in% c('tunnel')) %>%
+  mutate(site = case_when(
+    site == 'HUm2' ~ 'hum2',
+    site == 'LPm' ~ 'lpm',
+    site == 'MUb' ~ 'mub',
+    site == 'm_e' ~ 'me',
+    site == 'm_m' ~ 'mm',
+    site == 'm_w' ~ 'mw',
+    site == 'u_e' ~ 'ue',
+    site == 'u_m' ~ 'um',
+    site == 'u_w' ~ 'uw',
+    TRUE ~ site))
+
+ggplot(pixel_intens, aes(y=MI60_mmhr, x=site)) + geom_boxplot()
+ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
+
+write_csv(pixel_intens, './data/final/mrms/pixel_intens.csv')
+
+```
+
+# Read in TB data
+
+```{r}
+
+# read in tb data
+cpf_tb <- read_csv('./data/cpf_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime),
+         p_mm = tip * 0.254) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  dplyr::select(-tip)
+
+etf_tb <- read_csv('./data/et_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime),
+         p_mm = tip * 0.254) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  dplyr::select(-tip)
+
+ben_tb <- read_csv('./data/bennett_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime),
+         p_mm = tip * 0.254) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  dplyr::select(-tip)
+
+# need to get drowsy and willowcr_upper
+usgs <- read_csv('./data/et_usgs_rain.csv') %>%
+  mutate(datetime = ifelse(grepl("\\d+:\\d+", datetime), 
+                           datetime, paste(datetime, "00:00"))) %>%
+  mutate(site = if_else(site == 'willow_upper',
+                        'willowcr_upper',
+                        site),
+         datetime = mdy_hm(datetime)) %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+  rename(p_mm = rain_mm)
+
+# now bind all together
+tb <- bind_rows(cpf_tb, etf_tb, ben_tb, usgs)
+
+```
+
+# Filter TB data based on pixel event windows
+
+```{r}
+
+filter_tb <- function(site_name) {
+  pixel_site <- pixel_intens %>%
+    filter(site == site_name)
+  
+  tb_site <- tb %>%
+    filter(site == site_name)
+  
+  tb_site_fil <- map2(pixel_site$start_time, pixel_site$end_time, ~ {
+    start_time <- .x
+    end_time <- .y
+    event <- pixel_site$event[pixel_site$start_time == .x]  # Get corresponding event value - CHANGE THIS BACK TO EVENT
+    
+    # Filter tb_site for rows where datetime falls between start_time and end_time
+    tb_site %>%
+      filter(between(datetime, start_time, end_time)) %>%
+      mutate(event_mrms = event)  # Add the event column
+  }) %>%
+  bind_rows()  # Combine the filtered results
+  
+  return(tb_site_fil)
+}
+
+site_name <- unique(pixel_intens$site)
+
+tb_filter <- map_df(site_name, filter_tb) %>% 
+  arrange(datetime)
+
+####### do some testing of above
+
+lpm_pix <- pixel_intens %>%
+  filter(site == 'lpm')
+
+lpm_filter_tb <- tb_filter %>%
+  filter(site == 'lpm')
+
+# above looks good. need to fix/figure out usgs tz !!!!!!!
+# starting on the next steps for now and will come back to this issue
+
+```
+
+# TB filtered (based on pixel events) events
+
+```{r}
+
+# get events for tb_filter
+tb_fil10 <- tb_filter %>%
+  mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  group_by(site, timestamps_10min) %>%
+  summarize(rain_mm = sum(p_mm),
+            event_mrms = mean(event_mrms)) %>%
+  rename(datetime = timestamps_10min)
+
+sites <- unique(tb_fil10$site)
+
+# get events for all sites
+tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10, .)) %>%
+  bind_rows()
+
+tbfil_intens <- map(sites, ~ get_mrms_intensities(tbfil_events, .)) %>%
+  bind_rows()
+
+pixel_intens <- pixel_intens %>%
+  rename(event_mrms = event)
+
+# join the 2 dataframes
+comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'))
+
+```
+
+# Filter for when no TB data
+
+Do ETF first -
+Some quick filters:
+-ET TBs did not run before 6/20/22 (p1, mub, hum2, lpm)
+
+```{r}
+
+comp_etf <- comp_intens %>%
+  filter(site %in% c("p1", "mub", "lpm", "hum2")) %>%
+  filter(start_time.x > ymd_hms('2022-06-20 11:00:00', tz = 'MST')) %>%
+  mutate(
+    condition = case_when(
+      site == 'hum2' &
+        start_time.x > ymd_hms('2022-08-05 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'p1' &
+        start_time.x > ymd_hms('2022-07-12 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-07-21 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'p1' &
+        start_time.x > ymd_hms('2023-07-21 23:50:00', tz = 'MST') ~ 'remove',
+      site == 'lpm' &
+        start_time.x > ymd_hms('2022-10-1 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2023-05-24 10:00:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep'
+    )
+  ) %>%
+  filter(condition == 'keep') %>%
+  mutate(duration_hr.x = as.numeric(duration_hr.x),
+         duration_hr.y = as.numeric(duration_hr.y)) %>%
+  mutate_at(
+    c(
+      'MI60_mmhr.y',
+      'MI30_mmhr.y',
+      'MI20_mmhr.y',
+      'MI10_mmhr.y',
+      'event_sum_mm.y',
+      'duration_hr.y'),
+    ~ replace_na(., 0)) %>%
+  arrange(start_time.x)
+
+filter <- comp_etf %>%
+  filter(site %in% c('hum2'))
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = duration_hr.y, x = duration_hr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf duration_hr:', paste("R2 =", round(summary(lm(filter$duration_hr.y ~ filter$duration_hr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+```
+
+Bennett next
+
+```{r}
+
+comp_benn <- comp_intens %>%
+  filter(site %in% c("mm", "me", "mw", "ue", "um", "uw")) %>%
+  mutate(
+    condition = case_when(
+      site == 'me' &
+        start_time.x < ymd_hms('2021-07-19 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'me' &
+        start_time.x > ymd_hms('2021-10-21 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-06-16 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'me' & 
+        start_time.x > ymd_hms('2023-09-07 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time.x < ymd_hms('2021-09-06 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time.x > ymd_hms('2021-10-12 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-05-22 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time.x > ymd_hms('2022-06-07 23:58:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-08-10 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time.x > ymd_hms('2022-12-15 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2023-06-09 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' & 
+        start_time.x > ymd_hms('2023-09-28 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time.x < ymd_hms('2021-08-20 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time.x > ymd_hms('2021-10-15 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-05-06 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time.x > ymd_hms('2022-07-06 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-08-03 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' & 
+        start_time.x > ymd_hms('2023-09-19 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'ue' &
+        start_time.x < ymd_hms('2021-09-06 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'ue' &
+        start_time.x > ymd_hms('2021-10-12 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2022-05-07 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' & 
+        start_time.x > ymd_hms('2023-05-22 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'um' & 
+        start_time.x < ymd_hms('2021-07-26 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'um' & 
+        start_time.x > ymd_hms('2021-08-01 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'uw' & 
+        start_time.x < ymd_hms('2021-07-19 00:00:00', tz = 'MST') ~ 'remove',
+      site == 'um' & 
+        start_time.x > ymd_hms('2023-09-07 00:00:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep')) %>%
+  filter(condition == 'keep') %>%
+  mutate(duration_hr.x = as.numeric(duration_hr.x),
+         duration_hr.y = as.numeric(duration_hr.y)) %>%
+  mutate_at(
+    c(
+      'MI60_mmhr.y',
+      'MI30_mmhr.y',
+      'MI20_mmhr.y',
+      'MI10_mmhr.y',
+      'event_sum_mm.y',
+      'duration_hr.y'),
+    ~ replace_na(., 0)
+  )
+
+filter <- comp_benn %>%
+  filter(site %in% c('me'))
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = duration_hr.y, x = duration_hr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf duration_hr:', paste("R2 =", round(summary(lm(filter$duration_hr.y ~ filter$duration_hr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+```
+
+CPF sites
+
+```{r}
+
+comp_cpf <- comp_intens %>%
+  filter(site %in% c('aspen', 'bighorn', 'bl4', 'dadd', 'dry', 'michigan', 'montgomery', 'mtcampus')) %>%
+  mutate(
+    condition = case_when(
+      site == 'aspen' &
+        start_time.x < ymd_hms('2021-05-18 14:30:00', tz = 'MST') ~ 'remove',
+      site == 'aspen' &
+        start_time.x > ymd_hms('2021-06-28 11:56:00', tz = 'MST') &
+        start_time.x < ymd_hms('2021-10-7 15:00:00', tz = 'MST') ~ 'remove',
+      site == 'aspen' &
+        start_time.x > ymd_hms('2023-09-21 12:45:00', tz = 'MST') ~ 'remove',
+      site == 'bighorn' &
+        start_time.x < ymd_hms('2021-05-07 11:20:00', tz = 'MST') ~ 'remove',
+      site == 'bl4' &
+        start_time.x < ymd_hms('2021-06-11 13:00:00', tz = 'MST') ~ 'remove',
+      site == 'bl4' &
+        start_time.x > ymd_hms('2023-09-04 14:15:00', tz = 'MST') ~ 'remove',
+      site == 'dadd' &
+        start_time.x > ymd_hms('2022-05-12 15:00:00', tz = 'MST') ~ 'remove',
+      site == 'dry' &
+        start_time.x < ymd_hms('2021-05-18 11:15:00', tz = 'MST') ~ 'remove',
+      site == 'michigan' &
+        start_time.x > ymd_hms('2021-10-24 11:15:00', tz = 'MST') ~ 'remove',
+      site == 'montgomery' &
+        start_time.x < ymd_hms('2021-06-11 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'montgomery' &
+        start_time.x > ymd_hms('2023-09-19 19:00:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep'
+    )
+  ) %>%
+  filter(condition == 'keep') %>%
+  mutate(duration_hr.x = as.numeric(duration_hr.x),
+         duration_hr.y = as.numeric(duration_hr.y)) %>%
+  mutate_at(
+    c(
+      'MI60_mmhr.y',
+      'MI30_mmhr.y',
+      'MI20_mmhr.y',
+      'MI10_mmhr.y',
+      'event_sum_mm.y',
+      'duration_hr.y'),
+    ~ replace_na(., 0)) %>%
+  arrange(start_time.x)
+
+filter <- comp_cpf %>%
+  filter(site %in% c('dadd'))
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = duration_hr.y, x = duration_hr.x, color = site)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf duration_hr:', paste("R2 =", round(summary(lm(filter$duration_hr.y ~ filter$duration_hr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+```
+
+# Extracted pixels distance from centroid
+wasn't giving accurate results in R so did it in arc gis - csv is in data folder
+
+```{r}
+
+
+```
+
+

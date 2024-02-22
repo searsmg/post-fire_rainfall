@@ -253,6 +253,8 @@ pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
   mutate(pwd = p_cumu_mm - et_cumu_mm) %>%
   mutate(lag_pwd = lag(pwd))
 
+write_csv(pwd, './data/final_model_inputs/pwd.csv')
+
 ```
 
 # Soil

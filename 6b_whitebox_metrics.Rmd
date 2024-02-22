@@ -332,16 +332,37 @@ metrics <- left_join(metrics, all_hypso, by = 'site')
 
 ```{r}
 
+flowdir_all <- rast('./data/GIS/pntr_flow.tif')
+
+# get flowpath direction first by site
+clip_flowdir <- function(site_names){
+  
+  site_boundary <- catchments %>%
+    tidyterra::filter(site == site_names)
+
+  current_site_flowdir <- terra::crop(flowdir_all,
+                                     site_boundary,
+                                     mask = T)
+  
+  
+  writeRaster(current_site_flowdir, paste0('./data/GIS/flowdir/', site_names, '_flowdir.tif'),
+              overwrite=T)
+  
+}
+
+map(site_names, clip_flowdir)
+
 # list site names
 site_names <- catchments$site
 
 # function to run downslope flowpath length for each site
-run_downslope_flowpath <- function(site_name) {
-  current_site_flowpath <- paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif')
-  current_site_lidar <- paste0('./data/GIS/site_lidar/', site_name, '_lidar.tif')
+run_downslope_flowpath <- function(site_names) {
+  current_site_flowpath <- paste0('./data/GIS/site_flowlength/', site_names, '_flow_length.tif')
+  current_site_lidar <- paste0('./data/GIS/site_lidar/', site_names, '_lidar.tif')
+  current_site_dir <- paste0('./data/GIS/flowdir/', site_names, '_flowdir.tif')
 
   wbt_downslope_flowpath_length(
-    d8_pntr = './data/GIS/pntr_flow.tif',
+    d8_pntr = current_site_dir,
     output = current_site_flowpath,
     watersheds = current_site_lidar
   )
@@ -351,16 +372,16 @@ run_downslope_flowpath <- function(site_name) {
 map(site_names, run_downslope_flowpath)
 
 # find the max length for each site next
-get_flowlength <- function(site_name){
+get_flowlength <- function(site_names){
 
-fl <- rast(paste0('./data/GIS/site_flowlength/', site_name, '_flow_length.tif'))
+fl <- rast(paste0('./data/GIS/site_flowlength/', site_names, '_flow_length.tif'))
 
 site_catch <- catchments %>%
-  tidyterra::filter(site == site_name)
+  tidyterra::filter(site == site_names)
 
 
 max_length <- terra::zonal(fl, site_catch, fun = 'max') %>% # this is in meters
-  mutate(site = site_name) %>%
+  mutate(site = site_names) %>%
   rename(flow_length = 1)
 
 }
@@ -402,79 +423,122 @@ Following are needed:
 -DEM
 -Downstream flow length
 
-Lets do this workflow for one site to start
-
 ```{r}
-# slope for all sites, then +0.005
+
+# 1. add 0.005 to slope so no zeroes
 slope <- rast('./data/GIS/slope.tif')
 s <- slope + 0.005
 
-dadd_boundary <- catchments %>%
-  tidyterra::filter(site == 'dadd')
-
-dadd_slope <- terra::crop(s, 
-                          dadd_boundary,
-                          mask = T)
-# flow accumulation for all sites, then +1
+# 2. flow accumulation for all sites, then +1
 flow_acc <- rast('./data/GIS/flow_accum.tif')
 flow_acc1 <- flow_acc + 1
 
-dadd_acc <- terra::crop(flow_acc1,
-                        dadd_boundary,
-                        mask = T)
+# 3. 1 / (C*S) = inv_cs
+inv_cs <- 1 / (lidar * s)
 
-# flow direction - come back to
-flow_dir <- rast('./data/GIS/pntr_flow.tif')
+## BY SITE ##
+# flow length weighted by inv_cs = X
+# list site names
+site_names <- catchments$site
 
+# function to run downslope flowpath length for each site and have it weighted by inv_cs
+run_downslope_flowpath_weighted <- function(site_names) {
+  current_site_flowpath <- paste0('./data/GIS/site_flowlength/weighted/', site_names, '_flow_length.tif')
+  current_site_lidar <- paste0('./data/GIS/site_lidar/', site_names, '_lidar.tif')
+  current_site_dir_path <- paste0('./data/GIS/flowdir/', site_names, '_flowdir.tif')
 
-# inverse of c*s (c = clipped lidar [or DEM])
-inv_cs <- 1 / (clipped_lidar * s)
+  site_boundary <- catchments %>%
+    tidyterra::filter(site == site_names)
 
-# crop inv_cs by site
-dadd_inv_cs <- terra::crop(inv_cs,
-                           dadd_boundary,
-                           mask = T)
-
-writeRaster(dadd_inv_cs, './data/GIS/site_flowlength/weighted/dadd_weight.tif')
-
-# crop pntr flow by site
-dadd_dir <- terra::crop(rast('./data/GIS/pntr_flow.tif'),
-                        dadd_boundary,
-                        mask = T)
-
-writeRaster(dadd_dir, './data/GIS/flowdir/dadd_dir.tif')
-
-##############################################
-# downstream flow length weighted by inv_cs 
-
-# Define a function to run downslope flowpath length for a given site
-current_site_flowpath <- './data/GIS/site_flowlength/weighted/dadd_flow_length.tif'
-current_site_dir <- './data/GIS/flowdir/dadd_dir.tif'
-current_site_lidar <- './data/GIS/site_lidar/dadd_lidar.tif'
-current_site_weight <- './data/GIS/site_flowlength/weighted/dadd_weight.tif'
-
-wbt_downslope_flowpath_length(
-    d8_pntr = current_site_dir,
+  current_site_weight <- terra::crop(inv_cs,
+                                     site_boundary,
+                                     mask = T)
+  
+  writeRaster(current_site_weight, paste0('./data/GIS/site_flowlength/weighted/', site_names, '_weight.tif'), overwrite=T)
+  current_site_weight_path <- paste0('./data/GIS/site_flowlength/weighted/', site_names, '_weight.tif')
+  
+  wbt_downslope_flowpath_length(
+    d8_pntr = current_site_dir_path,
     output = current_site_flowpath,
-    weights = current_site_weight,
-    watersheds = current_site_lidar)
+    weights = current_site_weight_path,
+    watersheds = current_site_lidar
+  )
+}
+
+# Use map to apply the function for each site in site_names
+map(site_names, run_downslope_flowpath_weighted)
+
+# Xs are located in ./data/GIS/site_flowlength/weighted
+
+# 5. Read in all Xs and get rid of 0s
+get_ddown <- function(site_names){
+  
+  X <- rast(paste0('./data/GIS/site_flowlength/weighted/', site_names, '_flow_length.tif'))
+  inv_cs <- rast(paste0('./data/GIS/site_flowlength/weighted/', site_names, '_weight.tif'))
+  
+  ddown <- ifel(X == 0, 
+                 inv_cs + X,
+                 X) # only adjust x=0
+  
+  writeRaster(ddown, paste0('./data/GIS/ddown/', site_names, '_ddown.tif'), overwrite=T)
+  
+}
+
+map(site_names, get_ddown)
+
+#############################
+
+# 6 & 7. had to do outside of R (arc gis) bc whitebox doesn't have tool to weight flow accumulation
+cmean <- rast('./data/GIS/flowacc_cweighted.tif')
+smean <- rast('./data/GIS/flowacc_sweighted.tif')
+
+# 8. Dup = cmean * smean * sqrt(flowacc) * 25
+dup <- ((cmean + lidar)/flow_acc1)) * ((smean + s)/flow_acc1)) * sqrt(flow_acc1 * 25)
+
+# 9. log10(Dup/Ddown) = IC but will first need to break Dup out by sites
+split_dup <- function(site_names){
+  
+  site_boundary <- catchments %>%
+    tidyterra::filter(site == site_names)
+
+  current_dup <- terra::crop(dup,
+                             site_boundary,
+                             mask = T)
+  
+  writeRaster(current_dup, paste0('./data/GIS/dup/', site_names, '_dup.tif'))
+  
+}
+
+map(site_names, split_dup)
+
+# now do log10(dup/ddown) for each site
+get_IC <- function(site_names) {
+  
+  site_dup <- rast(paste0('./data/GIS/dup/', site_names, '_dup.tif'))
+  site_ddown <- rast(paste0('./data/GIS/ddown/', site_names, '_ddown.tif'))
+  
+  IC <- log10(site_dup/site_ddown)
+  
+  writeRaster(IC, paste0('./data/GIS/IC/', site_names, '_IC.tif'))
+  
+  IC_fix <- ifel(IC == -Inf,
+                  NA, IC)
+  
+  IC_mean <- mean(IC_fix[], na.rm = T)
+  
+  IC_mean <- as.data.frame(IC_mean) %>%
+  mutate(site = site_names)
+
+}
 
 
-dadd_X <- rast(current_site_flowpath)
-
-
-dadd_ddn <- ifel(dadd_X == 0, 
-                 dadd_inv_cs + dadd_X,
-                 dadd_X)
-
-# D up for Cmean and Smean is done in arc gis pro
-# whitebox cannot weight flow accumulation
-
-
-
-
+final_IC <- map_df(site_names, get_IC) %>%
+  bind_rows()
 
 ```
+
+
+
 
 # Export
 
