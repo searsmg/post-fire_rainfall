@@ -1,0 +1,169 @@
+---
+title: "mrms spatial"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(here)
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(terra)
+library(stars)
+library(tmap)
+
+```
+
+```{r}
+
+# List all the files in the directory
+filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = TRUE)
+
+datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = F)
+
+timestamps <- substr(datetime, 12, 26)
+datetime_seq <- ymd_hms(timestamps)
+
+# Read all raster files and stack them together
+stack <- read_stars(filenames, along = 3)
+
+# Set the datetime dimension of the stack
+stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
+
+start_date <- ymd_hms('2023-06-01 00:00:00')
+end_date <- ymd_hms('2023-09-30 23:58:00')
+
+# Filter the stack_date object by datetime
+stack_use <- stack_date %>%
+  setNames('MI2_mmhr') %>%
+  mutate(p_mm =  MI2_mmhr*(1/30)) %>%
+  dplyr::select(-MI2_mmhr) %>%
+  filter(datetime > ymd_hms('2023-05-31 23:58:00'))
+
+#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
+
+# filter
+#stack_use$p_mm <- ifelse(stack_use$p_mm < 0.3, 0, stack_proper$p_mm)
+
+# Apply the function in parallel
+sum_all <- st_apply(
+  stack_use,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+
+# Plot the stars object
+#plot(sum_all)
+
+tmap_leaflet(
+  tm_shape(sum_all) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+# june 2023 sum
+june_stack <- stack_use %>%
+  filter(datetime > ymd_hms('2023-06-01 00:00:00'),
+         datetime < ymd_hms('2023-07-01 00:00:00'))
+
+june_sum <- st_apply(
+  june_stack,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+tmap_leaflet(
+  tm_shape(june_sum) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+# july 2023 sum
+july_stack <- stack_use %>%
+  filter(datetime > ymd_hms('2023-07-01 00:00:00'),
+         datetime < ymd_hms('2023-08-01 00:00:00'))
+
+july_sum <- st_apply(
+  july_stack,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+tmap_leaflet(
+  tm_shape(july_sum) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+# august 2023 sum
+aug_stack <- stack_use %>%
+  filter(datetime > ymd_hms('2023-08-01 00:00:00'),
+         datetime < ymd_hms('2023-09-01 00:00:00'))
+
+aug_sum <- st_apply(
+  aug_stack,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+tmap_leaflet(
+  tm_shape(aug_sum) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+# september 2023 sum
+sept_stack <- stack_use %>%
+  filter(datetime > ymd_hms('2023-09-01 00:00:00'),
+         datetime < ymd_hms('2023-10-01 00:00:00'))
+
+sept_sum <- st_apply(
+  sept_stack,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+tmap_leaflet(
+  tm_shape(sept_sum) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+rm(july_stack, june_stack, aug_stack, sept_stack)
+rm(stack_date, stack)
+rm(aug_sum, july_sum, june_sum, sept_sum, sum_all)
+
+# counts of p>10
+p10 <- stack_use %>%
+  mutate(p10 = if_else(p_mm > 10, 1, 0)) %>%
+  dplyr::select(-p_mm)
+
+sum_p10 <- st_apply(
+  p10,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+tmap_leaflet(
+  tm_shape(sum_p10) +
+    tm_raster(alpha = 0.7) +
+    tm_facets(as.layers = TRUE)
+)
+
+
+# need to figure out tz (think this is in UTC)
+# then figure out how to get events and intensities
+
+```
+
+
