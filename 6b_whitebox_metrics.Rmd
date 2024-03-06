@@ -493,7 +493,7 @@ cmean <- rast('./data/GIS/flowacc_cweighted.tif')
 smean <- rast('./data/GIS/flowacc_sweighted.tif')
 
 # 8. Dup = cmean * smean * sqrt(flowacc) * 25
-dup <- ((cmean + lidar)/flow_acc1)) * ((smean + s)/flow_acc1)) * sqrt(flow_acc1 * 25)
+dup <- ((cmean + lidar)/flow_acc1) * ((smean + s)/flow_acc1) * sqrt(flow_acc1 * 25)
 
 # 9. log10(Dup/Ddown) = IC but will first need to break Dup out by sites
 split_dup <- function(site_names){
@@ -537,16 +537,12 @@ final_IC <- map_df(site_names, get_IC) %>%
 
 ```
 
-
-
-
 # Export
 
 ```{r}
 
 # all but connecitvity are in here
 write_csv(metrics, './data/final_model_inputs/inputs2.csv')
-
 
 ```
 
