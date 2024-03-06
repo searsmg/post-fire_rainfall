@@ -19,7 +19,7 @@ library(R.utils) # to unzip the gz files
 library(tidyverse)
 library(lubridate)
 library(raster)
-library(rgdal)
+#library(rgdal)
 library(sf)
 library(sp)
 library(mapview)
@@ -28,6 +28,7 @@ library(tmap)
 library(foreach)
 library(doParallel)
 library(magrittr)
+library(beepr)
 
 ```
 
@@ -36,7 +37,7 @@ Create a bounding box to crop MRMS rasters (multi-QPE, QPE only, and SPR)
 ```{r}
 
 # ETF watersheds - don't need right now
-extra <- vect('./data/GIS/extra_mrms.shp') %>%
+bbox <- vect('/Users/megansears/Documents/MRMS/bbox_2fires/bbox_2fires.shp')%>%
   terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
 
 # # All rain sensors for CPF, ETF, Bennett
@@ -47,20 +48,23 @@ extra <- vect('./data/GIS/extra_mrms.shp') %>%
 #   st_transform(crs = st_crs(et_sheds))
 
 # Bounding box based on rain sensors to crop MRMS data
-extra1 <- as(extra, 'Spatial')
-bbox <- st_bbox(extra1)
+bbox <- as(bbox, 'Spatial')
+#bbox <- st_bbox(drowsy1)
 
-# Bounding box cuts off some points so expand it
-xrange <- bbox$xmax - bbox$xmin # range of x values
-yrange <- bbox$ymax - bbox$ymin # range of y values
+# mapview(drowsy1)
+# mapview(bbox)
 
-bbox[1] <- bbox[1] - (0.1 * xrange) # xmin - left
-bbox[3] <- bbox[3] + (0.1 * xrange) # xmax - right
-bbox[2] <- bbox[2] - (0.1 * yrange) # ymin - bottom
-bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
-
-# Check bbox 
-#mapview(bbox)
+# # Bounding box cuts off some points so expand it
+# xrange <- bbox$xmax - bbox$xmin # range of x values
+# yrange <- bbox$ymax - bbox$ymin # range of y values
+# 
+# bbox[1] <- bbox[1] - (0.1 * xrange) # xmin - left
+# bbox[3] <- bbox[3] + (0.1 * xrange) # xmax - right
+# bbox[2] <- bbox[2] - (0.1 * yrange) # ymin - bottom
+# bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
+# 
+# # Check bbox 
+# mapview(bbox)
 
 
 
@@ -91,12 +95,9 @@ test <- raster('/Users/megansears/Documents/MRMS/MultiSensor/2022/MultiSensor_QP
 crs(test) <- "+proj=longlat +datum=WGS84 +no_defs"
 #crs(test) <- "ESRI:102009"
 
-plot(test)
-mapview(test)
-
 test1 <- raster::crop(test, bbox)
 
-mapview(test1) + mapview(extra1)
+mapview(test1)
 
 ```
 
@@ -109,8 +110,8 @@ Need to divide MultiQPE by QPE to get the correction used (this later gets appli
 setwd("/Users/megansears/Documents/MRMS")
 
 # File names of the rasters in Multi Sensor QPE and QPE only
-multi_rasters <- list.files("./MultiSensor/2022", pattern = ".grib2", full.names = TRUE)
-folder2_rasters <- list.files("./QPE/2022", pattern = "grib2", full.names = TRUE)
+multi_rasters <- list.files("./MultiSensor/2021", pattern = ".grib2", full.names = TRUE)
+folder2_rasters <- list.files("./QPE/2021", pattern = "grib2", full.names = TRUE)
 
 # Function to perform the division (multi_qpe / qpe) and save raster
 perform_division <- function(raster1, raster2, result_folder) {
@@ -149,7 +150,7 @@ perform_division <- function(raster1, raster2, result_folder) {
 }
 
 # Apply the function to each pair of matching rasters
-result_folder <- "./MultiSensor_QPE_divide/extra_2022"  # Path to the folder to store the resulting rasters
+result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"  # Path to the folder to store the resulting rasters
 
 # Set the number of cores to use for parallel processing
 num_cores <- 8
@@ -182,7 +183,7 @@ Get rid of .grib2 from all the filenames
 ```{r}
 
 # Dir path where files are located
-dir <- './MultiSensor_QPE_divide/extra_2022'
+dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021'
 
 # List the files in directory
 file_list <- list.files(dir)
@@ -229,7 +230,8 @@ Project and crop the 2-min SPR and save as tif so it can be multiplied by the co
 ```{r}
 
 # Path to 2 min data
-folder_path <- '/Volumes/Kampf/Private/SearsM/MRMS_2023_preciprate'
+folder_path <- '/Users/megansears/Documents/MRMS/SPR/2021/processed_gribs'
+folder_path2 <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021'
 
 # Get the list of GRIB2 files in the folder
 files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
@@ -254,7 +256,7 @@ process_file <- function(file) {
   
   # Save the raster as .tif
   new_file_name <- paste0(tools::file_path_sans_ext(basename(file)), "_processed.tif")
-  new_file_path <- file.path(folder_path, new_file_name)
+  new_file_path <- file.path(folder_path2, new_file_name)
   writeRaster(r, filename = new_file_path, overwrite = TRUE)
   
   # Remove unnecessary objects
@@ -263,11 +265,18 @@ process_file <- function(file) {
 
 # Use parallel processing with foreach
 foreach(file = files, .packages = c("raster")) %dopar% {
-  process_file(file)
+  tryCatch({
+    process_file(file)
+  }, error = function(e) {
+    message(paste("Error processing file:", file))
+    message("Error message:", e)
+  })
 }
 
 # Stop parallel processing
 stopCluster(cl)
+
+beep(sound=8)
 
 ```
 
@@ -280,7 +289,7 @@ First remove 'processed' from the projected and cropped SPR (2min) data
 ```{r}
 
 # Set the folder path
-dir <- '/Users/megansears/Documents/MRMS/SPR/2022/done_grib2'
+dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021'
 
 # Get the list of files in the folder
 file_list <- list.files(dir, full.names = TRUE)
@@ -302,6 +311,8 @@ for (file_path in file_list) {
   }
 }
 
+beep(sound=8)
+
 ```
 
 Now multiply
@@ -309,9 +320,9 @@ Now multiply
 ```{r}
 
 # Define the folder paths for the result (result of the divide) and precip rate rasters
-result_folder <- "/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/extra_2022"
-precip_folder <- "/Users/megansears/Documents/MRMS/SPR/2022/done_grib2"
-multiplied_folder <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022" # where the rasters will go
+result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"
+precip_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021"
+multiplied_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021" # where the rasters will go
 
 # List of precip rate raster files
 precip_files <- list.files(precip_folder, pattern = "^PrecipRate_.*\\.tif$", full.names = TRUE)
@@ -394,6 +405,7 @@ foreach(precip_file = precip_files, .packages = c("raster")) %dopar% {
 # Stop parallel processing
 stopCluster(cl)
 
+beep(sound=8)
 
 ```
 
@@ -401,13 +413,17 @@ stopCluster(cl)
 
 ```{r}
 
-mult <- raster('/Users/megansears/Documents/MRMS/correctedSPR/test2/multiplied_20220508-230000.tif')
-corr <- raster('/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/2022/result_20220508-230000.tif')
-spr <- raster('/Users/megansears/Documents/MRMS/SPR/2022/processed_tifs/PrecipRate_00.00_20220508-230000.tif')
+mult <- raster('/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/multiplied_20230615-080800.tif')
+corr <- raster('/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/drowsy_2023/result_20230615-090000.tif')
+spr <- raster('/Users/megansears/Documents/MRMS/SPR/drowsy_2023/PrecipRate_00.00_20230615-080800.tif')
+
+mapview(mult)
 
 test1 <- corr*spr
 test2 <- test1-mult
 mapview(test2)
+
+plot(test2)
 
 mapview(mult) + mapview(corr) + mapview(spr)
 
