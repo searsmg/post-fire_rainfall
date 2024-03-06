@@ -198,8 +198,8 @@ all_intens <- all_intens %>%
   mutate(event = 1:n()) %>%
   mutate(year = year(start_time))
 
-ggplot(test, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
-ggplot(test, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
+#ggplot(test, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
+#ggplot(test, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
 write.csv(all_intens, './data/final/mrms/all_mrms_intensities.csv')
 
