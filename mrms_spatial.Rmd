@@ -20,10 +20,19 @@ library(zoo)
 library(terra)
 library(stars)
 library(tmap)
+library(sf)
+library(mapview)
 
 ```
 
 ```{r}
+# read in fire boundaries
+et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
+cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp')
+
+fires <- rbind(et, cp)
+
+fires_stars <- st_as_stars(fires)
 
 # List all the files in the directory
 filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = TRUE)
@@ -31,7 +40,7 @@ filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023"
 datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = F)
 
 timestamps <- substr(datetime, 12, 26)
-datetime_seq <- ymd_hms(timestamps)
+datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60)
 
 # Read all raster files and stack them together
 stack <- read_stars(filenames, along = 3)
@@ -39,40 +48,34 @@ stack <- read_stars(filenames, along = 3)
 # Set the datetime dimension of the stack
 stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
 
-start_date <- ymd_hms('2023-06-01 00:00:00')
-end_date <- ymd_hms('2023-09-30 23:58:00')
-
 # Filter the stack_date object by datetime
-stack_use <- stack_date %>%
+stack2023 <- stack_date %>%
   setNames('MI2_mmhr') %>%
   mutate(p_mm =  MI2_mmhr*(1/30)) %>%
   dplyr::select(-MI2_mmhr) %>%
-  filter(datetime > ymd_hms('2023-05-31 23:58:00'))
+  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
+         datetime < ymd_hms('2023-09-30 23:58:00'))
+
+rm(stack, stack_date)
 
 #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
+load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
 
 # filter
 #stack_use$p_mm <- ifelse(stack_use$p_mm < 0.3, 0, stack_proper$p_mm)
 
-# Apply the function in parallel
-sum_all <- st_apply(
-  stack_use,
+# sum summer 2023
+sum_all2023 <- st_apply(
+  stack2023,
   MARGIN = c("x", "y"),
   FUN = sum
 )
 
-
-# Plot the stars object
-#plot(sum_all)
-
-tmap_leaflet(
-  tm_shape(sum_all) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
-)
+mapview(sum_all2023) + 
+  mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 # june 2023 sum
-june_stack <- stack_use %>%
+june_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-06-01 00:00:00'),
          datetime < ymd_hms('2023-07-01 00:00:00'))
 
@@ -82,14 +85,11 @@ june_sum <- st_apply(
   FUN = sum
 )
 
-tmap_leaflet(
-  tm_shape(june_sum) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
-)
+mapview(june_sum) + 
+  mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 # july 2023 sum
-july_stack <- stack_use %>%
+july_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-07-01 00:00:00'),
          datetime < ymd_hms('2023-08-01 00:00:00'))
 
@@ -99,14 +99,11 @@ july_sum <- st_apply(
   FUN = sum
 )
 
-tmap_leaflet(
-  tm_shape(july_sum) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
-)
+mapview(july_sum) + 
+  mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 # august 2023 sum
-aug_stack <- stack_use %>%
+aug_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-08-01 00:00:00'),
          datetime < ymd_hms('2023-09-01 00:00:00'))
 
@@ -116,14 +113,11 @@ aug_sum <- st_apply(
   FUN = sum
 )
 
-tmap_leaflet(
-  tm_shape(aug_sum) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
-)
+mapview(aug_sum) + 
+  mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 # september 2023 sum
-sept_stack <- stack_use %>%
+sept_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-09-01 00:00:00'),
          datetime < ymd_hms('2023-10-01 00:00:00'))
 
@@ -133,19 +127,28 @@ sept_sum <- st_apply(
   FUN = sum
 )
 
-tmap_leaflet(
-  tm_shape(sept_sum) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
-)
+mapview(sept_sum) + 
+  mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 rm(july_stack, june_stack, aug_stack, sept_stack)
-rm(stack_date, stack)
-rm(aug_sum, july_sum, june_sum, sept_sum, sum_all)
+rm(aug_sum, july_sum, june_sum, sept_sum, sum_all2023)
 
 # counts of p>10
-p10 <- stack_use %>%
-  mutate(p10 = if_else(p_mm > 10, 1, 0)) %>%
+p10 <- stack2023 %>%
+  mutate(p10 = if_else(p_mm >= 10, 1, 0)) %>%
+  dplyr::select(-p_mm)
+
+
+# Define a function to calculate p10
+calculate_p10 <- function(x) {
+  result <- ifelse(x >= 10, 1, 0)
+  return(result)
+}
+
+# Apply the function to the 'p_mm' attribute
+stack2023$p10 <- st_apply(stack2023, 1:2, calculate_p10)
+
+p10 <- stack2023 %>%
   dplyr::select(-p_mm)
 
 sum_p10 <- st_apply(
@@ -154,15 +157,106 @@ sum_p10 <- st_apply(
   FUN = sum
 )
 
-tmap_leaflet(
-  tm_shape(sum_p10) +
-    tm_raster(alpha = 0.7) +
-    tm_facets(as.layers = TRUE)
+mapview(sum_p10)
+
+max_values <- st_apply(stack2023, 1:2, max)
+max_values # no 2min 2023 values are greater than 10
+```
+
+# Get stack into 10 mins
+
+```{r}
+
+# Define the datetime dimension values from the stars object
+datetime_values <- st_dimensions(stack2023)$datetime$values
+
+# Round datetime values to the nearest future 10 minutes
+datetime_rounded <- ceiling_date(datetime_values, "10 minutes")
+
+# add it as an attribute
+stack2023$datetime_round <- datetime_rounded
+
+#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
+load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
+
+#test <- as.data.frame(stack2023) 
+tibble <- as_tibble(stack2023)
+
+rm(stack2023)
+
+tibble <- tibble %>%
+  select(-datetime)
+
+n <- nrow(tibble)
+
+half1 <- tibble %>% 
+  slice(1:(n/2))
+
+# come back to half2
+half2 <- tibble %>% slice(((n/2) + 1):n)
+rm(tibble)
+
+half2 <- half2 %>%
+  group_by(x,y,datetime_round) %>%
+  summarize(p10_mm = sum(p_mm))
+
+save(half2, file = "half2_2023_bbox2fire.Rdata")
+
+load('half1_2023_bbox2fire.Rdata')
+load('half2_2023_bbox2fire.Rdata')
+
+combine <- bind_rows(half1, half2)
+
+rm(half1, half2)
+
+combine <- combine %>%
+  group_by(x,y,datetime_round) %>%
+  summarize(p10_mm = sum(p10_mm))
+
+back <- st_as_stars(combine, dims = c("x", "y", "datetime_round"))
+st_crs(back) <- st_crs("+proj=longlat +datum=WGS84")
+
+mapview(back)
+
+
+sum_ignore_na <- function(x) {
+  sum(x, na.rm = TRUE)
+}
+
+# Apply the custom function with st_apply
+sum_2023_test <- st_apply(
+  back,
+  MARGIN = c("x", "y"),
+  FUN = sum_ignore_na
 )
 
+mapview(sum_2023_test)
 
-# need to figure out tz (think this is in UTC)
-# then figure out how to get events and intensities
+
+stack_sum <-  st_apply(
+  stack2023,
+  MARGIN = c("x", "y"),
+  FUN = sum
+)
+
+mapview(stack_sum)
+
+# leaving off on 3/19/23:
+# -Made stack2023 into tibble
+# -Remove datetime from tibble
+# -Cut tibble in half because of vector memory
+# -Grouped by x,y,datetime_round
+# -Sum p_mm based on those groups
+# -Exported half1
+# -Repeated steps for half2
+# -Combined half1 and half2
+# -Grouped combine by x,y,datetime_round and summed p10_mm
+# -Put combine df as stars
+# -Summed new stars object
+# -Compared to stack sum of 2mins
+# -Comparison was spot on
+# -Need to compare indiv timesteps
+# -Any why is back plot so weird with all the NAs when combine has none
 
 ```
 
