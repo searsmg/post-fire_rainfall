@@ -166,57 +166,61 @@ max_values # no 2min 2023 values are greater than 10
 # Get stack into 10 mins
 
 ```{r}
-
-# Define the datetime dimension values from the stars object
-datetime_values <- st_dimensions(stack2023)$datetime$values
-
-# Round datetime values to the nearest future 10 minutes
-datetime_rounded <- ceiling_date(datetime_values, "10 minutes")
-
-# add it as an attribute
-stack2023$datetime_round <- datetime_rounded
+#THE BELOW DOES NOT WORK (the date time stuff)
+# # Define the datetime dimension values from the stars object
+# datetime_values <- st_dimensions(stack2023)$datetime$values
+# 
+# # Round datetime values to the nearest future 10 minutes
+# datetime_rounded <- ceiling_date(datetime_values, "10 minutes")
+# 
+# # add it as an attribute
+# stack2023$datetime_round <- datetime_rounded
 
 #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
 load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
 
-#test <- as.data.frame(stack2023) 
-tibble <- as_tibble(stack2023)
+# try filtering for month and aggregate that when then add back together
+june_stack <- stack2023 %>%
+  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
+         datetime < ymd_hms('2023-07-01 00:00:00'))
 
 rm(stack2023)
 
-tibble <- tibble %>%
-  select(-datetime)
+# make df
+tibble <- as_tibble(june_stack)
 
-n <- nrow(tibble)
+rm(june_stack)
+gc()
 
-half1 <- tibble %>% 
-  slice(1:(n/2))
+# aggregate
+stack <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  mutate(p_mm = ifelse(abs(p_mm) < 1e-10, 0, p_mm))  # get rid of small and negative values
 
-# come back to half2
-half2 <- tibble %>% slice(((n/2) + 1):n)
 rm(tibble)
+gc()
 
-half2 <- half2 %>%
-  group_by(x,y,datetime_round) %>%
-  summarize(p10_mm = sum(p_mm))
+stack <- st_as_stars(stack, dims = c("x", "y"))
+st_crs(stack) <- st_crs("+proj=longlat +datum=WGS84")
 
-save(half2, file = "half2_2023_bbox2fire.Rdata")
+mapview(stack)
+# on to something here but datetime is still not right so look at that
 
-load('half1_2023_bbox2fire.Rdata')
-load('half2_2023_bbox2fire.Rdata')
+############################################
 
-combine <- bind_rows(half1, half2)
+first_layer <- stack[,,,1]
+mapview(first_layer)
 
-rm(half1, half2)
+# Access the second layer
+second_layer <- stack[,,,2]
+mapview(second_layer)
+# Access the third layer
+third_layer <- stack[,,,3]
+mapview(third_layer)
 
-combine <- combine %>%
-  group_by(x,y,datetime_round) %>%
-  summarize(p10_mm = sum(p10_mm))
 
-back <- st_as_stars(combine, dims = c("x", "y", "datetime_round"))
-st_crs(back) <- st_crs("+proj=longlat +datum=WGS84")
-
-mapview(back)
 
 
 sum_ignore_na <- function(x) {
@@ -240,6 +244,7 @@ stack_sum <-  st_apply(
 )
 
 mapview(stack_sum)
+
 
 # leaving off on 3/19/23:
 # -Made stack2023 into tibble
