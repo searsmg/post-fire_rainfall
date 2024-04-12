@@ -14,8 +14,8 @@ editor_options:
 ```{r, include = F}
 knitr::opts_chunk$set(echo = F,
                       message = F,
-                      fig.width = 18,
-                      fig.height = 9)
+                      fig.width = 14,
+                      fig.height = 6)
 
 library(tidyverse)
 library(stringr)
@@ -43,43 +43,63 @@ chem <- read_csv(here('./rmrs_chem/et_waterchem.csv')) %>%
   rename(site = csu_id) %>%
   mutate(year = year(Date))
 
-# look at chemistry data
-ggplot(chem, aes(Date, NO3, fill=site)) + geom_col(position='dodge', width=15) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
 
 # look at chemistry data
-ggplot(chem, aes(Date, TDN, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, NO3, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
 # look at chemistry data
-ggplot(chem, aes(Date, DOC, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, TDN, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
 # look at chemistry data
-ggplot(chem, aes(Date, NH4, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, DOC, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
 # look at chemistry data
-ggplot(chem, aes(Date, DON, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, NH4, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
 # look at chemistry data
-ggplot(chem, aes(Date, Ca, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, DON, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
-ggplot(chem, aes(Date, SO4, fill=site)) + geom_col(position='dodge', width=15) +
+# look at chemistry data
+ggplot(chem, aes(Date, Ca, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
 
-ggplot(chem, aes(Date, K, fill=site)) + geom_col(position='dodge', width=15) +
+ggplot(chem, aes(Date, SO4, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
   scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
   facet_wrap(~year, scales='free_x')
+
+ggplot(chem, aes(Date, PO4, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+ggplot(chem, aes(Date, Na, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+ggplot(chem, aes(Date, COND, color=site)) + #geom_col(position='dodge', width=15) +
+  geom_point(size=4) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
 
 ```
 
