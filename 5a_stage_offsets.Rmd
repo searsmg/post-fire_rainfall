@@ -112,7 +112,8 @@ hm_adjust <- hm_adjust %>%
 
 hm <- ggplot(hm_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = hm_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(hm)
@@ -203,7 +204,8 @@ hum_adjust <- hum_adjust %>%
          
 hum <- ggplot(hum_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = hum_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(hum)
@@ -297,7 +299,8 @@ mpm_adjust <- mpm_adjust %>%
         
 mpm <- ggplot(mpm_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = mpm_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(mpm)
@@ -312,7 +315,7 @@ mpm_adjust <- mpm_adjust %>%
 
 mpm_q <- ggplot(mpm_adjust)+
   geom_line(aes(x=datetime,y=Q_Ls)) +
-  geom_point(aes(x=datetime,y=Q_Ls)) +
+  #geom_point(aes(x=datetime,y=Q_Ls)) +
   geom_point(data = q_manual_mpm, aes(x=datetime, y=discharge_Ls), color = 'blue')
 
 ggplotly(mpm_q)
@@ -345,7 +348,7 @@ mub_adjust <- mub_adjust %>%
          !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>%
   mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
                             Stage_cm + 4.3,
-                            Stage_cm)) 
+                            Stage_cm))
         #  Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:25:00', tz = 'MST'),
         #                     Stage_fix + 11.9,
         #                     Stage_fix),
@@ -356,7 +359,8 @@ mub_adjust <- mub_adjust %>%
 
 mub <- ggplot(mub_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = mub_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(mub)
@@ -412,7 +416,8 @@ mum_adjust <- mum_adjust %>%
 
 mum <- ggplot(mum_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = mum_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(mum)
@@ -477,7 +482,8 @@ p1_adjust <- p1_adjust %>%
         
 p1 <- ggplot(p1_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = p1_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(p1)
@@ -550,7 +556,8 @@ p2_adjust <- p2_adjust %>%
 
 p2 <- ggplot(p2_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
-  geom_point(aes(x=datetime,y=Stage_fix)) +
+  #geom_point(aes(x=datetime,y=Stage_fix)) +
+  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
   geom_point(data = p2_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
 
 ggplotly(p2)

@@ -12,11 +12,10 @@ editor_options:
 ---
 
 ```{r, include = F}
-
 knitr::opts_chunk$set(echo = F,
                       message = F,
-                      fig.width = 12,
-                      fig.height = 6)
+                      fig.width = 18,
+                      fig.height = 9)
 
 library(tidyverse)
 library(stringr)
@@ -24,149 +23,200 @@ library(lubridate)
 library(plotly)
 library(kableExtra)
 library(here)
-library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(ggplot2); theme_set(theme_bw(base_size = 24))
 library(zoo)
 library(corrplot)
 library(stats)
 library(ggcorrplot)
+library(readxl)
 
 ```
 
-# Bring in data
+# Chemistry
 
-```{r}
+```{r, echo = F, warning = F}
 
 # rmrs chem
-chem <- read_csv(here('./rmrs_chem/ET_WaterChem_110623_MeganS.csv')) %>%
-  drop_na(CSU_ID) %>% # drop NAs under CSU_ID
+chem <- read_csv(here('./rmrs_chem/et_waterchem.csv')) %>%
+  drop_na(csu_id) %>% # drop NAs under CSU_ID
   mutate(Date = mdy(DATE)) %>%
-  rename(site = CSU_ID)
-  
-  # predictors
+  rename(site = csu_id) %>%
+  mutate(year = year(Date))
+
+# look at chemistry data
+ggplot(chem, aes(Date, NO3, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+# look at chemistry data
+ggplot(chem, aes(Date, TDN, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+# look at chemistry data
+ggplot(chem, aes(Date, DOC, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+# look at chemistry data
+ggplot(chem, aes(Date, NH4, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+# look at chemistry data
+ggplot(chem, aes(Date, DON, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+# look at chemistry data
+ggplot(chem, aes(Date, Ca, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+ggplot(chem, aes(Date, SO4, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+ggplot(chem, aes(Date, K, fill=site)) + geom_col(position='dodge', width=15) +
+  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
+  facet_wrap(~year, scales='free_x')
+
+```
+
+# Predictors
+
+```{r, include = F}
+# predictors
 # filter out sites that are not ET
-inputs1 <- read_csv(here('./data/final_model_inputs/inputs1.csv')) %>%
-  filter(site %in% c('p1','p2',
-                     'hum','hm',
-                     'mum','mpm',
-                     'mm_et','mub',
-                     'lum','lpm',
-                     'lm')) %>%
-  select(-c(Shape_Leng, Shape_Area, 
-            ID, area_km2))
+# inputs1 <- read_csv(here('./data/final_model_inputs/inputs1.csv')) %>%
+#   filter(site %in% c('p1','p2',
+#                      'hum','hm',
+#                      'mum','mpm',
+#                      'mm_et','mub',
+#                      'lum','lpm',
+#                      'lm')) %>%
+#   select(-c(Shape_Leng, Shape_Area, 
+#             ID, area_km2))
+# 
+# inputs2 <- read_csv(here('./data/final_model_inputs/inputs2.csv')) %>%
+#   filter(site %in% c('p1','p2',
+#                      'hum','hm',
+#                      'mum','mpm',
+#                      'mm_et','mub',
+#                      'lum','lpm',
+#                      'lm')) %>%
+#   select(-c(count, Shape_Leng, 
+#             Shape_Area, ELONGATION, 
+#             RC_CIRCLE, ID,
+#             area_km2,
+#             relative_area,
+#             relative_elev))
+# 
+# inputs3 <- read_csv(here('./data/final_model_inputs/pwd.csv')) %>%
+#   filter(site %in% c('p1','p2',
+#                      'hum','hm',
+#                      'mum','mpm',
+#                      'mm_et','mub',
+#                      'lum','lpm',
+#                      'lm')) %>%
+#   select(site, lag_pwd, Date, WY) #%>% #add this back
+#   filter(Date > '2022-05-31')
+# 
+# inputs4 <- read_csv(here('./data/final_model_inputs/hypso.csv')) %>%
+#     filter(site %in% c('p1','p2',
+#                      'hum','hm',
+#                      'mum','mpm',
+#                      'mm_et','mub',
+#                      'lum','lpm',
+#                      'lm'))
+# 
+# # join predictor data (all except rain metrics)
+# pred <- left_join(inputs2, inputs1, by = 'site')
+# pred <- left_join(inputs3, pred, by = 'site')
+# pred <- left_join(pred, inputs4, by = 'site')
 
-inputs2 <- read_csv(here('./data/final_model_inputs/inputs2.csv')) %>%
-  filter(site %in% c('p1','p2',
-                     'hum','hm',
-                     'mum','mpm',
-                     'mm_et','mub',
-                     'lum','lpm',
-                     'lm')) %>%
-  select(-c(count, Shape_Leng, 
-            Shape_Area, ELONGATION, 
-            RC_CIRCLE, ID,
-            area_km2,
-            relative_area,
-            relative_elev))
+```
 
-inputs3 <- read_csv(here('./data/final_model_inputs/pwd.csv')) %>%
-  filter(site %in% c('p1','p2',
-                     'hum','hm',
-                     'mum','mpm',
-                     'mm_et','mub',
-                     'lum','lpm',
-                     'lm')) %>%
-  select(site, lag_pwd, Date, WY) %>%
-  filter(Date > '2022-05-31')
+# Rain
 
-inputs4 <- read_csv(here('./data/final_model_inputs/hypso.csv')) %>%
-    filter(site %in% c('p1','p2',
-                     'hum','hm',
-                     'mum','mpm',
-                     'mm_et','mub',
-                     'lum','lpm',
-                     'lm'))
-
-# join predictor data
-pred <- left_join(inputs2, inputs1, by = 'site')
-pred <- left_join(inputs3, pred, by = 'site')
-pred <- left_join(pred, inputs4, by = 'site')
-
+```{r, include = F}
 # bring in rain predictors
-rain <- read_csv(here('./data/final/mrms/all_mrms_intensities.csv')) %>%
-  rename(site = ID) %>% 
-  filter(site %in% c('p1','p2',
-                     'hum','hm',
-                     'mum','mpm',
-                     'mm_et','mub',
-                     'lum','lpm',
-                     'lm')) %>%
-  select(-c(1, event, year)) %>%
-  mutate(Date = as.Date(start_time)) %>%
-  filter(Date > '2022-05-31')
-# how many rain dates start on the same day at the same site? *******
-#################################
-# try to join rain and chem first
-
-
-
-
-#################################
-pred <- left_join(pred, rain, by = c('site', 'Date'))
-
-ndvi <- pred %>%
-  select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
-  pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
-  mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
-  filter(!year == 2021) %>%
-  rename(WY = year)
-  
-pred <- pred %>%
-  select(-c(NDVI_2021, NDVI_2022, 
-            NDVI_2023)) %>%
-  left_join(., ndvi, by = c('site','WY'))
-
-# lets test to make sure everything joined OK
-pred_test <- pred %>%
-  sample_n(10)
-
-
-
-cor <- pred %>%
-  select(-c(site, Date,
-            start_time, end_time,
-            geology,
-            geo_general))
-
-
-matrix_cor_pred <- cor(cor, use = 'complete.obs')
-
-ggcorrplot(matrix_cor_pred,
-           lab = T)
+# rain <- read_csv(here('./data/final/mrms/all_mrms_intensities.csv')) %>%
+#   rename(site = ID) %>% 
+#   filter(site %in% c('p1','p2',
+#                      'hum','hm',
+#                      'mum','mpm',
+#                      'mm_et','mub',
+#                      'lum','lpm',
+#                      'lm')) %>%
+#   select(-c(1, event, year)) %>%
+#   mutate(Date = as.Date(start_time)) %>%
+#   filter(Date > '2022-05-31')
+# # how many rain dates start on the same day at the same site? *******
+# #################################
+# # try to join rain and chem first
+# 
+# 
+# 
+# 
+# #################################
+# pred <- left_join(pred, rain, by = c('site', 'Date'))
+# 
+# ndvi <- pred %>%
+#   select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
+#   pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
+#   mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
+#   filter(!year == 2021) %>%
+#   rename(WY = year)
+#   
+# pred <- pred %>%
+#   select(-c(NDVI_2021, NDVI_2022, 
+#             NDVI_2023)) %>%
+#   left_join(., ndvi, by = c('site','WY'))
+# 
+# # lets test to make sure everything joined OK
+# pred_test <- pred %>%
+#   sample_n(10)
+# 
+# 
+# 
+# cor <- pred %>%
+#   select(-c(site, Date,
+#             start_time, end_time,
+#             geology,
+#             geo_general))
+# 
+# 
+# matrix_cor_pred <- cor(cor, use = 'complete.obs')
+# 
+# ggcorrplot(matrix_cor_pred,
+#            lab = T)
+# 
+# ```
+# 
+# # Chem with predictors
+# 
+# ```{r, include = F}
+# 
+# all <- left_join(chem, pred, by = c('site', 'Date'))
+# 
+# # prep for cor matrix
+# chem_cor <- all %>%
+#   select(-c(site, Date, geology, geo_general, start_time, end_time))
+# 
+# predictor_names <- names(chem_cor)[1:31]
+# response_names <- names(chem_cor)[38:50]
+# 
+# correlation_matrix <- cor(chem_cor[c(response_names, predictor_names)],
+#                           use = 'complete.obs')
+# 
+# 
+# 
+# ggcorrplot(correlation_matrix,
+#            lab = T)
+# 
+# ggplot(chem_cor, aes(catchment_area_km2, TSS)) + geom_point()
 
 ```
 
-# Join the chem and predictors together
-
-```{r}
-
-all <- left_join(chem, pred, by = c('site', 'Date'))
-
-# prep for cor matrix
-chem_cor <- all %>%
-  select(-c(site, Date, geology, geo_general, start_time, end_time))
-
-predictor_names <- names(chem_cor)[1:31]
-response_names <- names(chem_cor)[38:50]
-
-correlation_matrix <- cor(chem_cor[c(response_names, predictor_names)],
-                          use = 'complete.obs')
-
-
-
-ggcorrplot(correlation_matrix,
-           lab = T)
-
-ggplot(chem_cor, aes(catchment_area_km2, TSS)) + geom_point()
-
-```
 
