@@ -78,7 +78,7 @@ bbox <- as(bbox, 'Spatial')
 setwd("/Users/megansears/Documents/MRMS/SPR/2022")
 
 # Unzip all files
-unzip <- list.files(path = '/Volumes/Sears_ARS/spr_2021_jun_jul/batch2', pattern = '.gz',
+unzip <- list.files(path = '/Users/megansears/Documents/MRMS/SPR/2021/2021_missing', pattern = '.gz',
                   full.names = T)
 
 unzip_all <- lapply(unzip, gunzip)
@@ -230,8 +230,8 @@ Project and crop the 2-min SPR and save as tif so it can be multiplied by the co
 ```{r}
 
 # Path to 2 min data
-folder_path <- '/Users/megansears/Documents/MRMS/SPR/2021/processed_gribs'
-folder_path2 <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021'
+folder_path <- '/Users/megansears/Documents/MRMS/SPR/2021/2021_missing'
+folder_path2 <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing'
 
 # Get the list of GRIB2 files in the folder
 files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
@@ -289,7 +289,7 @@ First remove 'processed' from the projected and cropped SPR (2min) data
 ```{r}
 
 # Set the folder path
-dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021'
+dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing'
 
 # Get the list of files in the folder
 file_list <- list.files(dir, full.names = TRUE)
@@ -321,7 +321,7 @@ Now multiply
 
 # Define the folder paths for the result (result of the divide) and precip rate rasters
 result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"
-precip_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021"
+precip_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing"
 multiplied_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021" # where the rasters will go
 
 # List of precip rate raster files
