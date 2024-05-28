@@ -61,53 +61,55 @@ get_mrms_events <- function(df, datetime) {
 ```{r rainfall metrics, echo=FALSE}
 
 # load in 2021-2023 data
-all_2023 <- read_csv('./data/final/mrms/catchments_2023_mrms.csv') %>%
+all_2023 <- read_csv('/Users/megansears/Desktop/debris_flows/2023_p/cpf_debrisflow_p_2023.csv') %>%
   dplyr::select(-1) %>%
   rename(ID = catchment) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
-  filter(!ID == 'MiddleUnburned')
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) #%>%
+  #filter(!ID == 'MiddleUnburned')
   
 # load in 2021 and 2022 data
-all_2021 <- read_csv('./data/final/mrms/catchments_2021_mrms.csv') %>%
+all_2021 <- read_csv('/Users/megansears/Desktop/debris_flows/2021_p/cpf_debrisflow_p_2021.csv') %>%
   dplyr::select(-1) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
-  filter(!ID == 'MiddleUnburned')
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) #%>%
+  #filter(!ID == 'MiddleUnburned')
 
-all_2022 <- read_csv('./data/final/mrms/catchments_2022_mrms.csv') %>%
+all_2022 <- read_csv('/Users/megansears/Desktop/debris_flows/2022_p/cpf_debrisflow_p_2022.csv') %>%
   dplyr::select(-1) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
-  filter(!ID == 'MiddleUnburned')
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) #%>%
+  #filter(!ID == 'MiddleUnburned')
 
-# load in lower ET sites (including mub - delete mub from above dataframes)
-lower_et_2022 <- read_csv('./data/final/mrms/2022_mrms_lowerET.csv') %>%
-  dplyr::select(-1) %>%
-  rename(ID = catchment) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST'))
-
-lower_et_2023 <- read_csv('./data/final/mrms/2023_mrms_lowerET.csv') %>%
-  dplyr::select(-1) %>%
-  rename(ID = catchment) %>%
-  mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# # load in lower ET sites (including mub - delete mub from above dataframes)
+# lower_et_2022 <- read_csv('./data/final/mrms/2022_mrms_lowerET.csv') %>%
+#   dplyr::select(-1) %>%
+#   rename(ID = catchment) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# 
+# lower_et_2023 <- read_csv('./data/final/mrms/2023_mrms_lowerET.csv') %>%
+#   dplyr::select(-1) %>%
+#   rename(ID = catchment) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 
 # bind them 2021 and 2022 together & resample to 10 min
 all <- bind_rows(all_2021, 
                  all_2022, 
-                 all_2023) %>%
-  mutate(ID = case_when(
-      ID == 'Pass 1' ~ 'p1',
-      ID == 'Pass 2' ~ 'p2',
-      ID == 'HighUnmulch' ~ 'hum',
-      ID == 'HighMulch' ~ 'hm',
-      ID == 'MiddleUnmulch' ~ 'mum',
-      ID == 'MiddlePartialMulch' ~ 'mpm',
-      ID == 'MiddleMulch' ~ 'mm_et',
-      TRUE ~ ID)) %>%
-  bind_rows(.,
-            lower_et_2023,
-            lower_et_2022)
+                 all_2023) #%>%
+  # mutate(ID = case_when(
+  #     ID == 'Pass 1' ~ 'p1',
+  #     ID == 'Pass 2' ~ 'p2',
+  #     ID == 'HighUnmulch' ~ 'hum',
+  #     ID == 'HighMulch' ~ 'hm',
+  #     ID == 'MiddleUnmulch' ~ 'mum',
+  #     ID == 'MiddlePartialMulch' ~ 'mpm',
+  #     ID == 'MiddleMulch' ~ 'mm_et',
+  #     TRUE ~ ID)) %>%
+  # bind_rows(.,
+  #           lower_et_2023,
+  #           lower_et_2022)
 
 # export all as 2 min mrms precip for all sites
-write_csv(all, './data/final/mrms/all_combined.csv')
+write_csv(all, '/Users/megansears/Desktop/debris_flows/cpf_combined_p.csv')
+
+all <- read_csv('/Users/megansears/Desktop/debris_flows/cpf_combined_p.csv')
 
 all <- all %>%
   mutate(year = year(datetime),
@@ -115,6 +117,8 @@ all <- all %>%
   group_by(ID, timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
   rename(datetime = timestamps_10min)
+
+test <- all %>% filter(ID == 'b1')
 
 ```
 
@@ -127,8 +131,8 @@ Derived from 2-min MRMS data
 get_mrms_all_events <- function(all, ID_name) {
   
   events <- all %>%
-  filter(ID == ID_name,
-         rain_mm > 0.3) %>%
+  filter(ID == 'b4', #update b1 to ID_name
+         rain_mm > 0.3) #%>%
   get_mrms_events(., datetime) %>%
   group_by(event) %>%
   mutate(start_time = min(datetime),
