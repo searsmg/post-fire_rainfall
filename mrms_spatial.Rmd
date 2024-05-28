@@ -35,9 +35,9 @@ fires <- rbind(et, cp)
 fires_stars <- st_as_stars(fires)
 
 # List all the files in the directory
-filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = TRUE)
+filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = TRUE)
 
-datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023", pattern = ".tif", full.names = F)
+datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = F)
 
 timestamps <- substr(datetime, 12, 26)
 datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60)
@@ -49,31 +49,82 @@ stack <- read_stars(filenames, along = 3)
 stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
 
 # Filter the stack_date object by datetime
-stack2023 <- stack_date %>%
+stack2021 <- stack_date %>%
   setNames('MI2_mmhr') %>%
   mutate(p_mm =  MI2_mmhr*(1/30)) %>%
   dplyr::select(-MI2_mmhr) %>%
-  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
-         datetime < ymd_hms('2023-09-30 23:58:00'))
+  filter(datetime > ymd_hms('2021-05-31 23:58:00'),
+         datetime < ymd_hms('2021-09-30 23:58:00'))
 
 rm(stack, stack_date)
 
 #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
+#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
+#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
 load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
 
 # filter
-#stack_use$p_mm <- ifelse(stack_use$p_mm < 0.3, 0, stack_proper$p_mm)
+filter_function <- function(x) {
+  x[x < 0.3] <- 0
+  return(x)
+}
+
+# Step 2: Apply the custom filter function to each layer in stack2021
+stack2023_fil <- st_apply(
+  stack2023,
+  MARGIN = c("x", "y"),  # Adjust if your dimensions are different
+  FUN = filter_function
+)
+
+
 
 # sum summer 2023
 sum_all2023 <- st_apply(
-  stack2023,
+  stack2023_fil,
   MARGIN = c("x", "y"),
   FUN = sum
 )
 
-mapview(sum_all2023) + 
+
+
+mapview(sum_all2021) + 
   mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
+library(raster)
+
+
+r <- as(sum_all2023, "Raster")
+r_df <- as.data.frame(r, xy = TRUE)
+colnames(r_df) <- c("x", "y", "value")
+
+fire_poly <- as(fires_stars, 'Spatial')
+fire_poly <- spTransform(fire_poly, CRS("+proj=longlat +datum=WGS84"))
+fire_poly <- fire_poly[-2, ]
+fire_poly <- fire_poly[-1, ]
+
+fire_poly_et <- as(fires_stars, 'Spatial')
+fire_poly_et <- spTransform(fire_poly_et, CRS("+proj=longlat +datum=WGS84"))
+fire_poly_et <- fire_poly_et[-3, ]
+fire_poly_et <- fire_poly_et[-2, ]
+plot(fire_poly_et)
+
+p2023 <- ggplot(r_df, aes(x = x, y = y, fill = value)) +
+  geom_raster() +
+  geom_polygon(data=fire_poly, aes(x =long, y = lat), fill = "transparent", color = "black") +
+  geom_polygon(data=fire_poly_et, aes(x =long, y = lat), fill = "transparent", color = "black") +
+  scale_fill_viridis_b() +
+    theme_bw() +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+p2023
+
+ggsave("2023_total.png", plot = p2023, width = 6, height = 4, dpi = 800)
+
+
+
+#######################################################################
 # june 2023 sum
 june_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-06-01 00:00:00'),
