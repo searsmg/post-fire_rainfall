@@ -39,64 +39,19 @@ library(data.table)
 
 ```{r sensor coords}
 # Bring in all catchments
-catchments_all <- vect('./data/catchments_combined.shp')
-
-# Get rid of and rename some
-catchments <- as(catchments_all, 'Spatial') %>%
-  st_as_sf() %>%
-  mutate(Name = ifelse(is.na(Name), "michigan_river", Name),
-         Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
-                       Name)) %>%
-  filter(!Name %in% c('burn_transitional', 'dry_trib',
-                    'USGSWillowRes', 'USGSWillow')) %>%
-  filter(!grepl("Lower", Name)) %>%
-  filter(!Name == 'michiganditch')
-
-# View them to double check
-#mapview(catchments)
-
-# Put back to spatvector
-catchments_all <- vect(catchments) %>%
-  terra::project(., 'EPSG:26913')
-
-#######
-
-# Below code not used
-
-# me_hill <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/hillslopes_new/ME_hillslopes.shp') %>% # UPDATE BASED ON SITE
-#   terra::project(., 'EPSG:26913')
-# 
-# mm_hill <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/hillslopes_new/MM_hillslopes.shp') %>% # UPDATE BASED ON SITE
-#   terra::project(., 'EPSG:26913')
-# 
-# me_hill <- as(me_hill, 'Spatial') %>%
-#   st_as_sf() %>%
-#   dplyr::select(ID, catchment, geometry)
-# 
-# mm_hill <- as(mm_hill, 'Spatial') %>%
-#   st_as_sf() %>%
-#   dplyr::select(ID, catchment, geometry)
-# 
-# me_mm_hill <- bind_rows(mm_hill, me_hill)
-# 
-# me_mm_hill_sp <- as(me_mm_hill, 'Spatial')
-# 
-# mapview(me_mm_hill)
-
-# shapefile(me_mm_hill_sp, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/hillslopes_new/me_mm_hills_updated.shp')
+catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
+  terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
 
 ```
 
-# Watershed extraction
-
-## Extract weighted mean
+# Test
 
 ```{r}
 
-setwd("/Volumes/Kampf/Private/SearsM/mrms_2023_2min/extra")
+setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021")
 
 # Output dir
-output_dir <- "/Users/megansears/Documents/MRMS/correctedSPR/2023_extra/"
+output_dir <- "/Users/megansears/Desktop/debris_flows/2021_p/"
 
 # List raster filenames
 filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
@@ -113,7 +68,104 @@ foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')
   #   terra::project(., 'EPSG:26913')
   # 
 
-  catchments_all <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/extra_mrms.shp') %>%
+  catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
+    terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+  
+  # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
+  # catchments <- as(catchments_all, 'Spatial') %>%
+  #   st_as_sf() %>%
+  #   mutate(
+  #     Name = ifelse(is.na(Name), "michigan_river", Name),
+  #     Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
+  #                   Name)
+  #   ) %>%
+  #   filter(!Name %in% c(
+  #     'burn_transitional',
+  #     'dry_trib',
+  #     'USGSWillowRes',
+  #     'USGSWillow'
+  #   )) %>%
+  #   filter(!grepl("Lower", Name)) %>%
+  #   filter(!Name == 'michiganditch')
+  # 
+  # # put back to spatvector
+  # catchments_all <- vect(catchments) %>%
+  #   terra::project(., 'EPSG:26913')
+  
+  
+test1 <- raster::extract(rast, catchments, weights = T)
+
+test2 <- as.data.frame(test1)
+  
+  # Pull in raster
+  r <- terra::rast('/Users/megansears/Documents/MRMS/bbox_2fires/2min_2022/multiplied_20220707-171600.tif')
+  
+  names(r) <- "p_mmhr"
+  
+  site_names <- c('b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9')
+  filtered_zones <- catchments_all[catchments_all$wID %in% site_names, ]
+  
+  fil_zones <- makeValid(filtered_zones)
+
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::zonal(r, filtered_zones, weights=F, exact=T)
+  
+  extract$catchment <- site_names #catchments_all$wID
+  #extract$ID <- hillslopes_all$ID
+  
+  timestamp <- substr(fileName, 12, 26)
+  
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime)) %>%
+    mutate(hour = hour(datetime),
+           min = minute(datetime))
+  
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
+  
+  write.csv(extract, file = output_filename)
+  
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+```
+
+# Watershed extraction
+
+## Extract weighted mean
+
+### 2021
+
+```{r}
+
+setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021")
+
+# Output dir
+output_dir <- "/Users/megansears/Desktop/debris_flows/2021_p/"
+
+# List raster filenames
+filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
+
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
+  
+  # Bring in all catchments
+  # etf_lower <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/etf_lower.shp') %>% # UPDATE BASED ON SITE
+  #   terra::project(., 'EPSG:26913')
+  # 
+
+  catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
     terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
   
   # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
@@ -145,7 +197,7 @@ foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')
   # Extract using terra- zonal stats, weighted mean
   extract <- terra::zonal(r, catchments_all, weights = T)
   
-  extract$catchment <- catchments_all$site
+  extract$catchment <- catchments_all$wID
   #extract$ID <- hillslopes_all$ID
   
   timestamp <- substr(fileName, 12, 26)
@@ -172,12 +224,12 @@ stopCluster(cl)
 
 ```
 
-## Compile CSVs into 1
+### 2021 combine
 
 ```{r}
 
 # Location of individual CSVs
-csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/extra_2022_csv"
+csv_directory <- "/Users/megansears/Desktop/debris_flows/2021_p"
 
 # List them
 csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
@@ -224,6 +276,286 @@ final_data <- final_data %>%
   rename(MI2_mmhr = p_mmhr)
            
 # Write the combined data to csv
-write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/extra_2022_csv/extra_mrms_2022.csv')
+write.csv(final_data, '/Users/megansears/Desktop/debris_flows/2021_p/cpf_debrisflow_p_2021.csv')
 
 ```
+
+### 2022
+
+```{r}
+
+
+setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2022")
+
+# Output dir
+output_dir <- "/Users/megansears/Desktop/debris_flows/2022_p/"
+
+# List raster filenames
+filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
+
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
+  
+  # Bring in all catchments
+  # etf_lower <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/etf_lower.shp') %>% # UPDATE BASED ON SITE
+  #   terra::project(., 'EPSG:26913')
+  # 
+
+  catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
+    terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+  
+  # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
+  # catchments <- as(catchments_all, 'Spatial') %>%
+  #   st_as_sf() %>%
+  #   mutate(
+  #     Name = ifelse(is.na(Name), "michigan_river", Name),
+  #     Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
+  #                   Name)
+  #   ) %>%
+  #   filter(!Name %in% c(
+  #     'burn_transitional',
+  #     'dry_trib',
+  #     'USGSWillowRes',
+  #     'USGSWillow'
+  #   )) %>%
+  #   filter(!grepl("Lower", Name)) %>%
+  #   filter(!Name == 'michiganditch')
+  # 
+  # # put back to spatvector
+  # catchments_all <- vect(catchments) %>%
+  #   terra::project(., 'EPSG:26913')
+  
+  # Pull in raster
+  r <- terra::rast(fileName)
+  
+  names(r) <- "p_mmhr"
+  
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::zonal(r, catchments_all, weights = T)
+  
+  extract$catchment <- catchments_all$wID
+  #extract$ID <- hillslopes_all$ID
+  
+  timestamp <- substr(fileName, 12, 26)
+  
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime)) %>%
+    mutate(hour = hour(datetime),
+           min = minute(datetime))
+  
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
+  
+  write.csv(extract, file = output_filename)
+  
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+```
+
+### 2022 combine
+
+```{r}
+
+# Location of individual CSVs
+csv_directory <- "/Users/megansears/Desktop/debris_flows/2022_p"
+
+# List them
+csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
+
+# Set cores for parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Function to read CSV files using data.table
+read_csv_file <- function(file) {
+  dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A"))
+  
+  # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates
+  if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) &&
+      all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) {
+    dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime
+  }
+  
+  # Convert the "datetime" column to POSIXct format (consistent date-time format)
+  dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S")
+  
+  dt
+}
+
+# Use foreach to read all CSV files in parallel
+result <- foreach(file = csv_files, .packages = "data.table") %dopar% {
+  read_csv_file(file)
+}
+
+# Stop
+stopCluster(cl)
+
+# Combine the list of data.tables into a single data.table
+final_data <- rbindlist(result)
+
+# Check the dimensions of the final_data
+print(dim(final_data))
+
+final_data <- final_data %>%
+  arrange(datetime) %>%
+  mutate(p_mmhr = if_else(p_mmhr < 0, 0, p_mmhr),
+         p_mm = p_mmhr*(1/30)) %>%
+  dplyr::select(-c(V1, doy, hour, min)) %>%
+  rename(MI2_mmhr = p_mmhr)
+           
+# Write the combined data to csv
+write.csv(final_data, '/Users/megansears/Desktop/debris_flows/2022_p/cpf_debrisflow_p_2022.csv')
+
+```
+
+### 2023
+
+```{r}
+
+setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2023")
+
+# Output dir
+output_dir <- "/Users/megansears/Desktop/debris_flows/2023_p/"
+
+# List raster filenames
+filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
+
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
+  
+  # Bring in all catchments
+  # etf_lower <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/etf_lower.shp') %>% # UPDATE BASED ON SITE
+  #   terra::project(., 'EPSG:26913')
+  # 
+
+  catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
+    terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+  
+  # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
+  # catchments <- as(catchments_all, 'Spatial') %>%
+  #   st_as_sf() %>%
+  #   mutate(
+  #     Name = ifelse(is.na(Name), "michigan_river", Name),
+  #     Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
+  #                   Name)
+  #   ) %>%
+  #   filter(!Name %in% c(
+  #     'burn_transitional',
+  #     'dry_trib',
+  #     'USGSWillowRes',
+  #     'USGSWillow'
+  #   )) %>%
+  #   filter(!grepl("Lower", Name)) %>%
+  #   filter(!Name == 'michiganditch')
+  # 
+  # # put back to spatvector
+  # catchments_all <- vect(catchments) %>%
+  #   terra::project(., 'EPSG:26913')
+  
+  # Pull in raster
+  r <- terra::rast(fileName)
+  
+  names(r) <- "p_mmhr"
+  
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::zonal(r, catchments_all, weights = T)
+  
+  extract$catchment <- catchments_all$wID
+  #extract$ID <- hillslopes_all$ID
+  
+  timestamp <- substr(fileName, 12, 26)
+  
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime)) %>%
+    mutate(hour = hour(datetime),
+           min = minute(datetime))
+  
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
+  
+  write.csv(extract, file = output_filename)
+  
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+```
+
+### 2023 combine
+
+```{r}
+
+# Location of individual CSVs
+csv_directory <- "/Users/megansears/Desktop/debris_flows/2023_p"
+
+# List them
+csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
+
+# Set cores for parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Function to read CSV files using data.table
+read_csv_file <- function(file) {
+  dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A"))
+  
+  # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates
+  if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) &&
+      all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) {
+    dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime
+  }
+  
+  # Convert the "datetime" column to POSIXct format (consistent date-time format)
+  dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S")
+  
+  dt
+}
+
+# Use foreach to read all CSV files in parallel
+result <- foreach(file = csv_files, .packages = "data.table") %dopar% {
+  read_csv_file(file)
+}
+
+# Stop
+stopCluster(cl)
+
+# Combine the list of data.tables into a single data.table
+final_data <- rbindlist(result)
+
+# Check the dimensions of the final_data
+print(dim(final_data))
+
+final_data <- final_data %>%
+  arrange(datetime) %>%
+  mutate(p_mmhr = if_else(p_mmhr < 0, 0, p_mmhr),
+         p_mm = p_mmhr*(1/30)) %>%
+  dplyr::select(-c(V1, doy, hour, min)) %>%
+  rename(MI2_mmhr = p_mmhr)
+           
+# Write the combined data to csv
+write.csv(final_data, '/Users/megansears/Desktop/debris_flows/2023_p/cpf_debrisflow_p_2023.csv')
+
+```
+
