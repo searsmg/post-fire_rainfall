@@ -18,225 +18,261 @@ knitr::opts_chunk$set(echo = F,
                       fig.height = 6)
 
 library(tidyverse)
-library(stringr)
 library(lubridate)
-library(plotly)
-library(kableExtra)
 library(here)
 library(ggplot2); theme_set(theme_bw(base_size = 24))
-library(zoo)
 library(corrplot)
 library(stats)
 library(ggcorrplot)
-library(readxl)
 
 ```
 
 # Chemistry
 
+Based on the below plots, we are going to create "seasonal" correlations.
+- May-June
+- July-September
+- October-November
+
 ```{r, echo = F, warning = F}
 
 # rmrs chem
 chem <- read_csv(here('./rmrs_chem/et_waterchem.csv')) %>%
-  drop_na(csu_id) %>% # drop NAs under CSU_ID
-  mutate(Date = mdy(DATE)) %>%
-  rename(site = csu_id) %>%
-  mutate(year = year(Date))
+  drop_na(csu_id) %>% # drop NAs under CSU_ID since we don't have predictors for those sites
+  mutate(Date = mdy(DATE),
+         year = year(Date)) %>%
+  rename(site = csu_id)
+  
+# look at chem data
+plot_chem <- function(name) {
+  chem %>%
+    ggplot(aes(x = Date,
+               y = .data[[name]],
+               color = site)) + 
+    geom_point(size = 3) +
+    scale_x_date(date_labels="%m-%y",
+                 date_breaks  ="1 month") +
+    facet_wrap(~year, scales='free_x')
 
+}
 
-# look at chemistry data
-ggplot(chem, aes(Date, NO3, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
+name <-names(chem[9:25])
 
-# look at chemistry data
-ggplot(chem, aes(Date, TDN, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-# look at chemistry data
-ggplot(chem, aes(Date, DOC, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-# look at chemistry data
-ggplot(chem, aes(Date, NH4, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-# look at chemistry data
-ggplot(chem, aes(Date, DON, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-# look at chemistry data
-ggplot(chem, aes(Date, Ca, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-ggplot(chem, aes(Date, SO4, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-ggplot(chem, aes(Date, PO4, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-ggplot(chem, aes(Date, Na, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
-ggplot(chem, aes(Date, COND, color=site)) + #geom_col(position='dodge', width=15) +
-  geom_point(size=4) +
-  scale_x_date(date_labels="%m-%y",date_breaks  ="1 month") +
-  facet_wrap(~year, scales='free_x')
-
+map(name, plot_chem)
 
 ```
 
 # Predictors
 
 ```{r, include = F}
-# predictors
-# filter out sites that are not ET
-# inputs1 <- read_csv(here('./data/final_model_inputs/inputs1.csv')) %>%
-#   filter(site %in% c('p1','p2',
-#                      'hum','hm',
-#                      'mum','mpm',
-#                      'mm_et','mub',
-#                      'lum','lpm',
-#                      'lm')) %>%
-#   select(-c(Shape_Leng, Shape_Area, 
-#             ID, area_km2))
-# 
-# inputs2 <- read_csv(here('./data/final_model_inputs/inputs2.csv')) %>%
-#   filter(site %in% c('p1','p2',
-#                      'hum','hm',
-#                      'mum','mpm',
-#                      'mm_et','mub',
-#                      'lum','lpm',
-#                      'lm')) %>%
-#   select(-c(count, Shape_Leng, 
-#             Shape_Area, ELONGATION, 
-#             RC_CIRCLE, ID,
-#             area_km2,
-#             relative_area,
-#             relative_elev))
-# 
-# inputs3 <- read_csv(here('./data/final_model_inputs/pwd.csv')) %>%
-#   filter(site %in% c('p1','p2',
-#                      'hum','hm',
-#                      'mum','mpm',
-#                      'mm_et','mub',
-#                      'lum','lpm',
-#                      'lm')) %>%
-#   select(site, lag_pwd, Date, WY) #%>% #add this back
-#   filter(Date > '2022-05-31')
-# 
-# inputs4 <- read_csv(here('./data/final_model_inputs/hypso.csv')) %>%
-#     filter(site %in% c('p1','p2',
-#                      'hum','hm',
-#                      'mum','mpm',
-#                      'mm_et','mub',
-#                      'lum','lpm',
-#                      'lm'))
-# 
-# # join predictor data (all except rain metrics)
-# pred <- left_join(inputs2, inputs1, by = 'site')
-# pred <- left_join(inputs3, pred, by = 'site')
-# pred <- left_join(pred, inputs4, by = 'site')
+
+# predictors are in 4 different files (not including rain)
+inputs1 <- read_csv(here('./data/final_model_inputs/inputs1.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(-c(Shape_Leng, Shape_Area,
+            ID, area_km2))
+
+inputs2 <- read_csv(here('./data/final_model_inputs/inputs2.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(-c(count, Shape_Leng,
+            Shape_Area, ELONGATION,
+            RC_CIRCLE, ID,
+            area_km2,
+            relative_area,
+            relative_elev)) %>%
+  distinct()
+
+inputs3 <- read_csv(here('./data/final_model_inputs/pwd.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(site, lag_pwd, Date, WY) %>% 
+  filter(Date > '2022-05-31') %>%
+  mutate(month = month(Date)) %>%
+  group_by(site, WY, month) %>%
+  summarize(mean_lag_pwd = mean(lag_pwd)) %>%
+  ungroup() %>% 
+  mutate(period = case_when(
+    month %in% c(5:6) ~ 'MayJun',
+    month %in% c(7:9) ~ 'JulSep',
+    month %in% c(10,11) ~ 'OctNov',
+    month %in% c(1:4,12) ~ 'None')) %>%
+  filter(!period == 'None') %>%
+  mutate(WY_period = paste(period, WY, sep = "_")) %>%
+  select(-c(period, month))
+  
+inputs4 <- read_csv(here('./data/final_model_inputs/hypso.csv')) %>%
+    filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm'))
+
+# join predictor data (all except rain metrics)
+pred <- left_join(inputs2, inputs1, by = 'site') # combine inputs1 and inputs2
+pred <- left_join(inputs4, pred, by = 'site') # now add inputs 4 to that
+pred <- left_join(inputs3, pred, by = 'site') # now add pred to inputs3
+
+# need to make NDVI better in the df (so it's 1 column)
+ndvi <- pred %>%
+  select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
+  pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
+  mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
+  filter(!year == 2021) %>%
+  rename(WY = year) %>%
+  group_by(site, WY) %>%
+  distinct()
+
+# add ndvi back in
+pred <- pred %>%
+  select(-c(NDVI_2021, NDVI_2022,
+            NDVI_2023)) %>%
+  left_join(., ndvi, by = c('site','WY'))
+
+# predictors df is ready except for rain
 
 ```
 
 # Rain
 
 ```{r, include = F}
-# bring in rain predictors
-# rain <- read_csv(here('./data/final/mrms/all_mrms_intensities.csv')) %>%
-#   rename(site = ID) %>% 
-#   filter(site %in% c('p1','p2',
-#                      'hum','hm',
-#                      'mum','mpm',
-#                      'mm_et','mub',
-#                      'lum','lpm',
-#                      'lm')) %>%
-#   select(-c(1, event, year)) %>%
-#   mutate(Date = as.Date(start_time)) %>%
-#   filter(Date > '2022-05-31')
-# # how many rain dates start on the same day at the same site? *******
-# #################################
-# # try to join rain and chem first
-# 
-# 
-# 
-# 
-# #################################
-# pred <- left_join(pred, rain, by = c('site', 'Date'))
-# 
-# ndvi <- pred %>%
-#   select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
-#   pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
-#   mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
-#   filter(!year == 2021) %>%
-#   rename(WY = year)
-#   
-# pred <- pred %>%
-#   select(-c(NDVI_2021, NDVI_2022, 
-#             NDVI_2023)) %>%
-#   left_join(., ndvi, by = c('site','WY'))
-# 
-# # lets test to make sure everything joined OK
-# pred_test <- pred %>%
-#   sample_n(10)
-# 
-# 
-# 
-# cor <- pred %>%
-#   select(-c(site, Date,
-#             start_time, end_time,
-#             geology,
-#             geo_general))
-# 
-# 
-# matrix_cor_pred <- cor(cor, use = 'complete.obs')
-# 
-# ggcorrplot(matrix_cor_pred,
-#            lab = T)
-# 
-# ```
-# 
-# # Chem with predictors
-# 
-# ```{r, include = F}
-# 
-# all <- left_join(chem, pred, by = c('site', 'Date'))
-# 
-# # prep for cor matrix
-# chem_cor <- all %>%
-#   select(-c(site, Date, geology, geo_general, start_time, end_time))
-# 
-# predictor_names <- names(chem_cor)[1:31]
-# response_names <- names(chem_cor)[38:50]
-# 
-# correlation_matrix <- cor(chem_cor[c(response_names, predictor_names)],
-#                           use = 'complete.obs')
-# 
-# 
-# 
-# ggcorrplot(correlation_matrix,
-#            lab = T)
-# 
-# ggplot(chem_cor, aes(catchment_area_km2, TSS)) + geom_point()
+
+# bring in rain predictors - this is from MRMS data
+rain <- read_csv(here('./data/final/mrms/all_mrms_intensities.csv')) %>%
+  rename(site = ID) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>% # filter only ET sites
+  select(-c(1, event, year)) %>%
+  mutate(Date = as.Date(start_time)) %>%
+  filter(Date > '2022-05-31') %>% # ET sites were not established prior
+  mutate(month = month(Date)) %>%
+  filter(!month %in% c(5,10)) %>% #not including May & Oct in rain bc not sure on P type
+  mutate(period = case_when(
+    month %in% c(5:6) ~ 'MayJun',
+    month %in% c(7:9) ~ 'JulSep',
+    month %in% c(10,11) ~ 'OctNov',
+    month %in% c(1:4,12) ~ 'None')) %>%
+  mutate(WY = year(Date)) %>% # the years can = WY here since we only have data thru Sep
+  mutate(WY_period = paste(period, WY, sep = "_")) %>%
+  select(-c(period, month)) %>% 
+  group_by(site, WY_period) %>%
+  summarize(maxMI60 = max(MI60_mmhr),
+            maxMI30 = max(MI30_mmhr),
+            totalP = sum(event_sum_mm))
+
+# order the WY periods for plots
+WY_period_order <- c("MayJun_2022", "JulSep_2022", "MayJun_2023", "JulSep_2023")
+rain$WY_period <- factor(rain$WY_period, levels = WY_period_order)
+
+# apply order to sites
+site_order <- c('p1', 'p2', 'hm', 'hum', 'mm_et', 'mpm', 'mum','mub', 'lpm', 'lum', 'lm')
+rain$site <- factor(rain$site, levels = site_order)
+
+# look at some rain data
+ggplot(rain, aes(WY_period, maxMI60, color=site)) + geom_point(size=4)
+
+ggplot(rain, aes(WY_period, maxMI30, color=site)) + geom_point(size=4)
+
+ggplot(rain, aes(WY_period, totalP, color=site)) + geom_point(size=4)
+
+# need to add rain to pred
+# join by site and WY_period
+pred <- left_join(pred, rain, by = c('site', 'WY_period'))
+
+# look at cross cor between predictors
+pred_cross1 <- pred %>%
+  select(where(is.numeric)) %>% # select only numeric values
+  cor(., use='complete.obs')
+
+corrplot(pred_cross1,
+         method = "square",
+         type = 'upper',
+         #order = "FPC",
+         tl.col = "black",
+         tl.cex = 0.75)
+
+# get rid of some cross cors
+pred <- pred %>%
+  select(-c(geology, geo_general,
+            AVG_SAND, AVG_SILT, RC_CIRCLE,
+            recharge_total_km2,
+            hypso25, hypso75, slope30_frac,
+            maxMI30))
 
 ```
 
+# Correlations
+
+This section (1) creates a dataframe based on the month start & end, water year, chemical of focus, and water year period; (2) it plots the chemical of focus with all the predictors as scatter plots; (3) a correlation matrix and plot is created.
+
+```{r}
+
+# look at one chem for a certain period with all predictors
+process_chem_data <- function(month_start, month_end,
+                              water_year, chemical_name,
+                              wy_period) {
+  
+  chem %>%
+    mutate(month = month(Date)) %>%
+    filter(month %in% c(month_start:month_end)) %>%
+    addWaterYear(.) %>%
+    rename(WY = waterYear) %>%
+    filter(WY == water_year) %>%
+    mutate(site = if_else(site == 'mm', 'mm_et', site)) %>%
+    select({{chemical_name}}, site) %>%
+    left_join(pred %>% filter(WY_period == wy_period), by = 'site') %>%
+    select(where(is.numeric)) %>%
+    select(-WY)
+}
+
+one_chem <- process_chem_data(
+  month_start = 5,
+  month_end = 6,
+  water_year = 2022,
+  chemical_name = NO3,
+  wy_period = 'MayJun_2022')
+
+
+# plot the selected chem with predictors
+plot_chem <- function(pred_name, chemical_name) {
+  one_chem %>%
+    ggplot(aes(x = .data[[pred_name]],
+               y = .data[[chemical_name]])) + 
+    geom_point(size = 3)
+}
+
+pred_name <- names(one_chem) # define the predictor names
+
+map(pred_name, ~ plot_chem(.x, chemical_name = 'NO3')) # update based on chem name
+
+# look at corr values
+one_chem1 <- cor(one_chem, use = 'complete.obs')
+
+# last, make a corr plot
+corrplot(one_chem1,
+         method = "square", 
+         type = 'upper',
+         #order = "FPC", 
+         tl.col = "black", 
+         tl.cex = 0.75)
+
+```
 
