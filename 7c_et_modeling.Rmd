@@ -1,0 +1,198 @@
+---
+title: "East Troublesome Hydrology"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+knitr::opts_chunk$set(echo = F,
+                      message = F,
+                      fig.width = 14,
+                      fig.height = 6)
+
+library(tidyverse)
+library(lubridate)
+library(here)
+library(ggplot2); theme_set(theme_bw(base_size = 24))
+library(corrplot)
+library(stats)
+library(ggcorrplot)
+library(dataRetrieval)
+library(lme4)
+
+```
+
+# Stage data
+
+```{r}
+
+response <- read_csv(here('./data/final/stage_response_all.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(event_sum_mm, 
+         MI60_mmhr, 
+         year, 
+         start_time, 
+         stage_rise_cm, 
+         site, response_manual) %>%
+  mutate(Date = as.Date(start_time))
+
+```
+
+# Predictors
+
+```{r}
+
+# predictors are in 4 different files (not including rain)
+inputs1 <- read_csv(here('./data/final_model_inputs/inputs1.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(-c(Shape_Leng, Shape_Area,
+            ID, area_km2))
+
+inputs2 <- read_csv(here('./data/final_model_inputs/inputs2.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(-c(count, Shape_Leng,
+            Shape_Area, ELONGATION,
+            RC_CIRCLE, ID,
+            area_km2,
+            relative_area,
+            relative_elev)) %>%
+  distinct()
+
+inputs3 <- read_csv(here('./data/final_model_inputs/pwd.csv')) %>%
+  filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  select(site, lag_pwd, Date, WY) %>% 
+  filter(Date > '2022-05-31')
+  
+inputs4 <- read_csv(here('./data/final_model_inputs/hypso.csv')) %>%
+    filter(site %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm'))
+
+# join predictor data (all except rain metrics)
+pred <- left_join(inputs2, inputs1, by = 'site') # combine inputs1 and inputs2
+pred <- left_join(inputs4, pred, by = 'site') # now add inputs 4 to that
+pred <- left_join(inputs3, pred, by = 'site') # now add pred to inputs3
+
+# need to make NDVI better in the df (so it's 1 column)
+ndvi <- pred %>%
+  select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
+  pivot_longer(!site, names_to = 'year', values_to = 'NDVI') %>%
+  mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
+  #filter(!year == 2021) %>%
+  rename(WY = year) %>%
+  group_by(site, WY) %>%
+  distinct()
+
+# add ndvi back in
+pred <- pred %>%
+  select(-c(NDVI_2021, NDVI_2022,
+            NDVI_2023)) %>%
+  left_join(., ndvi, by = c('site','WY')) 
+
+pred <- pred %>%
+  select(-c(geology, geo_general,
+            AVG_SAND, AVG_SILT, RC_CIRCLE,
+            recharge_total_km2,
+            hypso25, hypso75, slope30_frac))
+
+
+```
+
+# Join together
+
+```{r}
+
+# join the response and pred data
+join <- left_join(response, pred, by = c('site', 'Date')) #%>%
+  # mutate(stage_rise_cm = if_else(stage_rise_cm < 2.0, NA, stage_rise_cm)) %>%
+  # mutate(stage_rise_cm = if_else(stage_rise_cm > 120, NA, stage_rise_cm))
+
+
+# plot the selected chem with predictors
+plot_response <- function(pred_name) {
+  join %>%
+    ggplot(aes(x = .data[[pred_name]],
+               y = stage_rise_cm)) + 
+    geom_point(size=3)
+}
+
+pred_name <- names(join) # define the predictor names
+
+map(pred_name, ~ plot_response(.x)) # update based on chem name
+
+# look at corr values
+response1 <- join %>%
+  select(where(is.numeric)) %>% 
+  cor(., use = 'complete.obs')
+
+# last, make a corr plot
+corrplot(response1,
+         method = "square", 
+         type = 'upper',
+         #order = "FPC", 
+         tl.col = "black", 
+         tl.cex = 0.75)
+
+```
+
+# Model
+
+```{r}
+# make site id numeric and filter for responses
+join1 <- join %>%
+  mutate(site_id = as.numeric(factor(site, levels = unique(site)))) %>%
+  filter(response_manual == 'Y') %>%
+  group_by(site) %>%
+  mutate(event = row_number()) %>%
+  mutate(site_eventID = paste0(site,"_",event)) %>%
+  rename(treated = `%treated`)
+
+# check distribution of response var
+hist(join1$stage_rise_cm) # GAMMA
+
+## --------------------------------------------------------------------- ##
+model_mi <- glmer(stage_rise_cm ~ treated + log(MI60_mmhr) +(1|site), 
+              family=Gamma(link = "inverse"),
+              data = join1)
+
+
+summary(model_mi)
+hist(residuals(model_mi))
+qqnorm(residuals(model_mi))
+qqline(residuals(model_mi))
+
+hist(join1$MI60_mmhr)
+
+```
+
+
