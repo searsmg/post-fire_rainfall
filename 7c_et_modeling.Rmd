@@ -46,7 +46,9 @@ response <- read_csv(here('./data/final/stage_response_all.csv')) %>%
          start_time, 
          stage_rise_cm, 
          site, response_manual) %>%
-  mutate(Date = as.Date(start_time))
+  mutate(Date = as.Date(start_time),
+         month = month(Date)) %>%
+  filter(!month %in% c(5,10))
 
 ```
 
@@ -133,10 +135,16 @@ pred <- pred %>%
 ```{r}
 
 # join the response and pred data
-join <- left_join(response, pred, by = c('site', 'Date')) #%>%
+join <- left_join(response, pred, by = c('site', 'Date')) %>%
   # mutate(stage_rise_cm = if_else(stage_rise_cm < 2.0, NA, stage_rise_cm)) %>%
   # mutate(stage_rise_cm = if_else(stage_rise_cm > 120, NA, stage_rise_cm))
+  rename(treated = `%treated`) %>%
+  mutate(treated = if_else(site == 'hm' & Date < '2022-07-26',
+                              0, treated)) %>%
+  mutate(treated = if_else(site == 'mpm' & Date < '2022-08-01',
+                              0, treated))
 
+  
 
 # plot the selected chem with predictors
 plot_response <- function(pred_name) {
@@ -148,7 +156,7 @@ plot_response <- function(pred_name) {
 
 pred_name <- names(join) # define the predictor names
 
-map(pred_name, ~ plot_response(.x)) # update based on chem name
+map(pred_name, ~ plot_response(.x)) 
 
 # look at corr values
 response1 <- join %>%
@@ -163,6 +171,8 @@ corrplot(response1,
          tl.col = "black", 
          tl.cex = 0.75)
 
+ggplot(join, aes(site, MI60_mmhr)) + geom_boxplot()
+
 ```
 
 # Model
@@ -174,14 +184,15 @@ join1 <- join %>%
   filter(response_manual == 'Y') %>%
   group_by(site) %>%
   mutate(event = row_number()) %>%
-  mutate(site_eventID = paste0(site,"_",event)) %>%
-  rename(treated = `%treated`)
+  mutate(site_eventID = paste0(site,"_",event)) 
 
 # check distribution of response var
 hist(join1$stage_rise_cm) # GAMMA
 
+hist(join1$MI60_mmhr)
+
 ## --------------------------------------------------------------------- ##
-model_mi <- glmer(stage_rise_cm ~ treated + log(MI60_mmhr) +(1|site), 
+model_mi <- glmer(stage_rise_cm ~ log(MI60_mmhr) + mean_dnbr + (1|site_id), 
               family=Gamma(link = "inverse"),
               data = join1)
 
@@ -191,8 +202,152 @@ hist(residuals(model_mi))
 qqnorm(residuals(model_mi))
 qqline(residuals(model_mi))
 
-hist(join1$MI60_mmhr)
+model_glm <- glm(stage_rise_cm ~ MI60_mmhr + site_id + NDVI + treated + avg_vbw_m, 
+              #family=Gamma(link = "inverse"),
+              data = join1)
+
+
+summary(model_glm)
+predicted_values <- predict(model_glm)
+results <- data.frame(actual = join1$stage_rise_cm, predicted = predicted_values)
+
+ggplot(results, aes(x = actual, y = predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") 
+
+
+results2 <- data.frame(treated = join1$treated, predicted = predicted_values)
+ggplot(results2, aes(x = treated, y = predicted)) +
+  geom_point() +
+  labs(x = "Fraction of treated area",
+       y = 'Predicted stage rise (cm)')
+
+
+results3 <- data.frame(MI60_mmhr = join1$MI60_mmhr, predicted = predicted_values)
+ggplot(results3, aes(x = MI60_mmhr, y = predicted)) +
+  geom_point() +
+  labs(x = "MI60 (mm/hr)",
+       y = 'Predicted stage rise (cm)')
+
+# just a stage plot
+
+
 
 ```
 
+# rain figure
+
+```{r}
+
+rain <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/final/mrms/all_mrms_intensities.csv') %>%
+    filter(ID %in% c('p1','p2',
+                     'hum','hm',
+                     'mum','mpm',
+                     'mm_et','mub',
+                     'lum','lpm',
+                     'lm')) %>%
+  mutate(ID = if_else(ID == 'mm_et', 'mm', ID)) %>%
+  mutate(mulch = if_else (ID %in% c('hm', 'lm', 'lpm', 'mm', 'mpm'), 'Mulch', 'No treatment')) %>% 
+  mutate(ID = factor(ID, levels = c('p1','p2','hum','hm','mum','mpm','mm','mub','lum','lpm', 'lm'))) %>%
+  mutate(Date = as.Date(start_time),
+         month = month(Date)) %>%
+  filter(!month %in% c(5,10)) %>%
+  mutate(year = year(Date)) %>%
+  filter(year %in% c(2022, 2023))
+
+
+
+
+library(grid) # Required for unit()
+
+ggplot(rain, aes(x = ID, y = MI60_mmhr, fill = mulch)) + 
+  geom_boxplot() +
+  labs(x = 'Site', y = 'MI60 (mm/hr)') + 
+  scale_y_log10() +
+  scale_fill_manual(name = '', values = c("Mulch" = "goldenrod3", "No treatment" = "white")) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    #legend.key.size = unit(0.5, "cm"), # Adjust the size of the legend keys
+    #legend.text = element_text(size = 8), # Adjust the size of the legend text
+    plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
+    legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
+
+
+rain_stats <- rain %>%
+  group_by(ID) %>% 
+  summarize(
+    sum = sum(event_sum_mm),
+    mean_value = mean(MI60_mmhr),
+    sd_value = sd(MI60_mmhr))
+
+response_stats <- response %>%
+  filter(response_manual == 'Y') %>% 
+  group_by(site) %>% 
+  summarize(
+    mean_value = mean(stage_rise_cm),
+    sd_value = sd(stage_rise_cm),
+    max = max(stage_rise_cm))
+
+
+```
+
+# stage rise fig
+
+```{r}
+response1 <- response %>% 
+  mutate(mulch = if_else (site %in% c('hm', 'lm', 'lpm', 'mm', 'mpm'), 'Mulch', 'No treatment')) %>% 
+  mutate(site = factor(site, levels = c('p1','p2','hum','hm','mum','mpm','mm','mub','lum','lpm', 'lm'))) %>%
+  filter(response_manual == 'Y')
+
+# response
+ggplot(response1, aes(x = site, y = stage_rise_cm, fill = mulch)) + 
+  geom_boxplot() +
+  labs(x = 'Site', y = 'Stage rise (cm)') + 
+  scale_y_log10() +
+  scale_fill_manual(name = '', values = c("Mulch" = "goldenrod3", "No treatment" = "white")) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    #legend.key.size = unit(0.5, "cm"), # Adjust the size of the legend keys
+    #legend.text = element_text(size = 8), # Adjust the size of the legend text
+    plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
+    legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
+
+
+
+
+
+```
+
+# camera data
+
+```{r}
+
+camera <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/et_camera_stream_data.csv') %>%
+  mutate(mulch = if_else(Site %in% c('LM1', 'LM2', 'LPM', 'MM'), 'Mulch', 'No treatment')) 
+  
+
+ggplot(camera, aes(Site, stage_rise_cm, fill=mulch)) + geom_boxplot() +
+  scale_fill_manual(name = '', values = c("Mulch" = "goldenrod3", "No treatment" = "white")) +
+  labs(x='Site', y='Stage rise (cm)') +
+    theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    #legend.key.size = unit(0.5, "cm"), # Adjust the size of the legend keys
+    #legend.text = element_text(size = 8), # Adjust the size of the legend text
+    plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
+    legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
+
+
+response_stats_cam <- camera %>%
+  drop_na(stage_rise_cm) %>% 
+  group_by(Site) %>% 
+  summarize(
+    mean_value = mean(stage_rise_cm),
+    sd_value = sd(stage_rise_cm),
+    max = max(stage_rise_cm))
+
+
+```
 
