@@ -22,8 +22,11 @@ library(stars)
 library(tmap)
 library(sf)
 library(mapview)
+library(zoo)
 
 ```
+
+# Load data
 
 ```{r}
 # read in fire boundaries
@@ -63,20 +66,100 @@ rm(stack, stack_date)
 #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
 load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
 
-# filter
+
+```
+
+# Filter
+
+```{r}
+
+new_crs <- st_crs(4326)
+
+cp <- st_transform(cp, crs = new_crs)
+
+# first filter a smaller area so I can work with it easier
+stack23_crop <- st_crop(stack2023, cp)
+
+# filter less than 0.3
 filter_function <- function(x) {
   x[x < 0.3] <- 0
   return(x)
 }
 
-# Step 2: Apply the custom filter function to each layer in stack2021
+# filter out values less than 0.3 mm
 stack2023_fil <- st_apply(
-  stack2023,
-  MARGIN = c("x", "y"),  # Adjust if your dimensions are different
+  stack23_crop,
+  MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 
 
+```
+
+# Get stack into 10 mins
+
+```{r}
+
+# make dataset even smaller for testing
+june_stack <- stack2023_fil %>%
+  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
+         datetime < ymd_hms('2023-07-01 00:00:00'))
+
+rm(stack2023, stack23_crop)
+
+# make df
+tibble <- as_tibble(june_stack)
+
+rm(june_stack)
+gc()
+
+# aggregate to 10 min
+stack <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  rename(p_mm = filter_function) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  drop_na(p_mm)
+
+rm(tibble)
+gc()
+
+###############################
+# get MI60
+compute_MI60 <- function(df) {
+  # Calculate the rolling sum over 6 intervals (60 minutes)
+  rolling_sums <- rollapply(df, width = 6, FUN = sum, na.rm = TRUE, fill = NA, align = "right")
+  # Find the maximum of these rolling sums
+  max(rolling_sums, na.rm = TRUE)
+}
+
+
+# Calculate MI60 for each pixel
+stack_mi60 <- stack %>%
+  group_by(x, y) %>%
+  arrange(datetime_round) %>%
+  mutate(MI60 = compute_MI60(p_mm)) %>%
+  summarize(maxMI60 = max(MI60, na.rm = TRUE))
+
+#testing
+# tolerance <- 1e-6
+# 
+# stack_simple <- stack_mi60 %>%
+#   filter(abs(x - -106.145) < tolerance,
+#          abs(y - 40.155) < tolerance) %>%
+#   filter(!p_mm == 0)
+
+###########
+stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+
+mapview(stack_intens1)
+
+```
+
+# Summer totals
+
+```{r}
 
 # sum summer 2023
 sum_all2023 <- st_apply(
@@ -85,13 +168,10 @@ sum_all2023 <- st_apply(
   FUN = sum
 )
 
-
-
 mapview(sum_all2021) + 
   mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
 
 library(raster)
-
 
 r <- as(sum_all2023, "Raster")
 r_df <- as.data.frame(r, xy = TRUE)
@@ -122,9 +202,12 @@ p2023
 
 ggsave("2023_total.png", plot = p2023, width = 6, height = 4, dpi = 800)
 
+```
 
+# Monthly sums
 
-#######################################################################
+```{r}
+
 # june 2023 sum
 june_stack <- stack2023 %>%
   filter(datetime > ymd_hms('2023-06-01 00:00:00'),
@@ -212,47 +295,5 @@ mapview(sum_p10)
 
 max_values <- st_apply(stack2023, 1:2, max)
 max_values # no 2min 2023 values are greater than 10
-```
-
-# Get stack into 10 mins
-
-```{r}
-
-#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
-load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
-
-# try filtering for month and aggregate that when then add back together
-june_stack <- stack2023 %>%
-  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
-         datetime < ymd_hms('2023-07-01 00:00:00'))
-
-rm(stack2023)
-
-# make df
-tibble <- as_tibble(june_stack)
-
-rm(june_stack)
-gc()
-
-# aggregate
-stack <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  mutate(p_mm = ifelse(abs(p_mm) < 1e-10, 0, p_mm))  # get rid of small and negative values
-
-rm(tibble)
-gc()
-
-###########
-stack <- st_as_stars(stack, dims = c("x", "y", "datetime_round"))
-st_crs(stack) <- st_crs("+proj=longlat +datum=WGS84")
-
-stack <- rev(stack)
-mapview(stack)
-
-#test the above code and made sure indiv rasters added up to the 10 min - looks good
 
 ```
-
-
