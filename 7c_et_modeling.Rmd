@@ -45,7 +45,9 @@ response <- read_csv(here('./data/final/stage_response_all.csv')) %>%
          year, 
          start_time, 
          stage_rise_cm, 
-         site, response_manual) %>%
+         site, response_manual,
+         lag2p_hr,
+         datetime_maxstage) %>%
   mutate(Date = as.Date(start_time),
          month = month(Date)) %>%
   filter(!month %in% c(5,10))
@@ -142,7 +144,8 @@ join <- left_join(response, pred, by = c('site', 'Date')) %>%
   mutate(treated = if_else(site == 'hm' & Date < '2022-07-26',
                               0, treated)) %>%
   mutate(treated = if_else(site == 'mpm' & Date < '2022-08-01',
-                              0, treated))
+                              0, treated)) %>%
+  mutate(lag2p_hr = if_else(site == 'mpm', lag2p_hr/60, lag2p_hr))
 
   
 
@@ -192,10 +195,11 @@ hist(join1$stage_rise_cm) # GAMMA
 hist(join1$MI60_mmhr)
 
 ## --------------------------------------------------------------------- ##
-model_mi <- glmer(stage_rise_cm ~ log(MI60_mmhr) + mean_dnbr + (1|site_id), 
-              family=Gamma(link = "inverse"),
+model_mi <- lmer(stage_rise_cm ~ MI60_mmhr + mean_dnbr + treated + avg_vbw_m + (1|site_id), 
+              #family=gaussian(link = "identity"),
               data = join1)
 
+library(lmerTest)
 
 summary(model_mi)
 hist(residuals(model_mi))
@@ -229,8 +233,30 @@ ggplot(results3, aes(x = MI60_mmhr, y = predicted)) +
   labs(x = "MI60 (mm/hr)",
        y = 'Predicted stage rise (cm)')
 
-# just a stage plot
+####################################
+# lag to peak
+model_glm <- glm(lag2p_hr ~ MI60_mmhr + site_id + NDVI + treated + avg_vbw_m, 
+              #family=Gamma(link = "inverse"),
+              data = join1)
 
+
+summary(model_glm)
+
+ggplot(join1, aes(avg_vbw_m, lag2p_hr)) + geom_point() + scale_y_log10()
+
+predicted_values <- predict(model_glm)
+results2 <- data.frame(vbw = join1$avg_vbw_m, predicted = predicted_values)
+ggplot(results2, aes(x = vbw, y = predicted)) +
+  geom_point() +
+  labs(x = "Valley bottom width",
+       y = 'Predicted lag to peak (hr)')
+
+predicted_values <- predict(model_glm)
+results2 <- data.frame(ndvi = join1$NDVI, predicted = predicted_values)
+ggplot(results2, aes(x = ndvi, y = predicted)) +
+  geom_point() +
+  labs(x = "NDVI",
+       y = 'Predicted lag to peak (hr)')
 
 
 ```
@@ -314,9 +340,21 @@ ggplot(response1, aes(x = site, y = stage_rise_cm, fill = mulch)) +
     plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
     legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
 
+# plot cam and response data together
+response2 <- response1 %>%
+  select(site, MI60_mmhr, stage_rise_cm)
 
-
-
+ggplot(response1, aes(MI60_mmhr, stage_rise_cm, color=mulch)) + geom_point(size=4) +
+  scale_y_log10() +
+  labs(y='Stage rise (cm)', x = 'MI60 (mm/hr)') +
+  scale_color_manual(name = '', values = c("Mulch" = "goldenrod3", "No treatment" = "black")) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    #legend.key.size = unit(0.5, "cm"), # Adjust the size of the legend keys
+    #legend.text = element_text(size = 8), # Adjust the size of the legend text
+    plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
+    legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
 
 ```
 
@@ -325,7 +363,7 @@ ggplot(response1, aes(x = site, y = stage_rise_cm, fill = mulch)) +
 ```{r}
 
 camera <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/et_camera_stream_data.csv') %>%
-  mutate(mulch = if_else(Site %in% c('LM1', 'LM2', 'LPM', 'MM'), 'Mulch', 'No treatment')) 
+  mutate(mulch = if_else(Site %in% c('lm', 'lpm', 'lum', 'mm'), 'Mulch', 'No treatment')) 
   
 
 ggplot(camera, aes(Site, stage_rise_cm, fill=mulch)) + geom_boxplot() +
@@ -347,6 +385,42 @@ response_stats_cam <- camera %>%
     mean_value = mean(stage_rise_cm),
     sd_value = sd(stage_rise_cm),
     max = max(stage_rise_cm))
+
+
+camera1 <- camera %>%
+  select(ID=Site, Date, Time_first_water, stage_rise_cm) %>%
+  mutate(Date = mdy(Date)) %>%
+  mutate(datetime = ymd_hm(paste(Date, Time_first_water))) %>%
+  drop_na()
+  
+rain1 <- rain %>%
+  select(start_time, end_time, ID, MI60_mmhr) %>%
+  filter(ID %in% c('lm', 'lpm', 'lum', 'mm'))
+
+result <- camera1 %>%
+  inner_join(rain1, by = "ID") %>%
+  filter(datetime >= start_time & datetime <= (end_time + 6 * 60 * 60)) 
+
+response2 <- response1 %>%
+  select(site, stage_rise_cm, MI60_mmhr)
+
+result <- result %>%
+  select(site=ID, stage_rise_cm, MI60_mmhr)
+
+response3 <- bind_rows(response2, result) %>%
+  mutate(mulch = if_else (site %in% c('hm', 'lm', 'lpm', 'mm', 'mpm'), 'Mulch', 'No treatment')) 
+
+ggplot(response3, aes(MI60_mmhr, stage_rise_cm, color=mulch)) + geom_point(size=4) +
+  scale_y_log10() +
+  labs(y='Stage rise (cm)', x = 'MI60 (mm/hr)') +
+  scale_color_manual(name = '', values = c("Mulch" = "goldenrod3", "No treatment" = "black")) +
+  theme(
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    #legend.key.size = unit(0.5, "cm"), # Adjust the size of the legend keys
+    #legend.text = element_text(size = 8), # Adjust the size of the legend text
+    plot.margin = unit(c(0.25, 0.25, 0.25, 0.25), "cm"), # Adjust the plot margins (top, right, bottom, left)
+    legend.box.margin = margin(-25, 0, 0, 0)) # Adjust the legend box margin
 
 
 ```
