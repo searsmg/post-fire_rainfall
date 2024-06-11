@@ -75,10 +75,10 @@ bbox <- as(bbox, 'Spatial')
 ```{r}
 
 # Get rid of gz - unzip the grib2
-setwd("/Users/megansears/Documents/MRMS/SPR/2022")
+setwd("/Users/megansears/Documents/MRMS/RQI/2021")
 
 # Unzip all files
-unzip <- list.files(path = '/Users/megansears/Documents/MRMS/SPR/2021/2021_missing', pattern = '.gz',
+unzip <- list.files(path = '/Users/megansears/Documents/MRMS/RQI/2021', pattern = '.gz',
                   full.names = T)
 
 unzip_all <- lapply(unzip, gunzip)
