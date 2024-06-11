@@ -51,6 +51,11 @@ et <- read_csv(here('data/stage/et_stage_sensors.csv')) %>%
 
 stage <- bind_rows(benn, et)
 
+# all precip
+all <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/final/mrms/all_combined.csv')
+
+all_intens <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/final/mrms/all_mrms_intensities.csv')
+
 ```
 
 # Response
@@ -224,6 +229,17 @@ mw_intens <- all_intens %>%
 
 mw_stage <- stage %>%
   filter(site == 'mw')
+
+mw_stage_test <- mw_stage %>%
+  mutate(diff = Stage_cm - lag(Stage_cm),
+         year = year(datetime),
+         month = month(datetime)) %>%
+  filter(year == 2022,
+         month %in% c(6:9))
+
+look <- ggplot(mw_stage, aes(x=datetime, y=Stage_cm)) + geom_line()
+ggplotly(look)
+
 
 mw_intens <- mw_intens %>%
     mutate(endtime_plus12 = end_time + 6 * 60 * 60,
@@ -656,11 +672,11 @@ hum_response_summary <- left_join(hum_response_summary, hum_manual, by = 'event'
 
 ####### Precip #########
 mpm_precip <- all %>%
-  filter(ID == 'MiddlePartialMulch')
+  filter(ID == 'mpm')
 
 ######### Stage #########
 mpm_intens <- all_intens %>%
-  filter(ID == 'MiddlePartialMulch')
+  filter(ID == 'mpm')
 
 mpm_stage <- stage %>%
   filter(site == 'mpm')
@@ -682,10 +698,10 @@ mpm_both <- full_join(mpm_precip, mpm_stage_test, by = 'datetime')
 
 mpm_precip_stage <- mpm_both %>%
   filter(!is.na(Stage_cm)) %>%
-  filter(!is.na(rain_mm)) %>% 
+  filter(!is.na(p_mm)) %>% 
   ggplot(., aes(x=datetime, y = Stage_cm)) +
   geom_line() + geom_point(shape=1, color='blue') +
-  geom_col(aes(y=rain_mm*10), color='red') +
+  geom_col(aes(y=p_mm*10), color='red') +
   geom_point(aes(y=event))
 
 ggplotly(mpm_precip_stage)
@@ -717,7 +733,7 @@ mpm_manual <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/dat
 
 mpm_response_summary <- left_join(mpm_response_summary, mpm_manual, by = 'event') %>%
     mutate(lag2p_hr = if_else(response_manual == 'Y', 
-                            as.numeric(datetime_maxstage - start_time)/60,
+                            as.numeric(datetime_maxstage - start_time)/60/60,
                             NA))
 
 
