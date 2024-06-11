@@ -26,6 +26,18 @@ library(zoo)
 
 ```
 
+# Temp
+
+```{r}
+
+hads <- read_csv('/Users/megansears/Desktop/temp/hads_locations.csv')
+points <- st_as_sf(hads, coords = c("longitude_d", "latitude_d"), crs = 4326)
+
+mapview(points)
+
+```
+
+
 # Load data
 
 ```{r}
@@ -72,13 +84,13 @@ load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_202
 # Filter
 
 ```{r}
-
-new_crs <- st_crs(4326)
-
-cp <- st_transform(cp, crs = new_crs)
-
-# first filter a smaller area so I can work with it easier
-stack23_crop <- st_crop(stack2023, cp)
+# 
+# new_crs <- st_crs(4326)
+# 
+# fires <- st_transform(fires, crs = new_crs)
+# 
+# # first filter a smaller area so I can work with it easier
+# stack23_crop <- st_crop(stack2023, cp)
 
 # filter less than 0.3
 filter_function <- function(x) {
@@ -88,11 +100,41 @@ filter_function <- function(x) {
 
 # filter out values less than 0.3 mm
 stack2023_fil <- st_apply(
-  stack23_crop,
+  stack2023,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
+rm(stack2023)
 
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023_fil.RData")
+rm(list = ls())
+
+# now do 2022
+load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
+
+# filter out values less than 0.3 mm
+stack2022_fil <- st_apply(
+  stack2022,
+  MARGIN = c("x", "y", "datetime"),  # dimensions
+  FUN = filter_function
+)
+rm(stack2022)
+
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022_fil.RData")
+rm(list = ls())
+
+# 2021
+load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
+
+# filter out values less than 0.3 mm
+stack2021_fil <- st_apply(
+  stack2021,
+  MARGIN = c("x", "y", "datetime"),  # dimensions
+  FUN = filter_function
+)
+rm(stack2021)
+
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021_fil.RData")
 
 ```
 
