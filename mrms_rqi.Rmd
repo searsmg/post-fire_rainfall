@@ -22,6 +22,7 @@ library(stars)
 library(tmap)
 library(sf)
 library(mapview)
+library(leaflet)
 
 ```
 
@@ -134,9 +135,23 @@ rqi_mean_2023 <- st_apply(
   FUN = mean
 )
 
-mapview(rqi_mean_2023) + mapview(catchments)
+
+
+
+my_palette <- c("red", "darkgreen")
+
+# Define breaks
+breaks <- c(0, .40, 1)
+
+# Create mapview object with custom colors
+mapview(rqi_mean_2023,
+        col.regions = my_palette, 
+        at = breaks) +
+  mapview(catchments)
+
 
 rm(stack_rqi2023)
+
 ```
 
 ## 2022 
@@ -151,7 +166,11 @@ rqi_mean_2022 <- st_apply(
   FUN = mean
 )
 
-mapview(rqi_mean_2022) + mapview(catchments)
+mapview(rqi_mean_2022,
+        col.regions = my_palette, 
+        at = breaks) +
+  mapview(catchments)
+
 
 rm(stack_rqi2022)
 ```
@@ -168,7 +187,11 @@ rqi_mean_2021 <- st_apply(
   FUN = mean
 )
 
-mapview(rqi_mean_2021) + mapview(catchments)
+mapview(rqi_mean_2021,
+        col.regions = my_palette, 
+        at = breaks) +
+  mapview(catchments)
+
 
 ```
 
@@ -192,7 +215,9 @@ count23 <- st_apply(
   FUN = count_function
 )
 
-mapview(count23) + mapview(catchments)
+mapview(count23) +
+  mapview(catchments)
+
 
 ```
 
