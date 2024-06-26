@@ -463,6 +463,10 @@ ggplotly(compare)
 
 # TB filtered (based on pixel events) events
 
+Scrap code below
+
+```{r}
+
 # # right now getting it into 10 min timesteps since the smallest MI we do is 10
 # # talk to SK about this
 # pixel10 <- pixel %>%
@@ -497,6 +501,10 @@ ggplotly(compare)
 # # get events for all sites
 # pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
 #   bind_rows()
+
+```
+
+# Use
 
 ```{r}
 
@@ -857,7 +865,6 @@ ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) +
   labs(x = 'MRMS', y = 'TB')
 
 ```
-
 
 # Save data - same MRMS window
 
