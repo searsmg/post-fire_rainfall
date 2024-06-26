@@ -23,65 +23,54 @@ library(tmap)
 library(sf)
 library(mapview)
 library(zoo)
+library(ggspatial)
 
 ```
-
-# Temp
-
-```{r}
-
-hads <- read_csv('/Users/megansears/Desktop/temp/hads_locations.csv')
-points <- st_as_sf(hads, coords = c("longitude_d", "latitude_d"), crs = 4326)
-
-mapview(points)
-
-```
-
 
 # Load data
 
 ```{r}
-# read in fire boundaries
-et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
-cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp')
+# # read in fire boundaries
+# et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
+# cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp')
 
-fires <- rbind(et, cp)
-
-fires_stars <- st_as_stars(fires)
-
-# List all the files in the directory
-filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = TRUE)
-
-datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = F)
-
-timestamps <- substr(datetime, 12, 26)
-datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60)
-
-# Read all raster files and stack them together
-stack <- read_stars(filenames, along = 3)
-
-# Set the datetime dimension of the stack
-stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
-
-# Filter the stack_date object by datetime
-stack2021 <- stack_date %>%
-  setNames('MI2_mmhr') %>%
-  mutate(p_mm =  MI2_mmhr*(1/30)) %>%
-  dplyr::select(-MI2_mmhr) %>%
-  filter(datetime > ymd_hms('2021-05-31 23:58:00'),
-         datetime < ymd_hms('2021-09-30 23:58:00'))
-
-rm(stack, stack_date)
-
-#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
-#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
-#save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
+# 
+# fires <- rbind(et, cp)
+# 
+# fires_stars <- st_as_stars(fires)
+# 
+# # List all the files in the directory
+# filenames <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = TRUE)
+# 
+# datetime <- list.files("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021", pattern = ".tif", full.names = F)
+# 
+# timestamps <- substr(datetime, 12, 26)
+# datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60)
+# 
+# # Read all raster files and stack them together
+# stack <- read_stars(filenames, along = 3)
+# 
+# # Set the datetime dimension of the stack
+# stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
+# 
+# # Filter the stack_date object by datetime
+# stack2021 <- stack_date %>%
+#   setNames('MI2_mmhr') %>%
+#   mutate(p_mm =  MI2_mmhr*(1/30)) %>%
+#   dplyr::select(-MI2_mmhr) %>%
+#   filter(datetime > ymd_hms('2021-05-31 23:58:00'),
+#          datetime < ymd_hms('2021-09-30 23:58:00'))
+# 
+# rm(stack, stack_date)
+# 
+# #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData")
+# #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
+# #save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
 load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
-
 
 ```
 
-# Filter
+# Filter out <1 mm
 
 ```{r}
 # 
@@ -94,110 +83,382 @@ load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_202
 
 # filter less than 0.3
 filter_function <- function(x) {
-  x[x < 0.3] <- 0
+  x[x < 1] <- 0
   return(x)
 }
 
 # filter out values less than 0.3 mm
-stack2023_fil <- st_apply(
+stack2023_fil1 <- st_apply(
   stack2023,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 rm(stack2023)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023_fil.RData")
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023_fil1.RData")
 rm(list = ls())
 
 # now do 2022
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
 
 # filter out values less than 0.3 mm
-stack2022_fil <- st_apply(
+stack2022_fil1 <- st_apply(
   stack2022,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 rm(stack2022)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022_fil.RData")
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022_fil1.RData")
 rm(list = ls())
 
 # 2021
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
 
 # filter out values less than 0.3 mm
-stack2021_fil <- st_apply(
+stack2021_fil1 <- st_apply(
   stack2021,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 rm(stack2021)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021_fil.RData")
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021_fil1.RData")
 
 ```
 
-# Get stack into 10 mins
+# MI60
+The stack (or tibble) is too large, exhausts memory
+
+## Testing
 
 ```{r}
+#load in stack
+load('./bbox_2fires/stack_2023_fil.Rdata')
 
-# make dataset even smaller for testing
-june_stack <- stack2023_fil %>%
-  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
-         datetime < ymd_hms('2023-07-01 00:00:00'))
+# set crs
+st_crs(stack2023_fil) <- "+proj=longlat +datum=WGS84"
 
-rm(stack2023, stack23_crop)
+catchment <- st_read('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/catchments_all_lidar.shp') %>%
+  filter(site == 'bl4')
+
+catchment <- st_transform(catchment, crs = 4326)
+mapview(catchment)
+
+bbox <- st_bbox(catchment)
+
+# Crop the left half
+bl4 <- st_crop(stack2023_fil, y = bbox) 
+
+mapview(bl4) + mapview(catchment)
+
+rm(stack2023_fil)
 
 # make df
-tibble <- as_tibble(june_stack)
-
-rm(june_stack)
-gc()
+tibble <- as_tibble(bl4)
+#rm(left_half)
+#gc()
 
 # aggregate to 10 min
-stack <- tibble %>%
+stack10 <- tibble %>%
+  mutate(month = month(datetime)) %>%
+  filter(month == 7) %>% 
   mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
   group_by(x, y, datetime_round) %>%
   rename(p_mm = filter_function) %>%
   summarize(p_mm = sum(p_mm)) %>%
   drop_na(p_mm)
 
-rm(tibble)
-gc()
-
-###############################
-# get MI60
+# get MI60 function
 compute_MI60 <- function(df) {
   # Calculate the rolling sum over 6 intervals (60 minutes)
   rolling_sums <- rollapply(df, width = 6, FUN = sum, na.rm = TRUE, fill = NA, align = "right")
-  # Find the maximum of these rolling sums
+  # Find the max of rolling sums
   max(rolling_sums, na.rm = TRUE)
 }
 
-
 # Calculate MI60 for each pixel
-stack_mi60 <- stack %>%
+stack_mi60 <- stack10 %>%
   group_by(x, y) %>%
   arrange(datetime_round) %>%
   mutate(MI60 = compute_MI60(p_mm)) %>%
   summarize(maxMI60 = max(MI60, na.rm = TRUE))
 
-#testing
-# tolerance <- 1e-6
-# 
-# stack_simple <- stack_mi60 %>%
-#   filter(abs(x - -106.145) < tolerance,
-#          abs(y - 40.155) < tolerance) %>%
-#   filter(!p_mm == 0)
-
-###########
+# convert back to stars
 stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+
+# set the crs
 st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
 
-mapview(stack_intens1)
+#export as tif
+write_stars(stack_intens1, './bbox_2fires/mi60_23_left.tif')
+rm(stack_intens1, stack10, tibble, stack_mi60)
 
 ```
+
+## Left half first
+
+```{r}
+#load in stack
+load('./bbox_2fires/stack_2023_fil.Rdata')
+
+# set crs
+st_crs(stack2023_fil) <- "+proj=longlat +datum=WGS84"
+
+# bbox of the whole area
+bbox <- st_bbox(stack2023_fil)
+
+# Extract bbox coords
+xmin <- bbox['xmin']
+xmax <- bbox['xmax']
+ymin <- bbox['ymin']
+ymax <- bbox['ymax']
+
+# Calculate mid_x
+mid_x <- as.numeric(xmin + (xmax - xmin) / 2)
+
+# bbox left site
+left_bbox <- st_bbox(c(xmin = as.numeric(xmin), 
+                       xmax = mid_x, 
+                       ymin = as.numeric(ymin), 
+                       ymax = as.numeric(ymax)), 
+                     crs = st_crs(4326))
+
+# Crop the left half
+left_half <- st_crop(stack2023_fil, y = left_bbox) 
+
+rm(stack2023_fil)
+
+# make df
+tibble <- as_tibble(left_half)
+rm(left_half)
+gc()
+
+# aggregate to 10 min
+stack10 <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  rename(p_mm = filter_function) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  drop_na(p_mm)
+
+# get MI60 function
+compute_MI60 <- function(df) {
+  # Calculate the rolling sum over 6 intervals (60 minutes)
+  rolling_sums <- rollapply(df, width = 6, FUN = sum, na.rm = TRUE, fill = NA, align = "right")
+  # Find the max of rolling sums
+  max(rolling_sums, na.rm = TRUE)
+}
+
+# Calculate MI60 for each pixel
+stack_mi60 <- stack10 %>%
+  group_by(x, y) %>%
+  arrange(datetime_round) %>%
+  mutate(MI60 = compute_MI60(p_mm)) %>%
+  summarize(maxMI60 = max(MI60, na.rm = TRUE))
+
+# convert back to stars
+stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+
+# set the crs
+st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+
+#export as tif
+write_stars(stack_intens1, './bbox_2fires/mi60_23_left.tif')
+rm(stack_intens1, stack10, tibble, stack_mi60)
+
+```
+
+## Right half
+
+```{r}
+#load in stack
+load('./bbox_2fires/stack_2023_fil.Rdata')
+
+# set crs
+st_crs(stack2023_fil) <- "+proj=longlat +datum=WGS84"
+
+# bbox RIGHT site
+right_bbox <- st_bbox(c(xmin = mid_x, 
+                       xmax = as.numeric(xmax), 
+                       ymin = as.numeric(ymin), 
+                       ymax = as.numeric(ymax)), 
+                     crs = st_crs(4326))
+
+# Crop the left half
+right_half <- st_crop(stack2023_fil, y = right_bbox)
+
+rm(stack2023_fil)
+
+# make df
+tibble <- as_tibble(right_half)
+rm(right_half)
+gc()
+
+# aggregate to 10 min
+stack10 <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  rename(p_mm = filter_function) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  drop_na(p_mm)
+
+# Calculate MI60 for each pixel
+stack_mi60 <- stack10 %>%
+  group_by(x, y) %>%
+  arrange(datetime_round) %>%
+  mutate(MI60 = compute_MI60(p_mm)) %>%
+  summarize(maxMI60 = max(MI60, na.rm = TRUE))
+
+# convert back to stars
+stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+
+# set the crs
+st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+
+#export as tif
+write_stars(stack_intens1, './bbox_2fires/mi60_23_right.tif')
+
+rm(stack_intens1, stack10, tibble, stack_mi60)
+
+```
+
+## Merge left & right together
+
+```{r}
+# read in the left and right
+right <- read_stars('./bbox_2fires/mi60_23_right.tif')
+left <- read_stars('./bbox_2fires/mi60_23_left.tif')
+
+# join together
+mi60_23 <- st_mosaic(right, left)
+
+# export
+write_stars(mi60_23, './bbox_2fires/mi60_23.tif')
+
+# make df for ggplot
+mi60_df <- as.data.frame(mi60_23, xy = TRUE)
+
+# put in same crs
+fires <- st_transform(fires, crs = 4326)
+
+#plot
+mi60_plot <- ggplot() +
+  geom_raster(data = mi60_df, 
+              aes(x = x, y = y, fill = mi60_23_right.tif)) +
+  scale_fill_viridis_c(name = "MI60 (mm/hr)", 
+                       option = "turbo",
+                       direction = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 0.75) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+mi60_plot
+
+# save fig
+ggsave('./bbox_2fires/2023_mi60_plot.png', dpi=600)
+
+```
+
+# Count of pixels > 10 mm/hr
+
+## Left
+
+```{r}
+
+#load in stack
+load('./bbox_2fires/stack_2021_fil.Rdata')
+
+# set crs
+st_crs(stack2021_fil) <- "+proj=longlat +datum=WGS84"
+
+# bbox of the whole area
+bbox <- st_bbox(stack2021_fil)
+
+# Extract bbox coords
+xmin <- bbox['xmin']
+xmax <- bbox['xmax']
+ymin <- bbox['ymin']
+ymax <- bbox['ymax']
+
+# Calculate mid_x
+mid_x <- as.numeric(xmin + (xmax - xmin) / 2)
+
+# bbox left site
+left_bbox <- st_bbox(c(xmin = as.numeric(xmin), 
+                       xmax = mid_x, 
+                       ymin = as.numeric(ymin), 
+                       ymax = as.numeric(ymax)), 
+                     crs = st_crs(4326))
+
+# Crop the left half
+left_half <- st_crop(stack2021_fil, y = left_bbox)
+
+rm(stack2021_fil)
+
+# make df
+tibble <- as_tibble(left_half)
+rm(left_half)
+gc()
+
+# aggregate to 10 min
+stack10 <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  rename(p_mm = filter_function) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  drop_na(p_mm)
+
+# get MI60 function
+count_MI60 <- function(df) {
+  # Calculate the rolling sum over 6 intervals (60 minutes)
+  rolling_sums <- rollapply(df, width = 6, FUN = sum, na.rm = TRUE, fill = NA, align = "right")
+  # Find the count >10
+  counts <- ifelse(rolling_sums > 10, 1, 0)
+}
+
+# test 7/23/23
+test <- stack10 %>%
+  filter(datetime_round > ymd_hms('2023-07-11 00:00:00') &
+           datetime_round < ymd_hms('2023-07-11 23:58'))
+
+# Calculate MI60 for each pixel
+stack_mi60 <- stack10 %>%
+  group_by(x, y) %>%
+  arrange(datetime_round) %>%
+  mutate(count_10 = count_MI60(p_mm)) #%>%
+  summarize(count_10_pix = sum(count_10))
+
+# convert back to stars
+stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+
+# set the crs
+st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+
+#export as tif
+write_stars(stack_intens1, './bbox_2fires/mi60_21_left.tif')
+rm(stack_intens1, stack10, tibble, stack_mi60)
+
+
+
+
+
+
+
+
+```
+
+
+## Right
+
+## Merge & plot
+
+
+
 
 # Summer totals
 
