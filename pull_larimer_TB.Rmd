@@ -1,0 +1,162 @@
+---
+title: "pull_larimerTB"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(httr)
+
+```
+
+```{r}
+
+grab_new_larimer <- function(start_date = "2021-06-01"){
+
+end_dt =  "2023-09-01" #format(Sys.Date(), "%Y-%m-%d")
+
+#Station numbers
+station_ids <- read_csv('./data/larimer_co_TB.csv') %>%
+  #slice(:16) %>%
+  pull(station_id)
+
+
+larimer_co_q_pull <- function(station_id, start_dt = "2021-06-01", end_dt = "2021-06-03"){
+  
+  start_dt <- format(as.POSIXct(start_dt, tz = "MST"), "%Y-%m-%dT%H:%M:%S%z")
+  start_dt <- paste0(substr(start_dt, 1, nchar(start_dt) - 2), ":", substr(start_dt, nchar(start_dt) - 1, nchar(start_dt)))
+  end_dt <- format(as.POSIXct(end_dt, tz = "MST"), "%Y-%m-%dT%H:%M:%S%z")
+  end_dt <- paste0(substr(end_dt, 1, nchar(end_dt) - 2), ":", substr(end_dt, nchar(end_dt) - 1, nchar(end_dt)))
+  
+  get_station_meta <- function(site_num){
+    #URLs for metadata and data 
+    start_meta <- "https://larimerco-ns5.trilynx-novastar.systems/novastar/data/api/v1/stationSummaries?forOperatorStationDashboard=true&stationNumId="
+    start_data <- "https://larimerco-ns5.trilynx-novastar.systems/novastar/data/api/v1/stationSummaries?forOperatorStationDashboard=true&stationNumId="
+    mid_data <- "&periodStart=" 
+    end_data <- "&periodEnd="
+    
+    site_meta_url <-  paste0(start_meta, site_num)
+    site_data_url <-  paste0(start_data, site_num, mid_data, start_dt,end_data, end_dt)
+    
+    
+    meta_request <- GET(url = site_meta_url)
+    total_list <-content(meta_request) 
+    
+    sensor_list <- total_list[["stationSummaries"]][[1]][["dataTypes"]]
+    
+    # grab all sensors and their position within lists
+    station_meta <- as.data.frame(do.call(rbind, sensor_list)) %>%
+      mutate(name = as.character(name))%>%
+      distinct(name)%>%
+      mutate(sensor_list_num = row_number())%>%
+      pivot_wider( names_from = "name", values_from = "sensor_list_num")%>%
+      mutate(id = total_list[["stationSummaries"]][[1]][["id"]], 
+             numid = total_list[["stationSummaries"]][[1]][["numId"]], 
+             name = total_list[["stationSummaries"]][[1]][["name"]],
+             elevation = total_list[["stationSummaries"]][[1]][["elevation"]],
+             lat = total_list[["stationSummaries"]][[1]][["latitude"]],
+             long = total_list[["stationSummaries"]][[1]][["longitude"]], 
+             site_number = site_num, 
+             site_meta_url = site_meta_url,
+             site_data_url = site_data_url)
+    
+    Sys.sleep(1)   
+    
+    return(station_meta)
+  }
+  
+  #maps to get all metadata/ location of all sensors within JSON
+  clp_station_meta <- get_station_meta(station_id)
+  
+  request <- NA
+  
+  download_q <- function(site_data_url, site_number) {
+    
+    #create request to novastar website using url created 
+    request <- GET(url = site_data_url)
+    
+    #gives content of httr pull
+    total_list <- content(request)
+    
+    #find list number where q is located
+    site_meta <- filter(clp_station_meta, numid == site_number)
+    
+    Q_sensor_num <-  as.numeric(site_meta$Precip[1]) # change to precip name
+    
+    # find list where discharge data is stored
+    
+    discharge_data <- total_list[["stationSummaries"]][[1]][["ts"]][[Q_sensor_num]][["data"]]
+    
+    if(length(discharge_data) == 0){
+      nah <- tibble()
+      return(nah)
+    }
+    #This function actually breaks down the list for a given site into the datetime and value components
+    unlist_q_data <- function(i){
+      unlist(discharge_data[[i]])
+    }
+    
+    q_df <- map_dfr(seq(1, length(discharge_data), 1), unlist_q_data)%>%
+      mutate(numid = site_number)
+    Sys.sleep(2)
+    return(q_df)
+    
+    
+  }
+  
+  #map function over all sites
+  clp_q_station_data<- download_q(clp_station_meta$site_data_url, clp_station_meta$site_number)
+  
+  
+  return(clp_q_station_data)
+}
+
+
+q_total <- tibble()           
+                
+for(i in 1:length(station_ids)){
+  import <- larimer_co_q_pull(station_id = station_ids[i], start_dt = start_date, end_dt = end_dt)
+  
+  if(nrow(import) == 0){
+    q_site <- tibble()
+  }else{
+  q_site <- import%>%
+    mutate(q_cfs = as.double(v),
+           datetime = ymd_hms(dt, tz = "",quiet = TRUE), 
+           DT_mst = with_tz(datetime, tzone = "MST"))%>%
+    select(site = numid, DT_mst, q_cfs, flag = f)
+  
+  q_total <- rbind(q_total, q_site)%>%
+    filter(!is.na(q_cfs))
+}
+}
+tidy_q <- q_total %>%
+  distinct()%>%
+  mutate(source = "Larimer County")
+
+#saveRDS(tidy_q, file = paste0("data/historical_larimer/larimer_", as.Date(Sys.Date()-1), ".RDS"))
+
+return(tidy_q)
+
+}
+
+precip <- grab_new_larimer()
+
+meta <- map(station_ids, get_station_meta) %>%
+  bind_rows()
+
+meta <- meta %>%
+  select(numid, lat, long) %>%
+  rename(site = numid)
+
+larimer_precip <- left_join(precip, meta, by = 'site')
+
+
+larimer_precip <- write_csv(larimer_precip, './data/larimerco_precip.csv')
+
+
+```
+
