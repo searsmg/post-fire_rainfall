@@ -35,28 +35,14 @@ load('./R/rain_metrics.Rdata')
 
 ```{r}
 
-tb_locations <- vect('./data/GIS/tb_locations.shp') %>%
-  terra::project(., 'EPSG:26913')
+# bring in all TBs
+tb_loc <- read_csv('./data/GIS/tb_locations_new.csv') %>%
+  dplyr::select(site, x, y) 
 
-plot(tb_locations)
-
-tb <- as(tb_locations, "Spatial")
+tb_spat <- vect(tb_loc, geom = c("x", "y"), crs = "EPSG:4326")
+tb <- as(tb_spat, 'Spatial')
 
 mapview(tb)
-
-# bring in larimer co TBs
-lar_tb <- read_csv('./data/larimerco_precip.csv') %>%
-  dplyr::select(site, lat, long) %>%
-  distinct(site, lat, long)
-
-lar_tb_spat <- vect(lar_tb, geom = c("long", "lat"), crs = "EPSG:4326")
-lar_tb_sp <- as(lar_tb_spat, 'Spatial')
-
-mapview(lar_tb_sp) + mapview(tb)
-
-rast <- rast('/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021/multiplied_20210501-000000.tif')
-mapview(rast) + mapview(lar_tb_sp)
-
 
 ```
 
@@ -64,33 +50,37 @@ mapview(rast) + mapview(lar_tb_sp)
 
 ```{r}
 
-setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021")
+#setwd("./data/mrms_data/2min_2021") # update below (filenames) so we aren't 
 
 # Output dir
-output_dir <- "/Users/megansears/Documents/MRMS/bbox_2fires/larimer_tb_pixels_2021/"
+output_dir <- "./data/mrms_data/tb_pixels_2023/"
+
+# raster dir
+base_dir <- "./data/mrms_data/2min_2023"
 
 # List raster filenames
-filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
+filenames <- list.files("./data/mrms_data/2min_2023", pattern = ".tif", full.names = FALSE)
 
 # Parallel processing
-cl <- makeCluster(8)
+cl <- makeCluster(4)
 registerDoParallel(cl)
 
 # Loop for parallel processing
 foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf', 'tidyverse')) %dopar% {
+  
+  # Construct full file path
+  full_file_path <- file.path(base_dir, fileName)
 
-  lar_tb <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/larimerco_precip.csv') %>%
-  dplyr::select(site, lat, long) %>%
-  distinct(site, lat, long)
-
-  tb_locations <- vect(lar_tb, geom = c("long", "lat"), crs = "EPSG:4326")
+  tb_all <- read_csv('./data/GIS/tb_locations_new.csv') %>%
+  dplyr::select(site, x, y)
+  tb_locations <- vect(tb_all, geom = c("x", "y"), crs = "EPSG:4326")
   
   # tb_locations <- lar_tb_spat %>%
   #   #terra::project(., 'EPSG:26913')
   #   terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
 
   # Pull in raster
-  r <- terra::rast(fileName)
+  r <- terra::rast(full_file_path)
 
   names(r) <- "p_mmhr"
 
@@ -128,7 +118,7 @@ stopCluster(cl)
 ```{r}
 
 # Location of individual CSVs
-csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023"
+csv_directory <- output_dir
 
 # List them
 csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
@@ -175,11 +165,11 @@ final_data <- final_data %>%
   rename(MI2_mmhr = p_mmhr)
 
 # Write the combined data to csv
-write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023/tb_drowsy_2023.csv')
+write.csv(final_data, './data/mrms_data/tb_pixels_2023/tb_pixels23.csv')
 
 ```
 
-Ran the above for all the groups (2021, 2022, 2022, 2023 (vpn), and 2023 extra (vpn))
+Ran the above for all the groups (2021, 2022, 2022, 2023 (vpn), and 2023 extra (vpn)) - extra no longer applies
 
 # Load in data
 
@@ -187,6 +177,7 @@ A few notes about the data:
 -Get rid of Drowsy in 2023, that area is not covered
 -2022 is good for all ET sites (and Benn and CPF)
 -2023 does not include Drowsy or Lpm so need extra 2023 dataset for lpm
+above no longer applies since using bbox 2 fires
 
 The next steps:
 -Load in and prep the pixel TB mrms data and get events & intensities for each pixel
@@ -196,52 +187,29 @@ Don't need to run anymore
 
 ```{r}
 
-# # load in pixel data
-# pixel21 <- read_csv('./data/final/mrms/tb_2021.csv') %>%
-#   select(-1) %>%
-#   force_tz(datetime, tzone = 'MST') %>%
-#   mutate(month = month(datetime)) %>%
-#   filter(month %in% (5:9))
-# 
-# pixel22 <- read_csv('./data/final/mrms/tb_2022.csv') %>%
-#   select(-1) %>%
-#   force_tz(datetime, tzone = 'MST') %>%
-#   mutate(month = month(datetime)) %>%
-#   filter(month %in% (5:9))
-# 
-# # get rid of lpm and drowsy bc they aren't covered here
-# pixel23 <- read_csv('./data/final/mrms/tb_2023.csv') %>%
-#   dplyr::select(-1) %>%
-#   force_tz(datetime, tzone = 'MST') %>%
-#   filter(!site %in% c('LPm', 'drowsy')) %>%
-#   mutate(month = month(datetime)) %>%
-#   filter(month %in% (5:9))
-# 
-# # lpm for 2023 [drowsy not covered at all in 2023]
-# pixel23_lpm <- read_csv('./data/final/mrms/tb_extra_2023.csv') %>%
-#   select(-1) %>%
-#   force_tz(datetime, tzone = 'MST') %>%
-#   filter(site %in% c('LPm')) %>%
-#   mutate(month = month(datetime)) %>%
-#   filter(month %in% (5:9))
-# 
-# # add in 2023 drowsy pixel data here
-# pixel23_drowsy <- read_csv('./data/final/mrms/tb_drowsy_2023.csv') %>%
-#   dplyr::select(-1) %>%
-#   force_tz(datetime, tzone = 'MST') %>%
-#   mutate(month = month(datetime)) %>%
-#   filter(month %in% (5:9))
-# 
-# # add lpm 2023 back to 2023 dataset
-# pixel23 <- bind_rows(pixel23, pixel23_lpm, pixel23_drowsy) %>%
-#   arrange(datetime)
-# 
-# rm(pixel23_lpm)
-# rm(pixel23_drowsy)
-# 
-# # bind together all - now I think we want to find the events & intens
-# pixel <- bind_rows(pixel21, pixel22, pixel23) %>%
-#   mutate(year = year(datetime))
+# load in pixel data
+pixel21 <- read_csv('./data/mrms_data/tb_pixels_2021/tb_pixels21.csv') %>%
+  dplyr::select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+pixel22 <- read_csv('./data/mrms_data/tb_pixels_2022/tb_pixels22.csv') %>%
+  dplyr::select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+# get rid of lpm and drowsy bc they aren't covered here
+pixel23 <- read_csv('./data/mrms_data/tb_pixels_2023/tb_pixels23.csv') %>%
+  dplyr::select(-1) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (5:9))
+
+# bind together all - now I think we want to find the events & intens
+pixel <- bind_rows(pixel21, pixel22, pixel23) %>%
+  mutate(year = year(datetime))
 
 ```
 
@@ -250,118 +218,116 @@ Don't need to run anymore
 
 ```{r}
 
-# # function for mrms events
-# get_mrms_events <- function(df, datetime) {
-#   df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
-#   df$datenumeric=as.numeric(df$datetime)
-# 
-#   for (i in 2:nrow(df)) {
-#     df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
-#   }
-#   df$dt_hr=as.numeric(df$dt)/60/60
-#   
-#   #start new event if time between rows is  >=6
-#   df$event=1
-#   for (i in 2:nrow(df)) {
-#     df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
-#   }
-#   return(df)
-# }
-# 
-# ###############################################################################
-# 
-# # right now getting it into 10 min timesteps since the smallest MI we do is 10
-# # talk to SK about this
-# pixel10 <- pixel %>%
-#   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
-#   group_by(site, timestamps_10min) %>%
-#   summarize(rain_mm = sum(p_mm)) %>%
-#   rename(datetime = timestamps_10min)
-# 
-# # get events
-# get_mrms_all_events <- function(all, ID_name) {
-#   
-#   events <- all %>%
-#   filter(site == ID_name,
-#          rain_mm >= 0.254) %>%
-#   get_mrms_events(., datetime) %>%
-#   group_by(event) %>%
-#   mutate(start_time = min(datetime),
-#          end_time = max(datetime)) %>%
-#   dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
-#   complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
-#   arrange(event, datetime) %>%
-#   fill(start_time, end_time, site) %>%
-#   ungroup() %>%
-#   mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
-#     
-#   return(events)
-# }
-# 
-# # list out sites 
-# sites <- unique(pixel10$site)
-# 
-# # get events for all sites
-# pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
-#   bind_rows()
-# 
-# # get intensities
-# get_mrms_intensities <- function(all_events, ID_name) {
-# 
-# intens <- all_events %>%
-#   filter(site == ID_name) %>%
-#   group_by(event) %>%
-#   mutate(max10_mm = max(rain_mm),
-#          sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
-#          max20_mm = max(sum20_mm),
-#          sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
-#          max30_mm = max(sum30_mm),
-#          sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
-#          max60_mm = max(sum60_mm),
-#          event_sum_mm = sum(rain_mm),
-#          MI10_mmhr = max10_mm*6,
-#          MI20_mmhr = max20_mm*3,
-#          MI30_mmhr = max30_mm*2,
-#          MI60_mmhr = max60_mm) %>%
-#   dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
-#             sum20_mm, sum30_mm, sum60_mm, datetime,
-#             rain_mm)) %>%
-#   ungroup() %>%
-#   distinct(start_time, .keep_all = T) %>%
-#   mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
-#   filter(event_sum_mm > 1)
-#   
-# }
-# 
-# # get intens for all sites
-# pixel_intens <- map(sites, ~ get_mrms_intensities(pixel_events, .)) %>%
-#   bind_rows(.)
-# 
-# pixel_intens <- pixel_intens %>%
-#   group_by(site) %>%
-#   arrange(event) %>%
-#   mutate(event = 1:n()) %>%
-#   mutate(year = year(start_time)) %>%
-#   filter(!site %in% c('tunnel')) %>%
-#   mutate(site = case_when(
-#     site == 'HUm2' ~ 'hum2',
-#     site == 'LPm' ~ 'lpm',
-#     site == 'MUb' ~ 'mub',
-#     site == 'm_e' ~ 'me',
-#     site == 'm_m' ~ 'mm',
-#     site == 'm_w' ~ 'mw',
-#     site == 'u_e' ~ 'ue',
-#     site == 'u_m' ~ 'um',
-#     site == 'u_w' ~ 'uw',
-#     TRUE ~ site))
-# 
-# ggplot(pixel_intens, aes(y=MI60_mmhr, x=site)) + geom_boxplot()
-# ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
-# 
-# write_csv(pixel_intens, './data/final/mrms/pixel_intens.csv')
+# function for mrms events
+get_mrms_events <- function(df, datetime) {
+  df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
+  df$datenumeric=as.numeric(df$datetime)
 
-pixel_intens <- read_csv('./data/final/mrms/pixel_intens.csv') %>%
-  force_tz(datetime, tzone = 'MST')
+  for (i in 2:nrow(df)) {
+    df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
+  }
+  df$dt_hr=as.numeric(df$dt)/60/60
+
+  #start new event if time between rows is  >=6
+  df$event=1
+  for (i in 2:nrow(df)) {
+    df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
+  }
+  return(df)
+}
+
+###############################################################################
+
+# right now getting it into 10 min timesteps since the smallest MI we do is 10
+pixel10 <- pixel %>%
+  mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  group_by(site, timestamps_10min) %>%
+  summarize(rain_mm = sum(p_mm)) %>%
+  rename(datetime = timestamps_10min)
+
+# get events
+get_mrms_all_events <- function(all, ID_name) {
+
+  events <- all %>%
+  filter(site == ID_name,
+         rain_mm >= 0.254) %>%
+  get_mrms_events(., datetime) %>%
+  group_by(event) %>%
+  mutate(start_time = min(datetime),
+         end_time = max(datetime)) %>%
+  dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
+  complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
+  arrange(event, datetime) %>%
+  fill(start_time, end_time, site) %>%
+  ungroup() %>%
+  mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
+
+  return(events)
+}
+
+# list out sites
+sites <- unique(pixel10$site)
+
+# get events for all sites
+pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
+  bind_rows()
+
+# get intensities
+get_mrms_intensities <- function(all_events, ID_name) {
+
+intens <- all_events %>%
+  filter(site == ID_name) %>%
+  group_by(event) %>%
+  mutate(max10_mm = max(rain_mm),
+         sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
+         max20_mm = max(sum20_mm),
+         sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
+         max30_mm = max(sum30_mm),
+         sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
+         max60_mm = max(sum60_mm),
+         event_sum_mm = sum(rain_mm),
+         MI10_mmhr = max10_mm*6,
+         MI20_mmhr = max20_mm*3,
+         MI30_mmhr = max30_mm*2,
+         MI60_mmhr = max60_mm) %>%
+  dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
+            sum20_mm, sum30_mm, sum60_mm, datetime,
+            rain_mm)) %>%
+  ungroup() %>%
+  distinct(start_time, .keep_all = T) %>%
+  mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
+  filter(event_sum_mm > 1)
+
+}
+
+# get intens for all sites
+pixel_intens <- map(sites, ~ get_mrms_intensities(pixel_events, .)) %>%
+  bind_rows(.)
+
+pixel_intens <- pixel_intens %>%
+  group_by(site) %>%
+  arrange(event) %>%
+  mutate(event = 1:n()) %>%
+  mutate(year = year(start_time)) %>%
+  mutate(site = case_when(
+    site == 'HUm2' ~ 'hum2',
+    site == 'LPm' ~ 'lpm',
+    site == 'MUb' ~ 'mub',
+    site == 'm_e' ~ 'me',
+    site == 'm_m' ~ 'mm',
+    site == 'm_w' ~ 'mw',
+    site == 'u_e' ~ 'ue',
+    site == 'u_m' ~ 'um',
+    site == 'u_w' ~ 'uw',
+    TRUE ~ site))
+
+ggplot(pixel_intens, aes(y=MI60_mmhr, x=site)) + geom_boxplot()
+ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
+
+write_csv(pixel_intens, './data/mrms_data/pixel_tb_intens.csv')
+
+# pixel_intens <- read_csv('./data/final/mrms/pixel_intens.csv') %>%
+#   force_tz(datetime, tzone = 'MST')
 
 ```
 
