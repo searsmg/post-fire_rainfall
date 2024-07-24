@@ -14,7 +14,7 @@ library(httr)
 
 ```{r}
 
-grab_new_larimer <- function(start_date = "2021-06-01"){
+grab_new_larimer <- function(start_date = "2023-06-01"){
 
 end_dt =  "2023-09-01" #format(Sys.Date(), "%Y-%m-%d")
 
@@ -24,7 +24,7 @@ station_ids <- read_csv('./data/larimer_co_TB.csv') %>%
   pull(station_id)
 
 
-larimer_co_q_pull <- function(station_id, start_dt = "2021-06-01", end_dt = "2021-06-03"){
+larimer_co_q_pull <- function(station_id, start_dt = "2023-06-01", end_dt = "2021-06-03"){
   
   start_dt <- format(as.POSIXct(start_dt, tz = "MST"), "%Y-%m-%dT%H:%M:%S%z")
   start_dt <- paste0(substr(start_dt, 1, nchar(start_dt) - 2), ":", substr(start_dt, nchar(start_dt) - 1, nchar(start_dt)))
@@ -157,6 +157,12 @@ larimer_precip <- left_join(precip, meta, by = 'site')
 
 larimer_precip <- write_csv(larimer_precip, './data/larimerco_precip.csv')
 
+meta <- map(station_ids, get_station_meta) %>%
+  bind_rows()
+
+meta <- bind_rows()
+
+write_csv(meta, '/Users/megansears/Documents/Repos/post-fire_rainfall/data/larimer_tb_meta.csv')
 
 ```
 
