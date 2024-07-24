@@ -50,8 +50,6 @@ mapview(tb)
 
 ```{r}
 
-#setwd("./data/mrms_data/2min_2021") # update below (filenames) so we aren't 
-
 # Output dir
 output_dir <- "./data/mrms_data/tb_pixels_2023/"
 
@@ -113,7 +111,7 @@ stopCluster(cl)
 
 ```
 
-# Combine csvs into 1
+## Combine csvs into 1
 
 ```{r}
 
@@ -169,21 +167,131 @@ write.csv(final_data, './data/mrms_data/tb_pixels_2023/tb_pixels23.csv')
 
 ```
 
-Ran the above for all the groups (2021, 2022, 2022, 2023 (vpn), and 2023 extra (vpn)) - extra no longer applies
+Ran the above for all the groups (2021, 2022, 2022, 2023)
 
-# Load in data
+# RQI
 
-A few notes about the data:
--Get rid of Drowsy in 2023, that area is not covered
--2022 is good for all ET sites (and Benn and CPF)
--2023 does not include Drowsy or Lpm so need extra 2023 dataset for lpm
-above no longer applies since using bbox 2 fires
+Get RQI for TB pixels
+
+```{r}
+
+# Output dir
+output_dir <- "./data/mrms_data/RQI/tb_pixel23/"
+
+# raster dir
+base_dir <- "./data/mrms_data/RQI/2023/RQI_crop_bbox2fires"
+
+# List raster filenames
+filenames <- list.files(base_dir, pattern = ".tif", full.names = FALSE)
+
+# Parallel processing
+cl <- makeCluster(4)
+registerDoParallel(cl)
+
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf', 'tidyverse')) %dopar% {
+  
+  # Construct full file path
+  full_file_path <- file.path(base_dir, fileName)
+
+  tb_all <- read_csv('./data/GIS/tb_locations_new.csv') %>%
+  dplyr::select(site, x, y)
+  tb_locations <- vect(tb_all, geom = c("x", "y"), crs = "EPSG:4326")
+  
+  # Pull in raster
+  r <- terra::rast(full_file_path)
+
+  names(r) <- "RQI"
+
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::extract(r, tb_locations)
+
+  extract$site <- tb_locations$site
+
+  timestamp <- substr(fileName, 25, 39)
+
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime),
+           hour = hour(datetime),
+           min = minute(datetime))
+
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
+
+  write.csv(extract, file = output_filename)
+
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+```
+
+## Combine csvs into 1
+
+```{r}
+
+# Location of individual CSVs
+csv_directory <- output_dir
+
+# List them
+csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
+
+# Set cores for parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+# Function to read CSV files using data.table
+read_csv_file <- function(file) {
+  dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A"))
+
+  # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates
+  if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) &&
+      all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) {
+    dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime
+  }
+
+  # Convert the "datetime" column to POSIXct format (consistent date-time format)
+  dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S")
+
+  dt
+}
+
+# Use foreach to read all CSV files in parallel
+result <- foreach(file = csv_files, .packages = "data.table") %dopar% {
+  read_csv_file(file)
+}
+
+# Stop
+stopCluster(cl)
+
+# Combine the list of data.tables into a single data.table
+final_data <- rbindlist(result)
+
+# Check the dimensions of the final_data
+print(dim(final_data))
+
+final_data <- final_data %>%
+  arrange(datetime) %>%
+  dplyr::select(-c(V1, doy, hour, min))
+
+# Write the combined data to csv
+write.csv(final_data, './data/mrms_data/RQI/tb_pixels23.csv')
+
+```
+
+# Load pixel TB precip and RQI
 
 The next steps:
--Load in and prep the pixel TB mrms data and get events & intensities for each pixel
--For TB data, pull time windows that align with mrms, then get the events & intens for that
-
-Don't need to run anymore
+- Load in and prep the pixel TB mrms data 
+- Load in and prep RQI data to be joined with pixel TB data
+- Get events & intensities for each pixel (need to add code where it's averaging RQI over the event)
+- For TB data, pull time windows that align with mrms, then get the events & intens for that
 
 ```{r}
 
@@ -192,24 +300,60 @@ pixel21 <- read_csv('./data/mrms_data/tb_pixels_2021/tb_pixels21.csv') %>%
   dplyr::select(-1) %>%
   force_tz(datetime, tzone = 'MST') %>%
   mutate(month = month(datetime)) %>%
-  filter(month %in% (5:9))
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
 
 pixel22 <- read_csv('./data/mrms_data/tb_pixels_2022/tb_pixels22.csv') %>%
   dplyr::select(-1) %>%
   force_tz(datetime, tzone = 'MST') %>%
   mutate(month = month(datetime)) %>%
-  filter(month %in% (5:9))
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
 
 # get rid of lpm and drowsy bc they aren't covered here
 pixel23 <- read_csv('./data/mrms_data/tb_pixels_2023/tb_pixels23.csv') %>%
   dplyr::select(-1) %>%
   force_tz(datetime, tzone = 'MST') %>%
   mutate(month = month(datetime)) %>%
-  filter(month %in% (5:9))
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
 
 # bind together all - now I think we want to find the events & intens
 pixel <- bind_rows(pixel21, pixel22, pixel23) %>%
   mutate(year = year(datetime))
+
+rqi23 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels23.csv') %>%
+  dplyr::select(3:5) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
+
+rqi22 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels22.csv') %>%
+  dplyr::select(3:5) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
+
+
+rqi21 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels21.csv') %>%
+  dplyr::select(3:5) %>%
+  force_tz(datetime, tzone = 'MST') %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% (6:9)) %>%
+  group_by(datetime, site) %>%
+  distinct(.keep__all = T)
+
+rqi <- bind_rows(rqi23, rqi22, rqi21) %>%
+  dplyr::select(-month)
+
+both <- left_join(pixel, rqi, by = c('site','datetime'))
 
 ```
 
