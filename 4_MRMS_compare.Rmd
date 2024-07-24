@@ -23,7 +23,8 @@ library(doParallel)
 library(data.table)
 library(dataRetrieval)
 library(plotly)
-library()
+library(raster)
+library(mapview)
 
 # load the functions to process TB events
 load('./R/rain_metrics.Rdata')
@@ -39,120 +40,144 @@ tb_locations <- vect('./data/GIS/tb_locations.shp') %>%
 
 plot(tb_locations)
 
+tb <- as(tb_locations, "Spatial")
+
+mapview(tb)
+
+# bring in larimer co TBs
+lar_tb <- read_csv('./data/larimerco_precip.csv') %>%
+  dplyr::select(site, lat, long) %>%
+  distinct(site, lat, long)
+
+lar_tb_spat <- vect(lar_tb, geom = c("long", "lat"), crs = "EPSG:4326")
+lar_tb_sp <- as(lar_tb_spat, 'Spatial')
+
+mapview(lar_tb_sp) + mapview(tb)
+
+rast <- rast('/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021/multiplied_20210501-000000.tif')
+mapview(rast) + mapview(lar_tb_sp)
+
+
 ```
 
-<!-- # Extract the TB pixels -->
+# Extract the TB pixels
 
-<!-- ```{r} -->
+```{r}
 
-<!-- setwd("/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023") -->
+setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021")
 
-<!-- # Output dir -->
-<!-- output_dir <- "/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023/" -->
+# Output dir
+output_dir <- "/Users/megansears/Documents/MRMS/bbox_2fires/larimer_tb_pixels_2021/"
 
-<!-- # List raster filenames -->
-<!-- filenames <- list.files(".", pattern = ".tif", full.names = FALSE) -->
+# List raster filenames
+filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
 
-<!-- # Parallel processing -->
-<!-- cl <- makeCluster(8) -->
-<!-- registerDoParallel(cl) -->
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
 
-<!-- # Loop for parallel processing -->
-<!-- foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% { -->
+# Loop for parallel processing
+foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf', 'tidyverse')) %dopar% {
 
-<!--   tb_locations <- vect('/Users/megansears/Desktop/temp/drowsy.shp') %>% -->
-<!--     #terra::project(., 'EPSG:26913') -->
-<!--     terra::project(., '+proj=longlat +datum=WGS84 +no_defs') -->
+  lar_tb <- read_csv('/Users/megansears/Documents/Repos/post-fire_rainfall/data/larimerco_precip.csv') %>%
+  dplyr::select(site, lat, long) %>%
+  distinct(site, lat, long)
 
-<!--   # Pull in raster -->
-<!--   r <- terra::rast(fileName) -->
+  tb_locations <- vect(lar_tb, geom = c("long", "lat"), crs = "EPSG:4326")
+  
+  # tb_locations <- lar_tb_spat %>%
+  #   #terra::project(., 'EPSG:26913')
+  #   terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
 
-<!--   names(r) <- "p_mmhr" -->
+  # Pull in raster
+  r <- terra::rast(fileName)
 
-<!--   # Extract using terra- zonal stats, weighted mean -->
-<!--   extract <- terra::extract(r, tb_locations) -->
+  names(r) <- "p_mmhr"
 
-<!--   extract$site <- tb_locations$site -->
+  # Extract using terra- zonal stats, weighted mean
+  extract <- terra::extract(r, tb_locations)
 
-<!--   timestamp <- substr(fileName, 12, 26) -->
+  extract$site <- tb_locations$site
 
-<!--   # get out of UST to MST -->
-<!--   extract <- extract %>% -->
-<!--     mutate(datetime = ymd_hms(timestamp)) %>% -->
-<!--     mutate(datetime = datetime - (7 * 60 * 60)) %>% -->
-<!--     mutate(doy = yday(datetime), -->
-<!--            hour = hour(datetime), -->
-<!--            min = minute(datetime)) -->
+  timestamp <- substr(fileName, 12, 26)
 
-<!--   # Create output filename -->
-<!--   output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv") -->
+  # get out of UST to MST
+  extract <- extract %>%
+    mutate(datetime = ymd_hms(timestamp)) %>%
+    mutate(datetime = datetime - (7 * 60 * 60)) %>%
+    mutate(doy = yday(datetime),
+           hour = hour(datetime),
+           min = minute(datetime))
 
-<!--   write.csv(extract, file = output_filename) -->
+  # Create output filename
+  output_filename <- paste0(output_dir, "extract_", extract$doy[1], "_", extract$hour[1], "_", extract$min[1], ".csv")
 
-<!--   # Return a message indicating completion -->
-<!--   cat("Data extraction completed for:", fileName, "\n") -->
-<!-- } -->
+  write.csv(extract, file = output_filename)
 
-<!-- # Stop parallel processing -->
-<!-- stopCluster(cl) -->
+  # Return a message indicating completion
+  cat("Data extraction completed for:", fileName, "\n")
+}
 
-<!-- ``` -->
+# Stop parallel processing
+stopCluster(cl)
 
-<!-- # Combine csvs into 1 -->
+```
 
-<!-- ```{r} -->
+# Combine csvs into 1
 
-<!-- # Location of individual CSVs -->
-<!-- csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023" -->
+```{r}
 
-<!-- # List them -->
-<!-- csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE) -->
+# Location of individual CSVs
+csv_directory <- "/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023"
 
-<!-- # Set cores for parallel processing -->
-<!-- cl <- makeCluster(8) -->
-<!-- registerDoParallel(cl) -->
+# List them
+csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
 
-<!-- # Function to read CSV files using data.table -->
-<!-- read_csv_file <- function(file) { -->
-<!--   dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A")) -->
+# Set cores for parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
 
-<!--   # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates -->
-<!--   if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) && -->
-<!--       all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) { -->
-<!--     dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime -->
-<!--   } -->
+# Function to read CSV files using data.table
+read_csv_file <- function(file) {
+  dt <- data.table::fread(file, na.strings = c("NA", "NaN", "N/A"))
 
-<!--   # Convert the "datetime" column to POSIXct format (consistent date-time format) -->
-<!--   dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S") -->
+  # Check if the filename ends with "0_0.csv" and the "datetime" column contains only dates
+  if (grepl("0_0.csv$", file) && "datetime" %in% colnames(dt) &&
+      all(is.na(as.POSIXct(dt$datetime, format = "%Y-%m-%d %H:%M:%S")))) {
+    dt$datetime <- paste0(dt$datetime, " 00:00:00")  # Append "00:00:00" to the datetime
+  }
 
-<!--   dt -->
-<!-- } -->
+  # Convert the "datetime" column to POSIXct format (consistent date-time format)
+  dt$datetime <- as.POSIXct(dt$datetime, format = "%m/%d/%y %H:%M:%S")
 
-<!-- # Use foreach to read all CSV files in parallel -->
-<!-- result <- foreach(file = csv_files, .packages = "data.table") %dopar% { -->
-<!--   read_csv_file(file) -->
-<!-- } -->
+  dt
+}
 
-<!-- # Stop -->
-<!-- stopCluster(cl) -->
+# Use foreach to read all CSV files in parallel
+result <- foreach(file = csv_files, .packages = "data.table") %dopar% {
+  read_csv_file(file)
+}
 
-<!-- # Combine the list of data.tables into a single data.table -->
-<!-- final_data <- rbindlist(result) -->
+# Stop
+stopCluster(cl)
 
-<!-- # Check the dimensions of the final_data -->
-<!-- print(dim(final_data)) -->
+# Combine the list of data.tables into a single data.table
+final_data <- rbindlist(result)
 
-<!-- final_data <- final_data %>% -->
-<!--   arrange(datetime) %>% -->
-<!--   mutate(p_mmhr = if_else(p_mmhr < 0, 0, p_mmhr), -->
-<!--          p_mm = p_mmhr*(1/30)) %>% -->
-<!--   dplyr::select(-c(V1, doy, hour, min)) %>% -->
-<!--   rename(MI2_mmhr = p_mmhr) -->
+# Check the dimensions of the final_data
+print(dim(final_data))
 
-<!-- # Write the combined data to csv -->
-<!-- write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023/tb_drowsy_2023.csv') -->
+final_data <- final_data %>%
+  arrange(datetime) %>%
+  mutate(p_mmhr = if_else(p_mmhr < 0, 0, p_mmhr),
+         p_mm = p_mmhr*(1/30)) %>%
+  dplyr::select(-c(V1, doy, hour, min)) %>%
+  rename(MI2_mmhr = p_mmhr)
 
-<!-- ``` -->
+# Write the combined data to csv
+write.csv(final_data, '/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/drowsy_tb_2023/tb_drowsy_2023.csv')
+
+```
 
 Ran the above for all the groups (2021, 2022, 2022, 2023 (vpn), and 2023 extra (vpn))
 
