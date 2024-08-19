@@ -26,8 +26,9 @@ library(plotly)
 library(raster)
 library(mapview)
 
-# load the functions to process TB events
+# load the functions to process TB & mrms events
 load('./R/rain_metrics.Rdata')
+source('./R/mrms_metrics.R')
 
 ```
 
@@ -302,7 +303,9 @@ pixel21 <- read_csv('./data/mrms_data/tb_pixels_2021/tb_pixels21.csv') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
+  distinct(., .keep_all = T) 
+# stupidly had repeats in the tb pixel lat long file for the pixel extract
+# so have to remove the repeats
 
 pixel22 <- read_csv('./data/mrms_data/tb_pixels_2022/tb_pixels22.csv') %>%
   dplyr::select(-1) %>%
@@ -310,7 +313,7 @@ pixel22 <- read_csv('./data/mrms_data/tb_pixels_2022/tb_pixels22.csv') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
+  distinct(., .keep_all = T)
 
 # get rid of lpm and drowsy bc they aren't covered here
 pixel23 <- read_csv('./data/mrms_data/tb_pixels_2023/tb_pixels23.csv') %>%
@@ -319,19 +322,19 @@ pixel23 <- read_csv('./data/mrms_data/tb_pixels_2023/tb_pixels23.csv') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
+  distinct(., .keep_all = T)
 
 # bind together all - now I think we want to find the events & intens
 pixel <- bind_rows(pixel21, pixel22, pixel23) %>%
   mutate(year = year(datetime))
-
+    
 rqi23 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels23.csv') %>%
   dplyr::select(3:5) %>%
   force_tz(datetime, tzone = 'MST') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
+  distinct(., .keep_all = T)
 
 rqi22 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels22.csv') %>%
   dplyr::select(3:5) %>%
@@ -339,8 +342,7 @@ rqi22 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels22.csv') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
-
+  distinct(., .keep_all = T)
 
 rqi21 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels21.csv') %>%
   dplyr::select(3:5) %>%
@@ -348,7 +350,7 @@ rqi21 <- read_csv('./data/mrms_data/RQI/rqi_tb_pixels21.csv') %>%
   mutate(month = month(datetime)) %>%
   filter(month %in% (6:9)) %>%
   group_by(datetime, site) %>%
-  distinct(.keep__all = T)
+  distinct(., .keep_all = T)
 
 rqi <- bind_rows(rqi23, rqi22, rqi21) %>%
   dplyr::select(-month)
@@ -362,52 +364,36 @@ Don't need to run anymore
 
 ```{r}
 
-# function for mrms events
-get_mrms_events <- function(df, datetime) {
-  df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
-  df$datenumeric=as.numeric(df$datetime)
-
-  for (i in 2:nrow(df)) {
-    df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
-  }
-  df$dt_hr=as.numeric(df$dt)/60/60
-
-  #start new event if time between rows is  >=6
-  df$event=1
-  for (i in 2:nrow(df)) {
-    df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
-  }
-  return(df)
-}
-
-###############################################################################
-
 # right now getting it into 10 min timesteps since the smallest MI we do is 10
-pixel10 <- pixel %>%
+pixel10 <- both %>%
   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  mutate(RQI = if_else(RQI < 0, 0, RQI)) %>%
   group_by(site, timestamps_10min) %>%
-  summarize(rain_mm = sum(p_mm)) %>%
+  summarize(rain_mm = sum(p_mm), 
+            rqi = mean(RQI, na.rm=T)) %>%
   rename(datetime = timestamps_10min)
 
-# get events
-get_mrms_all_events <- function(all, ID_name) {
 
-  events <- all %>%
+get_rqi_events <- function(ID_name) {
+  rqi_events <- pixel10 %>%
   filter(site == ID_name,
-         rain_mm >= 0.254) %>%
-  get_mrms_events(., datetime) %>%
-  group_by(event) %>%
-  mutate(start_time = min(datetime),
-         end_time = max(datetime)) %>%
-  dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
-  complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
-  arrange(event, datetime) %>%
-  fill(start_time, end_time, site) %>%
-  ungroup() %>%
-  mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
-
-  return(events)
+         rain_mm >= 0.1) %>%
+  get_mrms_events(., datetime)
+  
+  return(rqi_events)
 }
+
+# list out sites
+sites <- unique(pixel10$site)
+
+# get events for all sites
+rqi_events <- map(sites, ~ get_rqi_events(.)) %>%
+  bind_rows()
+
+# join this back later by site and event
+rqi_mean <- rqi_events %>%
+  group_by(site, event) %>%
+  summarize(mean_rqi = mean(rqi, na.rm = T))
 
 # list out sites
 sites <- unique(pixel10$site)
@@ -416,59 +402,32 @@ sites <- unique(pixel10$site)
 pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
   bind_rows()
 
-# get intensities
-get_mrms_intensities <- function(all_events, ID_name) {
-
-intens <- all_events %>%
-  filter(site == ID_name) %>%
-  group_by(event) %>%
-  mutate(max10_mm = max(rain_mm),
-         sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
-         max20_mm = max(sum20_mm),
-         sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
-         max30_mm = max(sum30_mm),
-         sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
-         max60_mm = max(sum60_mm),
-         event_sum_mm = sum(rain_mm),
-         MI10_mmhr = max10_mm*6,
-         MI20_mmhr = max20_mm*3,
-         MI30_mmhr = max30_mm*2,
-         MI60_mmhr = max60_mm) %>%
-  dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
-            sum20_mm, sum30_mm, sum60_mm, datetime,
-            rain_mm)) %>%
-  ungroup() %>%
-  distinct(start_time, .keep_all = T) %>%
-  mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
-  filter(event_sum_mm > 1)
-
-}
-
 # get intens for all sites
 pixel_intens <- map(sites, ~ get_mrms_intensities(pixel_events, .)) %>%
   bind_rows(.)
 
-pixel_intens <- pixel_intens %>%
-  group_by(site) %>%
-  arrange(event) %>%
-  mutate(event = 1:n()) %>%
-  mutate(year = year(start_time)) %>%
-  mutate(site = case_when(
-    site == 'HUm2' ~ 'hum2',
-    site == 'LPm' ~ 'lpm',
-    site == 'MUb' ~ 'mub',
-    site == 'm_e' ~ 'me',
-    site == 'm_m' ~ 'mm',
-    site == 'm_w' ~ 'mw',
-    site == 'u_e' ~ 'ue',
-    site == 'u_m' ~ 'um',
-    site == 'u_w' ~ 'uw',
-    TRUE ~ site))
+# pixel_intens <- pixel_intens %>%
+#   group_by(site) %>%
+#   arrange(event) %>%
+#   mutate(event = 1:n()) %>%
+#   mutate(year = year(start_time)) #%>%
+  # mutate(site = case_when(
+  #   site == 'HUm2' ~ 'hum2',
+  #   site == 'LPm' ~ 'lpm',
+  #   site == 'MUb' ~ 'mub',
+  #   site == 'm_e' ~ 'me',
+  #   site == 'm_m' ~ 'mm',
+  #   site == 'm_w' ~ 'mw',
+  #   site == 'u_e' ~ 'ue',
+  #   site == 'u_m' ~ 'um',
+  #   site == 'u_w' ~ 'uw',
+  #   TRUE ~ site))
 
 ggplot(pixel_intens, aes(y=MI60_mmhr, x=site)) + geom_boxplot()
 ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
 
-write_csv(pixel_intens, './data/mrms_data/pixel_tb_intens.csv')
+# write_csv(pixel_intens, './data/final/mrms/pixel_compare/pixel10_events.csv')
+# write_csv(rqi_mean, './data/final/mrms/pixel_compare/rqi_events_mean.csv')
 
 # pixel_intens <- read_csv('./data/final/mrms/pixel_intens.csv') %>%
 #   force_tz(datetime, tzone = 'MST')
@@ -505,31 +464,59 @@ ben_tb <- read_csv('./data/bennett_TB_rain.csv') %>%
 
 willow_upper <- readNWISuv(siteNumber = 401642106051601, 
                            parameterCd = "00045") %>% 
-  select(datetime = 3, P_in = 4) %>% # tz is in UTC
+  dplyr::select(datetime = 3, P_in = 4) %>% # tz is in UTC
   mutate(p_mm = P_in * 25.4,
          datetime = with_tz(datetime, tzone = 'MST'),
          site = 'willowcr_upper') %>%
-  select(-P_in)
+  dplyr::select(-P_in)
 
 drowsy <- readNWISuv(siteNumber = 400912106031201, 
                      parameterCd = "00045") %>%
-  select(datetime = 3, P_in = 4) %>% # tz is in UTC
+  dplyr::select(datetime = 3, P_in = 4) %>% # tz is in UTC
   mutate(p_mm = P_in * 25.4,
          datetime = with_tz(datetime, tzone = 'MST'),
          site = 'drowsy') %>%
-  select(-P_in)
+  dplyr::select(-P_in)
 
 usgs <- bind_rows(willow_upper, drowsy)
 
 # now bind all together - select only June - Sept
 tb <- bind_rows(cpf_tb, etf_tb, ben_tb, usgs) %>%
   mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>%
-
-# filter pixel data for June - Sept
-pixel_intens <- pixel_intens %>%
-  mutate(month = month(start_time)) %>%
   filter(month %in% c(6:9))
+
+```
+
+# Process TB events -- ONLY NEEDED FOR TESTING WINDOWS
+
+```{r}
+
+load('./R/rain_metrics.RData')
+
+dadd_tb <- read_csv('./data/cpf_TB_rain.csv') %>%
+  filter(site == 'dadd') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  arrange(datetime) %>%
+  mutate(P_mm = 0.254)
+
+dadd_tb <- get_setup(dadd_tb, dadd_tb$datetime)
+
+dadd_events <- get_events(dadd_tb, dadd_tb$P_mm, dadd_tb$datenumeric,
+                          dadd_tb$end, dadd_tb$rain_start)
+
+dadd_events <- get_intensities(dadd_events, dadd_events$event, dadd_tb)
+
+#me 
+# me_rain <- get_setup(me_rain, me_rain$datetime)
+# me_events <- get_events(me_rain, me_rain$P_mm, me_rain$datenumeric,
+#                         me_rain$end, me$rain_start)
+# me_events <- get_intensities(me_events, me_events$event, me_rain)
+
+dadd_events <- dadd_events %>%
+  mutate(starttime = as.character(starttime),
+         endtime = as.character(endtime))
+
+write_csv(dadd_events, './data/final/mrms/pixel_compare/dadd_obs_events.csv')
 
 ```
 
@@ -537,109 +524,36 @@ pixel_intens <- pixel_intens %>%
 
 ```{r}
 
-filter_tb <- function(site_name) {
-  pixel_site <- pixel_intens %>%
-    filter(site == site_name)
-  
-  tb_site <- tb %>%
-    filter(site == site_name)
-  
-  tb_site_fil <- map2(pixel_site$start_time, pixel_site$end_time, ~ {
-    start_time <- .x - as.difftime(60, units = "mins")
-    end_time <- .y + as.difftime(60, units = "mins")
-    event <- pixel_site$event[pixel_site$start_time == .x]  # Get corresponding event value 
-    
-    # Filter tb_site for rows where datetime falls between start_time and end_time
-    tb_site %>%
-      filter(between(datetime, start_time, end_time)) %>%
-      mutate(event_mrms = event)  # Add the event column
-  }) %>%
-  bind_rows()  # Combine the filtered results
-  
-  return(tb_site_fil)
-}
-
-site_name <- unique(pixel_intens$site)
+pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel10_events_ours.csv') %>%
+  mutate(start_time = with_tz(start_time, 'MST'),
+         end_time = with_tz(end_time, 'MST')) %>%
+  mutate(site = case_when(
+    site == 'HUm2' ~ 'hum2',
+    site == 'LPm' ~ 'lpm',
+    site == 'MUb' ~ 'mub',
+    site == 'm_e' ~ 'me',
+    site == 'm_m' ~ 'mm',
+    site == 'm_w' ~ 'mw',
+    site == 'u_e' ~ 'ue',
+    site == 'u_m' ~ 'um',
+    site == 'u_w' ~ 'uw',
+    TRUE ~ site))
+         
+site_name <- unique(pixel10_intens$site)
 
 tb_filter <- map_df(site_name, filter_tb) %>% 
-  arrange(datetime)
+  arrange(datetime) 
 
-########################
+# filter some things to just see mont to make sure above code is good - ONLY FOR TESTING
+mont_tb <- tb %>%
+  filter(site == 'montgomery')
 
-# look at drowsy
-drowsy_fil <- tb %>%
-  filter(site == 'drowsy') %>%
-  mutate(source = 'tb',
-         month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>%
-  mutate(wy = calcWaterYear(datetime)) %>%
-  group_by(wy) %>%
-  mutate(p_cum = cumsum(p_mm))
-
-drowsy_m_fil <- pixel10 %>%
-  filter(site == 'drowsy') %>%
-  mutate(source = 'mrms') %>%
-  rename(p_mm = rain_mm) %>%
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>%
-   mutate(wy = calcWaterYear(datetime)) %>%
-  group_by(wy) %>%
-  mutate(p_cum = cumsum(p_mm))
-
-drowsy_join <- bind_rows(drowsy_fil, drowsy_m_fil) %>%
-  arrange(datetime)
-
-compare <- ggplot(drowsy_join, aes(datetime, p_cum, color = source)) +
-  geom_line() + geom_point()
-
-ggplotly(compare)
+mont_pixel <- pixel10_intens %>%
+  filter(site == 'montgomery')
 
 ```
 
 # TB filtered (based on pixel events) events
-
-Scrap code below
-
-```{r}
-
-# # right now getting it into 10 min timesteps since the smallest MI we do is 10
-# # talk to SK about this
-# pixel10 <- pixel %>%
-#   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
-#   group_by(site, timestamps_10min) %>%
-#   summarize(rain_mm = sum(p_mm)) %>%
-#   rename(datetime = timestamps_10min)
-# 
-# # get events
-# get_mrms_all_events <- function(all, ID_name) {
-#   
-#   events <- all %>%
-#   filter(site == ID_name,
-#          rain_mm >= 0.254) %>%
-#   get_mrms_events(., datetime) %>%
-#   group_by(event) %>%
-#   mutate(start_time = min(datetime),
-#          end_time = max(datetime)) %>%
-#   dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
-#   complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
-#   arrange(event, datetime) %>%
-#   fill(start_time, end_time, site) %>%
-#   ungroup() %>%
-#   mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
-#     
-#   return(events)
-# }
-# 
-# # list out sites 
-# sites <- unique(pixel10$site)
-# 
-# # get events for all sites
-# pixel_events <- map(sites, ~ get_mrms_all_events(pixel10, .)) %>%
-#   bind_rows()
-
-```
-
-# Use
 
 ```{r}
 
@@ -654,24 +568,17 @@ tb_fil10 <- tb_filter %>%
 
 sites <- unique(tb_fil10$site)
 
-lpm_pixel <- pixel_intens %>%
-  filter(site == 'lpm')
-
-lpm_tb <- etf_tb %>%
-  filter(site == "lpm")
-
-
 # get events for all sites
-tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10_lpm, tb_fil10_lpm$datetime)) %>%
+tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10, .)) %>%
   bind_rows()
 
 tbfil_intens <- map(sites, ~ get_mrms_intensities(tbfil_events, .)) %>%
   bind_rows()
 
-pixel_intens <- pixel_intens %>%
+pixel_intens <- pixel10_intens %>%
+  #filter(site == site_name) %>% # update later
   rename(event_mrms = event)
 
-# join the 2 dataframes
 comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'))
 
 ```
@@ -718,42 +625,59 @@ comp_etf <- comp_intens %>%
     ~ replace_na(., 0)) %>%
   arrange(start_time.x)
 
-filter <- comp_etf %>%
-  filter(site %in% c('hum2'))
+# filter <- comp_etf %>%
+#   filter(site %in% c('hum2'))
 
-ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
-  geom_point() +
+# ggplot(comp_etf, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+#   geom_point() +
+#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+#   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+#   ggtitle(paste('etf MI60:', paste("R2 =", round(summary(lm(comp_etf$MI60_mmhr.y ~ comp_etf$MI60_mmhr.x, data = comp_etf))$r.squared, digits = 2)))) +
+#   labs(x = 'MRMS', y = 'TB')
+
+cor_coeff <- cor(comp_etf$MI60_mmhr.y, comp_etf$MI60_mmhr.x)
+
+ggplot(comp_etf, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('etf MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_etf))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(comp_etf$MI10_mmhr.y, comp_etf$MI10_mmhr.x)
 
-ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(comp_etf, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('etf MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_etf))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
-ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(comp_etf$event_sum_mm.y, comp_etf$event_sum_mm.x)
+
+ggplot(comp_etf, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('etf event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_etf))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(comp_etf$MI30_mmhr.y, comp_etf$MI30_mmhr.x)
 
-ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(comp_etf, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('etf MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_etf))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
 ```
 
-Bennett next
+# Bennett next
 
 ```{r}
 
@@ -819,44 +743,101 @@ comp_benn <- comp_intens %>%
       'event_sum_mm.y',
       'duration_hr.y'),
     ~ replace_na(., 0)
-  )
+  ) %>%
+    filter(!site %in% c('um'))
 
-filter <- comp_benn %>%
-  filter(site %in% c('me'))
+filter <- comp_benn
 
-ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('benn MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_benn))$r.squared, digits = 2)))) +
+  ggtitle(paste('benn MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(filter$MI10_mmhr.y, filter$MI10_mmhr.x)
 
-ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('benn MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_benn))$r.squared, digits = 2)))) +
+  ggtitle(paste('benn MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
-ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$event_sum_mm.y, filter$event_sum_mm.x)
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('benn event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_benn))$r.squared, digits = 2)))) +
+  ggtitle(paste('benn event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(filter$MI30_mmhr.y, filter$MI30_mmhr.x)
 
-ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('benn MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_benn))$r.squared, digits = 2)))) +
+  ggtitle(paste('benn MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
 ```
 
-CPF sites
+Montgomery test
+
+```{r}
+
+comp_mont <- comp_intens %>%
+  mutate(condition = case_when(
+          site == 'montgomery' &
+        start_time.x < ymd_hms('2021-06-11 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'montgomery' &
+        start_time.x > ymd_hms('2023-09-19 19:00:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep'
+  ))
+
+
+ggplot(comp_mont, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('MI60:', paste("R2 =", round(summary(lm(comp_mont$MI60_mmhr.y ~ comp_mont$MI60_mmhr.x, data = comp_mont))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+ggplot(comp_mont, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = rqi)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(comp_mont$MI10_mmhr.y ~ comp_mont$MI10_mmhr.x, data = comp_mont))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(comp_mont, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(comp_mont$event_sum_mm.y ~ comp_mont$event_sum_mm.x, data = comp_mont))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(comp_mont, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = rqi)) + 
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(comp_mont$MI30_mmhr.y ~ comp_mont$MI30_mmhr.x, data = comp_mont))$r.squared, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+
+```
+
+
+# CPF sites
 
 ```{r}
 
@@ -904,39 +885,48 @@ comp_cpf <- comp_intens %>%
     ~ replace_na(., 0)) %>%
   arrange(start_time.x)
 
-filter <- comp_cpf %>%
+filter <- comp_cpf #%>%
   filter(site %in% c('dadd'))
 
-ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('cpf MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  ggtitle(paste('cpf MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(filter$MI10_mmhr.y, filter$MI10_mmhr.x)
 
-ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('cpf MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  ggtitle(paste('cpf MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
-ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$event_sum_mm.y, filter$event_sum_mm.x)
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('cpf event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  ggtitle(paste('cpf event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(filter$MI30_mmhr.y, filter$MI30_mmhr.x)
 
-ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('cpf MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_cpf))$r.squared, digits = 2)))) +
+  ggtitle(paste('cpf MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
-
 ```
 
 # ET USGS
@@ -967,36 +957,47 @@ comp_usgs <- comp_intens %>%
     ~ replace_na(., 0)) %>%
   arrange(start_time.x)
 
-filter <- comp_usgs %>%
+filter <- comp_usgs #%>%
   filter(site %in% c('drowsy'))
 
-ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('usgs MI60:', paste("R2 =", round(summary(lm(filter$MI60_mmhr.y ~ filter$MI60_mmhr.x, data = comp_usgs))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf usgs MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
+cor_coeff <- cor(filter$MI10_mmhr.y, filter$MI10_mmhr.x)
 
-ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x, color = site)) + 
-  geom_point() +
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('usgs MI10:', paste("R2 =", round(summary(lm(filter$MI10_mmhr.y ~ filter$MI10_mmhr.x, data = comp_usgs))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf usgs MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
-ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$event_sum_mm.y, filter$event_sum_mm.x)
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('usgs event sum:', paste("R2 =", round(summary(lm(filter$event_sum_mm.y ~ filter$event_sum_mm.x, data = comp_usgs))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf usgs event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
-ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) + 
-  geom_point() +
+cor_coeff <- cor(filter$MI30_mmhr.y, filter$MI30_mmhr.x)
+
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-  ggtitle(paste('usgs MI30:', paste("R2 =", round(summary(lm(filter$MI30_mmhr.y ~ filter$MI30_mmhr.x, data = comp_usgs))$r.squared, digits = 2)))) +
+  ggtitle(paste('etf usgs MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
   labs(x = 'MRMS', y = 'TB')
 
 ```
@@ -1011,135 +1012,133 @@ ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = site)) +
 # write_csv(comp_usgs, './data/final/mrms/pixel_compare/usgs_0window.csv')
 
 # combine all 3 to calculate metrics
-comp_0window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+comp_window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
 
 # get r2 for each metric 
-comp0_r2 <- comp_0window %>%
+comp_r2 <- comp_window %>%
   group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 0)
+  summarize(mi60_cor = cor(MI60_mmhr.y, MI60_mmhr.x),
+         mi30_cor = cor(MI30_mmhr.y, MI30_mmhr.x),
+         mi10_cor = cor(MI10_mmhr.y, MI10_mmhr.x),
+         eventsum_cor = cor(event_sum_mm.y, event_sum_mm.x))
 
-# 15 min both sides
-comp_15window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp15_r2 <- comp_15window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 15)
-
-# 30 min both sides
-comp_30window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp30_r2 <- comp_30window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 30)
-
-# 45 min both sides
-comp_45window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp45_r2 <- comp_45window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 45)
-
-# 60 min both sides
-comp_60window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp60_r2 <- comp_60window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 60)
-
-# 75 min both sides
-comp_75window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp75_r2 <- comp_75window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 75)
-
-# 90 min both sides
-comp_90window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp90_r2 <- comp_90window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 90)
-
-# 105 min both sides
-comp_105window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp105_r2 <- comp_105window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 105)
-
-# 90 min both sides
-comp_120window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
-
-# get r2 for each metric 
-comp120_r2 <- comp_120window %>%
-  group_by(site) %>%
-  summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
-         mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
-         mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
-         eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
-  mutate(window = 120)
-
-comp_windows <- bind_rows(comp0_r2, comp15_r2, comp30_r2, comp45_r2, comp60_r2,
-                          comp75_r2, comp90_r2, comp105_r2, comp120_r2)
-
-get_window_figs <- function(site_name) {
-  
-comp_site <- comp_windows %>%
-  filter(site == site_name) %>% 
-ggplot(aes(window, mi60_r2, color=site)) + geom_point()
-
-ggplotly(comp_site)
-
-}
-
-site_name <- unique(comp_windows$site)
-
-map(site_name, get_window_figs)
+# # 15 min both sides
+# comp_15window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp15_r2 <- comp_15window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 15)
+# 
+# # 30 min both sides
+# comp_30window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp30_r2 <- comp_30window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 30)
+# 
+# # 45 min both sides
+# comp_45window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp45_r2 <- comp_45window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 45)
+# 
+# # 60 min both sides
+# comp_60window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp60_r2 <- comp_60window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 60)
+# 
+# # 75 min both sides
+# comp_75window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp75_r2 <- comp_75window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 75)
+# 
+# # 90 min both sides
+# comp_90window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp90_r2 <- comp_90window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 90)
+# 
+# # 105 min both sides
+# comp_105window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp105_r2 <- comp_105window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 105)
+# 
+# # 90 min both sides
+# comp_120window <- bind_rows(comp_cpf, comp_benn, comp_etf, comp_usgs)
+# 
+# # get r2 for each metric 
+# comp120_r2 <- comp_120window %>%
+#   group_by(site) %>%
+#   summarize(mi60_r2 = summary(lm(MI60_mmhr.y ~ MI60_mmhr.x))$r.squared,
+#          mi30_r2 = summary(lm(MI30_mmhr.y ~ MI30_mmhr.x))$r.squared,
+#          mi10_r2 = summary(lm(MI10_mmhr.y ~ MI10_mmhr.x))$r.squared,
+#          eventsum_r2 = summary(lm(event_sum_mm.y ~ event_sum_mm.x))$r.squared) %>%
+#   mutate(window = 120)
+# 
+# comp_windows <- bind_rows(comp0_r2, comp15_r2, comp30_r2, comp45_r2, comp60_r2,
+#                           comp75_r2, comp90_r2, comp105_r2, comp120_r2)
+# 
+# get_window_figs <- function(site_name) {
+#   
+# comp_site <- comp_windows %>%
+#   filter(site == site_name) %>% 
+# ggplot(aes(window, mi60_r2, color=site)) + geom_point()
+# 
+# ggplotly(comp_site)
+# 
+# }
+# 
+# site_name <- unique(comp_windows$site)
+# 
+# map(site_name, get_window_figs)
 
 #write_csv(comp_windows, './data/final/mrms/pixel_compare/compare_windows.csv')
 
 # how many events have mrms data but no tb data
-# 0 window
-notb <- comp_0window %>%
+notb <- comp_window %>%
   mutate(missing = if_else(event_sum_mm.y == 0, 1, 0)) %>%
   summarize(total_events = n(),
             missing_evnts = sum(missing)) %>%
