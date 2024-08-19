@@ -25,8 +25,6 @@ library(mapview)
 library(zoo)
 library(ggspatial)
 library(beepr)
-library(future.apply)
-library(future)
 
 ```
 
@@ -37,8 +35,16 @@ library(future)
 et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
 cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp')
 
+# look at hads
+hads <- read_csv('/Users/megansears/Desktop/temp/hads_locations.csv')
+
+hads1 <- vect(hads, geom = c("longitude_d", "latitude_d"), crs = "EPSG:4326")
+hads1 <- as(hads1, 'Spatial')
+
 #
 fires <- rbind(et, cp)
+
+mapview(fires) + mapview(hads1)
 #
 # fires_stars <- st_as_stars(fires)
 # 
@@ -72,7 +78,7 @@ fires <- rbind(et, cp)
 
 ```
 
-# Filter out <1 mm
+# Filter out <0.1 mm
 
 ```{r}
 # 
@@ -85,21 +91,18 @@ fires <- rbind(et, cp)
 
 # filter less than 1
 filter_function <- function(x) {
-  x[x < 0.254] <- 0
+  x[x < 0.1] <- 0
   return(x)
 }
 
 # Load your data
-load('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023.RData')
-
-# Set up parallel backend
-plan(multisession, workers = 6)
+load('./data/mrms_data/bbox_2fires/stack_2023.RData')
 
 # Use st_apply with future.apply for parallel processing
-stack2023_fil254 <- st_apply(
+stack2023_fil.1 <- st_apply(
   stack2023,
   MARGIN = c("x", "y", "datetime"),
-  FUN = function(x) future_lapply(x, filter_function)
+  FUN = filter_function
 )
 
 # Beep when done
@@ -107,57 +110,63 @@ beep(sound=8)
 
 # Clean up
 rm(stack2023)
-plan(sequential)  # Reset the plan to sequential after processing
-beep(sound=8)
-rm(stack2023)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2023_fil254.RData")
+save.image("./data/mrms_data/bbox_2fires/stack_2023_fil01.RData")
 rm(list = ls())
 
 # now do 2022
-load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022.RData")
+load("./data/mrms_data/bbox_2fires/stack_2022.RData")
 
 # filter out values less than 1 mm
-stack2022_fil254 <- st_apply(
+stack2022_fil.1 <- st_apply(
   stack2022,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 rm(stack2022)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2022_fil254.RData")
+save.image("./data/mrms_data/bbox_2fires/stack_2022_fil01.RData")
+
 rm(list = ls())
 
 # 2021
-load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021.RData")
+load("./data/mrms_data/bbox_2fires/stack_2021.RData")
 
 # filter out values less than 1 mm 
-stack2021_fil254 <- st_apply(
+stack2021_fil01 <- st_apply(
   stack2021,
   MARGIN = c("x", "y", "datetime"),  # dimensions
   FUN = filter_function
 )
 rm(stack2021)
 
-save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_2021_fil254.RData")
+save.image("./data/mrms_data/bbox_2fires/stack_2021_fil01.RData")
 
 ```
 
-# MI60
+# Get stacks to 10 min
 
-The stack (or tibble) is too large, exhausts memory. The raster stacks need to be cut in half down the middle.
-
-## Left half first
+## Left
 
 ```{r}
+year <- 23
+
 #load in stack
-load('./bbox_2fires/stack_2021_fil1.Rdata')
+load(paste0('./data/mrms_data/bbox_2fires/stack_20', year, '_fil01.Rdata'))
+
+# Construct the original object name
+long_name <- paste0('stack20', year, '_fil.1')
+
+# Retrieve the existing object by its name
+stack <- get(long_name)
+
+rm(list = long_name)
 
 # set crs
-st_crs(stack2021_fil1) <- "+proj=longlat +datum=WGS84"
+st_crs(stack) <- "+proj=longlat +datum=WGS84"
 
 # bbox of the whole area
-bbox <- st_bbox(stack2021_fil1)
+bbox <- st_bbox(stack)
 
 # Extract bbox coords
 xmin <- bbox['xmin']
@@ -176,9 +185,9 @@ left_bbox <- st_bbox(c(xmin = as.numeric(xmin),
                      crs = st_crs(4326))
 
 # Crop the left half
-left_half <- st_crop(stack2021_fil1, y = left_bbox) 
+left_half <- st_crop(stack, y = left_bbox) 
 
-rm(stack2021_fil1)
+rm(stack)
 
 # make df
 tibble <- as_tibble(left_half)
@@ -192,6 +201,69 @@ stack10 <- tibble %>%
   rename(p_mm = filter_function) %>%
   summarize(p_mm = sum(p_mm)) %>%
   drop_na(p_mm)
+
+write_csv(stack10, paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv'))
+
+```
+
+## Right 
+
+```{r}
+
+#load in stack
+load(paste0('./data/mrms_data/bbox_2fires/stack_20', year, '_fil01.Rdata'))
+
+# Construct the original object name
+long_name <- paste0('stack20', year, '_fil01')
+
+# Retrieve the existing object by its name
+stack <- get(long_name)
+
+rm(list = long_name)
+
+# set crs
+st_crs(stack) <- "+proj=longlat +datum=WGS84"
+
+# bbox RIGHT site
+right_bbox <- st_bbox(c(xmin = mid_x, 
+                       xmax = as.numeric(xmax), 
+                       ymin = as.numeric(ymin), 
+                       ymax = as.numeric(ymax)), 
+                     crs = st_crs(4326))
+
+# Crop the right half
+right_half <- st_crop(stack, y = right_bbox)
+
+rm(stack)
+
+# make df
+tibble <- as_tibble(right_half)
+rm(right_half)
+gc()
+
+# aggregate to 10 min
+stack10 <- tibble %>%
+  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
+  group_by(x, y, datetime_round) %>%
+  rename(p_mm = filter_function) %>%
+  summarize(p_mm = sum(p_mm)) %>%
+  drop_na(p_mm)
+
+write_csv(stack10, paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv'))
+
+```
+
+# MI60
+
+The stack (or tibble) is too large, exhausts memory. The raster stacks need to be cut in half down the middle.
+
+## Left half first
+
+```{r}
+
+year <- 21
+
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv'))
 
 # calculates max MI60 over a summer
 compute_MI60 <- function(df) {
@@ -209,52 +281,24 @@ stack_mi60 <- stack10 %>%
   summarize(maxMI60 = max(MI60, na.rm = TRUE))
 
 # convert back to stars
-stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+stack_intens.1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
 
 # set the crs
-st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+st_crs(stack_intens.1) <- st_crs("+proj=longlat +datum=WGS84")
 
 # export as tif
-write_stars(stack_intens1, './bbox_2fires/mi60_21_left1.tif')
+write_stars(stack_intens.1, paste0('./data/mrms_data/bbox_2fires/mi60_', year, '_left01.tif'))
 
 # remove old objects
-rm(stack_intens1, stack10, tibble, stack_mi60)
+rm(stack_intens.1, stack10, stack_mi60)
 
 ```
 
 ## Right half
 
 ```{r}
-#load in stack
-load('./bbox_2fires/stack_2021_fil1.Rdata')
 
-# set crs
-st_crs(stack2021_fil1) <- "+proj=longlat +datum=WGS84"
-
-# bbox RIGHT site
-right_bbox <- st_bbox(c(xmin = mid_x, 
-                       xmax = as.numeric(xmax), 
-                       ymin = as.numeric(ymin), 
-                       ymax = as.numeric(ymax)), 
-                     crs = st_crs(4326))
-
-# Crop the right half
-right_half <- st_crop(stack2021_fil1, y = right_bbox)
-
-rm(stack2021_fil1)
-
-# make df
-tibble <- as_tibble(right_half)
-rm(right_half)
-gc()
-
-# aggregate to 10 min
-stack10 <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  rename(p_mm = filter_function) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  drop_na(p_mm)
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv'))
 
 # Calculate MI60 for each pixel over 10-min timesteps
 stack_mi60 <- stack10 %>%
@@ -264,16 +308,16 @@ stack_mi60 <- stack10 %>%
   summarize(maxMI60 = max(MI60, na.rm = TRUE))
 
 # convert back to stars
-stack_intens1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
+stack_intens.1 <- st_as_stars(stack_mi60, dims = c("x", "y"))
 
 # set the crs
-st_crs(stack_intens1) <- st_crs("+proj=longlat +datum=WGS84")
+st_crs(stack_intens.1) <- st_crs("+proj=longlat +datum=WGS84")
 
 #export as tif
-write_stars(stack_intens1, './bbox_2fires/mi60_21_right1.tif')
+write_stars(stack_intens.1, paste0('./data/mrms_data/bbox_2fires/mi60_', year, '_right01.tif'))
 
 # remove old objects
-rm(stack_intens1, stack10, tibble, stack_mi60)
+rm(stack_intens.1, stack10, stack_mi60)
 
 ```
 
@@ -282,17 +326,17 @@ rm(stack_intens1, stack10, tibble, stack_mi60)
 ```{r}
 
 # read in the left and right
-right <- read_stars('./bbox_2fires/mi60_21_right1.tif')
-left <- read_stars('./bbox_2fires/mi60_21_left1.tif')
+right <- read_stars(paste0('./data/mrms_data/bbox_2fires/mi60_', year, '_right01.tif'))
+left <- read_stars(paste0('./data/mrms_data/bbox_2fires/mi60_', year, '_left01.tif'))
 
 # join together
-mi60_21 <- st_mosaic(right, left)
+mi60 <- st_mosaic(right, left)
 
 # export as tif
-write_stars(mi60_21, './bbox_2fires/mi60_21_1.tif')
+write_stars(mi60, paste0('./data/mrms_data/bbox_2fires/mi60_', year, 'mi60_01.tif'))
 
 # make df for ggplot geom_raster
-mi60_df <- as.data.frame(mi60_21, xy = TRUE)
+mi60_df <- as.data.frame(mi60, xy = TRUE)
 
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
@@ -300,7 +344,7 @@ fires <- st_transform(fires, crs = 4326)
 # plot
 mi60_plot <- ggplot() +
   geom_raster(data = mi60_df, 
-              aes(x = x, y = y, fill = mi60_21_right1.tif)) +
+              aes(x = x, y = y, fill = mi60_21_right01.tif)) +
   scale_fill_viridis_c(name = "MI60 (mm/hr)", 
                        option = "turbo",
                        direction = 1) +
@@ -315,7 +359,7 @@ mi60_plot <- ggplot() +
 mi60_plot
 
 # save fig
-ggsave('./bbox_2fires/2021_mi60_1_plot.png', dpi=600)
+ggsave(paste0('./data/mrms_data/bbox_2fires/mi60_20', year, '_mi60_01_plot.png'), dpi=600)
 
 ```
 
@@ -330,52 +374,12 @@ ggsave('./bbox_2fires/2021_mi60_1_plot.png', dpi=600)
 
 ```{r}
 
-#load in stack
-load('./bbox_2fires/stack_2023_fil1.Rdata')
+year <- 21
 
-# set crs
-st_crs(stack2023_fil1) <- "+proj=longlat +datum=WGS84"
-
-# bbox of the whole area
-bbox <- st_bbox(stack2023_fil1)
-
-# Extract bbox coords
-xmin <- bbox['xmin']
-xmax <- bbox['xmax']
-ymin <- bbox['ymin']
-ymax <- bbox['ymax']
-
-# Calculate mid_x
-mid_x <- as.numeric(xmin + (xmax - xmin) / 2)
-
-# bbox left site
-left_bbox <- st_bbox(c(xmin = as.numeric(xmin), 
-                       xmax = mid_x, 
-                       ymin = as.numeric(ymin), 
-                       ymax = as.numeric(ymax)), 
-                     crs = st_crs(4326))
-
-# Crop the left half
-left_half <- st_crop(stack2023_fil1, y = left_bbox)
-
-rm(stack2023_fil1)
-
-# make df
-tibble <- as_tibble(left_half)
-rm(left_half)
-gc()
-
-# aggregate to 10 min then get into mm/hr
-# count values above 10 mm/hr for MI10
-stack10 <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  rename(p_mm = filter_function) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  drop_na(p_mm) %>% 
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
   mutate(p_mmhr = p_mm*6) %>%
   select(-p_mm) %>%
-  mutate(count10 = if_else(p_mmhr > 10, 1 , 0)) %>%
+  mutate(count10 = if_else(p_mmhr > 20, 1 , 0)) %>%
   select(-p_mmhr) %>%
   group_by(x,y) %>%
   summarize(sum10 = sum(count10))
@@ -387,9 +391,9 @@ stack_count10 <- st_as_stars(stack10, dims = c("x", "y"))
 st_crs(stack_count10) <- st_crs("+proj=longlat +datum=WGS84")
 
 #export as tif
-write_stars(stack_count10, './bbox_2fires/count10_2023_fil1_left.tif')
+write_stars(stack_count10, paste0('./data/mrms_data/bbox_2fires/count20_20', year, '_fil01_left.tif'))
 
-rm(stack_count10, stack10, tibble)
+rm(stack_count10, stack10)
 
 beep(sound=8)
 
@@ -399,40 +403,10 @@ beep(sound=8)
 
 ```{r}
 
-#load in stack
-load('./bbox_2fires/stack_2023_fil1.Rdata')
-
-# set crs
-st_crs(stack2023_fil1) <- "+proj=longlat +datum=WGS84"
-
-# bbox RIGHT site
-right_bbox <- st_bbox(c(xmin = mid_x, 
-                       xmax = as.numeric(xmax), 
-                       ymin = as.numeric(ymin), 
-                       ymax = as.numeric(ymax)), 
-                     crs = st_crs(4326))
-
-# Crop the right half
-right_half <- st_crop(stack2023_fil1, y = right_bbox)
-
-rm(stack2023_fil1)
-
-# make df
-tibble <- as_tibble(right_half)
-rm(right_half)
-gc()
-
-# aggregate to 10 min then get into mm/hr
-# count values above 10 mm/hr for MI10
-stack10 <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  rename(p_mm = filter_function) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  drop_na(p_mm) %>% 
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
   mutate(p_mmhr = p_mm*6) %>%
   select(-p_mm) %>%
-  mutate(count10 = if_else(p_mmhr > 10, 1 , 0)) %>%
+  mutate(count10 = if_else(p_mmhr > 20, 1 , 0)) %>%
   select(-p_mmhr) %>%
   group_by(x,y) %>%
   summarize(sum10 = sum(count10))
@@ -444,9 +418,9 @@ stack_count10 <- st_as_stars(stack10, dims = c("x", "y"))
 st_crs(stack_count10) <- st_crs("+proj=longlat +datum=WGS84")
 
 #export as tif
-write_stars(stack_count10, './bbox_2fires/count10_2023_fil1_right.tif')
+write_stars(stack_count10, paste0('./data/mrms_data/bbox_2fires/count20_20', year, '_fil01_right.tif')) 
 
-rm(stack_count10, stack10, tibble)
+rm(stack_count10, stack10)
 
 beep(sound=8)
 
@@ -456,17 +430,17 @@ beep(sound=8)
 
 ```{r}
 # read in the left and right
-right <- read_stars('./bbox_2fires/count10_2023_fil1_right.tif')
-left <- read_stars('./bbox_2fires/count10_2023_fil1_left.tif')
+right <- read_stars(paste0('./data/mrms_data/bbox_2fires/count20_20', year, '_fil01_right.tif'))
+left <- read_stars(paste0('./data/mrms_data/bbox_2fires/count20_20', year, '_fil01_left.tif'))
 
 # join together
-count10_23 <- st_mosaic(right, left)
+count10 <- st_mosaic(right, left)
 
 # export
-write_stars(count10_23, './bbox_2fires/count_2023_fil1.tif')
+write_stars(count10, paste0('./data/mrms_data/bbox_2fires/count_20', year, '_fil01.tif'))
 
 # make df for ggplot
-count_df <- as.data.frame(count10_23, xy = TRUE)
+count_df <- as.data.frame(count10, xy = TRUE)
 
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
@@ -474,8 +448,8 @@ fires <- st_transform(fires, crs = 4326)
 #plot
 count_plot <- ggplot() +
   geom_raster(data = count_df, 
-              aes(x = x, y = y, fill = count10_2023_fil1_right.tif)) +
-  scale_fill_viridis_c(name = "Count > 10 mm/hr", 
+              aes(x = x, y = y, fill = count20_2021_fil01_right.tif)) +
+  scale_fill_viridis_c(name = "Count > 20 mm/hr", 
                        option = "turbo",
                        direction = 1) +
   geom_sf(data = fires,
@@ -489,7 +463,7 @@ count_plot <- ggplot() +
 count_plot
 
 # save fig
-ggsave('./bbox_2fires/count10_2023_fil1_plot.png', dpi=600)
+ggsave(paste0('./data/mrms_data/bbox_2fires/count20_20', year, '_fil01_plot.png'), dpi=600)
 
 ```
 
@@ -500,66 +474,23 @@ P total when above 10 mm/hr
 
 ```{r}
 
-#load in stack
-load('./bbox_2fires/stack_2023_fil1.Rdata')
-
-# set crs
-st_crs(stack2023_fil1) <- "+proj=longlat +datum=WGS84"
-
-# bbox of the whole area
-bbox <- st_bbox(stack2023_fil1)
-
-# Extract bbox coords
-xmin <- bbox['xmin']
-xmax <- bbox['xmax']
-ymin <- bbox['ymin']
-ymax <- bbox['ymax']
-
-# Calculate mid_x
-mid_x <- as.numeric(xmin + (xmax - xmin) / 2)
-
-# bbox left site
-left_bbox <- st_bbox(c(xmin = as.numeric(xmin), 
-                       xmax = mid_x, 
-                       ymin = as.numeric(ymin), 
-                       ymax = as.numeric(ymax)), 
-                     crs = st_crs(4326))
-
-# Crop the left half
-left_half <- st_crop(stack2023_fil1, y = left_bbox)
-
-rm(stack2023_fil1)
-
-# make df
-tibble <- as_tibble(left_half)
-rm(left_half)
-gc()
-
-# aggregate to 10 min - something is wrong here
-stack10 <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  rename(p_mm = filter_function) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  drop_na(p_mm) %>% 
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
   mutate(p_mmhr = p_mm*6) %>%
-  mutate(p_10 = if_else(p_mmhr > 10, p_mm, 0)) #%>%
+  mutate(p_10 = if_else(p_mmhr > 20, p_mm, 0)) %>%
   group_by(x,y) %>%
   summarize(p10_sum = sum(p_10))
 
-# testing - delete later
-test <- stack10 %>%
-  slice(5000:6000)
-  
 # convert back to stars
 stack_p10 <- st_as_stars(stack10, dims = c("x", "y"))
 
 # set the crs
 st_crs(stack_p10) <- st_crs("+proj=longlat +datum=WGS84")
 
+mapview(stack_p10)
+
 #export as tif
-write_stars(stack_p10, './bbox_2fires/p10_2023_fil1_left.tif')
-rm(stack_p10, stack10, tibble)
+write_stars(stack_p10, paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_left.tif'))
+rm(stack_p10, stack10)
 
 #beep(sound=8)
 
@@ -569,38 +500,9 @@ rm(stack_p10, stack10, tibble)
 
 ```{r}
 
-#load in stack
-load('./bbox_2fires/stack_2023_fil1.Rdata')
-
-# set crs
-st_crs(stack2023_fil1) <- "+proj=longlat +datum=WGS84"
-
-# bbox RIGHT site
-right_bbox <- st_bbox(c(xmin = mid_x, 
-                       xmax = as.numeric(xmax), 
-                       ymin = as.numeric(ymin), 
-                       ymax = as.numeric(ymax)), 
-                     crs = st_crs(4326))
-
-# Crop the left half
-right_half <- st_crop(stack2023_fil1, y = right_bbox)
-
-rm(stack2023_fil1)
-
-# make df
-tibble <- as_tibble(right_half)
-rm(right_half)
-gc()
-
-# aggregate to 10 min
-stack10 <- tibble %>%
-  mutate(datetime_round = ceiling_date(datetime, "10 mins")) %>%
-  group_by(x, y, datetime_round) %>%
-  rename(p_mm = filter_function) %>%
-  summarize(p_mm = sum(p_mm)) %>%
-  drop_na(p_mm) %>% 
+stack10 <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
   mutate(p_mmhr = p_mm*6) %>%
-  mutate(p_10 = if_else(p_mmhr > 10, p_mm, 0)) %>%
+  mutate(p_10 = if_else(p_mmhr > 20, p_mm, 0)) %>%
   group_by(x,y) %>%
   summarize(p10_sum = sum(p_10))
 
@@ -610,9 +512,11 @@ stack_p10 <- st_as_stars(stack10, dims = c("x", "y"))
 # set the crs
 st_crs(stack_p10) <- st_crs("+proj=longlat +datum=WGS84")
 
+mapview(stack_p10)
+
 #export as tif
-write_stars(stack_p10, './bbox_2fires/p10_2023_fil1_right.tif')
-rm(stack_p10, stack10, tibble)
+write_stars(stack_p10, paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_right.tif'))
+rm(stack_p10, stack10)
 
 beep(sound=8)
 
@@ -622,17 +526,17 @@ beep(sound=8)
 
 ```{r}
 # read in the left and right
-right <- read_stars('./bbox_2fires/p10_2023_fil1_right.tif')
-left <- read_stars('./bbox_2fires/p10_2023_fil1_left.tif')
+right <- read_stars(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_right.tif'))
+left <- read_stars(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_left.tif'))
 
 # join together
-p10_23 <- st_mosaic(right, left)
+p10 <- st_mosaic(right, left)
 
 # export
-write_stars(p10_23, './bbox_2fires/p10_2023_fil1.tif')
+write_stars(p10, paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01.tif'))
 
 # make df for ggplot
-p_df <- as.data.frame(p10_23, xy = TRUE)
+p_df <- as.data.frame(p10, xy = TRUE)
 
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
@@ -640,8 +544,8 @@ fires <- st_transform(fires, crs = 4326)
 #plot
 p10_plot <- ggplot() +
   geom_raster(data = p_df, 
-              aes(x = x, y = y, fill = p10_2023_fil1_right.tif)) +
-  scale_fill_viridis_c(name = "P total > 10 mm/hr", 
+              aes(x = x, y = y, fill = p20_2021_fil01_right.tif)) +
+  scale_fill_viridis_c(name = "P total > 20 mm/hr", 
                        option = "turbo",
                        direction = 1) +
   geom_sf(data = fires,
@@ -655,31 +559,61 @@ p10_plot <- ggplot() +
 p10_plot
 
 # save fig
-ggsave('./bbox_2fires/p10_2023_fil1_plot.png', dpi=600)
+ggsave(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_plot.png'), dpi=600)
 
 ```
 
-# Summer totals
+# Figure 1
+
+* Need to make into one figure
+
+## MRMS summer totals
 
 ```{r}
 
-#load in stack
-load('./bbox_2fires/stack_2021_fil1.Rdata')
+year <- 23 # **UPDATE HERE**
 
-# set crs
-st_crs(stack2021_fil1) <- "+proj=longlat +datum=WGS84"
+# load(paste0('./data/mrms_data/bbox_2fires/stack_20', year, '_fil01.Rdata'))
+# 
+# stack <- stack2023_fil.1 # **UPDATE HERE**
+# 
+# rm(list=setdiff(ls(), "stack"))
+# 
+# # set crs
+# st_crs(stack) <- "+proj=longlat +datum=WGS84"
+# 
+# # sum summer 
+# sum_all <- st_apply(
+#   stack,
+#   MARGIN = c("x", "y"),
+#   FUN = sum
+# )
+# 
+# write_stars(sum_all, paste0('./data/mrms_data/bbox_2fires/summertotal_20', year,'_fil01.tif'))
 
-# sum summer 2021
-sum_all2021 <- st_apply(
-  stack2021_fil1,
-  MARGIN = c("x", "y"),
-  FUN = sum
-)
+sum_all21 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2021_fil01.tif')
+sum_all22 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2022_fil01.tif')
+sum_all23 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
-write_stars(sum_all2023, './bbox_2fires/summertotal_2023_fil1.tif')
 
 # make df for ggplot
-p_df <- as.data.frame(sum_all2021, xy = TRUE)
+p_df21<- as.data.frame(sum_all21, xy = TRUE) %>%
+  rename(sum = summertotal_2021_fil01.tif) %>%
+  mutate(year = 2021,
+         source = 'MRMS')
+
+p_df22<- as.data.frame(sum_all22, xy = TRUE) %>% 
+  rename(sum = summertotal_2022_fil01.tif) %>%
+  mutate(year = 2022,
+         source = 'MRMS')
+  
+p_df23<- as.data.frame(sum_all23, xy = TRUE) %>%
+  rename(sum = summertotal_2023_fil01.tif) %>%
+  mutate(year = 2023,
+         source = 'MRMS')
+
+
+p_df <- bind_rows(p_df21, p_df22, p_df23)
 
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
@@ -690,7 +624,9 @@ ptot_plot <- ggplot() +
               aes(x = x, y = y, fill = sum)) +
   scale_fill_viridis_c(name = "P total (mm)", 
                        option = "turbo",
-                       direction = 1) +
+                       direction = 1,
+                       limits = c(0, 610)) +
+  facet_wrap(~as.character(year), ncol = 1) +
   geom_sf(data = fires,
           fill = NA,
           color = 'black',
@@ -702,43 +638,132 @@ ptot_plot <- ggplot() +
 ptot_plot
 
 # save fig
-ggsave('./bbox_2fires/ptot_2021_fil1_plot.png', dpi=600)
+ggsave('./data/mrms_data/bbox_2fires/ptot_mrms_fil01_plot.png', dpi=600, width=15, height = 20)
+
+```
+
+## Gridmet summer totals
+
+```{r}
+
+gridmet21 <- read_stars('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
+  st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2021,
+         source = 'Gridmet')
+  
+  #mapview(gridmet21) + mapview(sum_all23)
+
+gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+  st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2022,
+         source = 'Gridmet')
+
+          
+gridmet23 <- read_stars('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
+  st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2023,
+         source = 'Gridmet')
 
 
+gridmet_all <- bind_rows(gridmet21, gridmet22, gridmet23)
 
-# mapview(sum_all2021) + 
-#   mapview(fires, col.regions = NA, col = "black", alpha.regions = 0)
-# 
-# library(raster)
-# 
-# r <- as(sum_all2023, "Raster")
-# r_df <- as.data.frame(r, xy = TRUE)
-# colnames(r_df) <- c("x", "y", "value")
-# 
-# fire_poly <- as(fires_stars, 'Spatial')
-# fire_poly <- spTransform(fire_poly, CRS("+proj=longlat +datum=WGS84"))
-# fire_poly <- fire_poly[-2, ]
-# fire_poly <- fire_poly[-1, ]
-# 
-# fire_poly_et <- as(fires_stars, 'Spatial')
-# fire_poly_et <- spTransform(fire_poly_et, CRS("+proj=longlat +datum=WGS84"))
-# fire_poly_et <- fire_poly_et[-3, ]
-# fire_poly_et <- fire_poly_et[-2, ]
-# plot(fire_poly_et)
-# 
-# p2023 <- ggplot(r_df, aes(x = x, y = y, fill = value)) +
-#   geom_raster() +
-#   geom_polygon(data=fire_poly, aes(x =long, y = lat), fill = "transparent", color = "black") +
-#   geom_polygon(data=fire_poly_et, aes(x =long, y = lat), fill = "transparent", color = "black") +
-#   scale_fill_viridis_b() +
-#     theme_bw() +
-#   theme(
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_blank())
-# 
-# p2023
-# 
-# ggsave("2023_total.png", plot = p2023, width = 6, height = 4, dpi = 800)
+#p_combine <- bind_rows(p_df, gridmet_all)
+
+gridmet_all <- ggplot() +
+  geom_raster(data = gridmet_all, 
+              aes(x = x, y = y, fill = sum)) +
+  scale_fill_viridis_c(name = "P total (mm)", 
+                       option = "turbo",
+                       direction = 1,
+                       limits = c(0, 610)) +
+  facet_wrap(~as.character(year), ncol = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 1) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+gridmet_all
+
+# save fig
+ggsave('./data/mrms_data/bbox_2fires/ptot_gridmet_plot.png', dpi=600, width=15, height = 20)
+
+```
+
+## Mean RQI by year
+
+```{r}
+
+# 2023 RQI mean
+load("./data/mrms_data/bbox_2fires/stack_RQI_2023.RData")
+
+rqi_mean_2023 <- st_apply(
+  stack_rqi2023,
+  MARGIN = c("x", "y"),
+  FUN = mean
+)
+
+rqi23 <- as.data.frame(rqi_mean_2023, xy = TRUE) %>%
+  mutate(year = 2023,
+         source = 'RQI')
+
+# 2022 RQI mean
+load("./data/mrms_data/bbox_2fires/stack_RQI_2022.RData")
+
+rqi_mean_2022 <- st_apply(
+  stack_rqi2022,
+  MARGIN = c("x", "y"),
+  FUN = mean
+)
+
+rqi22 <- as.data.frame(rqi_mean_2022, xy = TRUE) %>%
+  mutate(year = 2022,
+         source = 'RQI')
+
+
+# 2021 RQI mean
+load("./data/mrms_data/bbox_2fires/stack_RQI_2021.RData")
+
+rqi_mean_2021 <- st_apply(
+  stack_rqi2021,
+  MARGIN = c("x", "y"),
+  FUN = mean
+)
+
+rqi21 <- as.data.frame(rqi_mean_2021, xy = TRUE) %>%
+  mutate(year = 2021,
+         source = 'RQI')
+
+rqi <- bind_rows(rqi21, rqi22, rqi23)
+
+# figure
+rqi_all <- ggplot() +
+  geom_raster(data = rqi, 
+              aes(x = x, y = y, fill = mean)) +
+  scale_fill_viridis_c(name = "Mean RQI", 
+                       option = "cividis",
+                       direction = 1) +
+  facet_wrap(~as.character(year), ncol = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 1) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+rqi_all
+
+# save fig
+ggsave('./data/mrms_data/bbox_2fires/rqi_mean_plot.png', dpi=600, width=15, height = 20)
 
 ```
 
@@ -882,11 +907,145 @@ ggsave('./bbox_2fires/mo_sums_all_fil1_plot.png', dpi=600)
 
 ```
 
+# Figure 2
+
+## P total above MI60 10 mm/hr
+
+### Get MI60
+
 ```{r}
+year <- 23
+pover <- 10
 
-rain23 <- read_stars('/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/summertotal_2021_fil1.tif')
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  # mutate(id = cur_group_id()) %>%
+  # filter(id == 6621) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
 
-mapview(rain23)
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi30_p_23 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2023)
+
+year <- 22
+
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi30_p_22 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2022)
+
+year <- 21
+
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(sum_mm = p_mm*6) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi30_p_21 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2021)
+
+mi30_p <- bind_rows(mi30_p_23, mi30_p_22, mi30_p_21)
+
+# plot
+p_mi30_plot <- ggplot() +
+  geom_raster(data = mi30_p, 
+              aes(x = x, y = y, fill = p_over)) +
+  facet_wrap(~year, ncol=1) +
+  scale_fill_viridis_c(name = "P total > MI10 10 mm/hr", 
+                       option = "turbo",
+                       direction = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 0.75) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+p_mi30_plot
+
+# save fig
+ggsave('./data/mrms_data/bbox_2fires/pover10_mi10_fil01_plot.png', dpi=600, width=15, height = 20)
 
 ```
+
+
+
+### Merge & plot
+
+```{r}
+# read in the left and right
+right <- read_stars(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_right.tif'))
+left <- read_stars(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_left.tif'))
+
+# join together
+p10 <- st_mosaic(right, left)
+
+# export
+write_stars(p10, paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01.tif'))
+
+# make df for ggplot
+p_df <- as.data.frame(p10, xy = TRUE)
+
+# put in same crs
+fires <- st_transform(fires, crs = 4326)
+
+#plot
+p10_plot <- ggplot() +
+  geom_raster(data = p_df, 
+              aes(x = x, y = y, fill = p20_2021_fil01_right.tif)) +
+  scale_fill_viridis_c(name = "P total > 20 mm/hr", 
+                       option = "turbo",
+                       direction = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 0.75) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank())
+
+p10_plot
+
+# save fig
+ggsave(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_plot.png'), dpi=600)
+
+```
+
 
