@@ -584,6 +584,7 @@ comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'
 ```
 
 # Filter for when no TB data
+## ETF
 
 Do ETF first -
 Some quick filters:
@@ -677,7 +678,7 @@ ggplot(comp_etf, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) +
 
 ```
 
-# Bennett next
+## Bennett
 
 ```{r}
 
@@ -836,8 +837,7 @@ ggplot(comp_mont, aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = rqi)) +
 
 ```
 
-
-# CPF sites
+## CPF sites
 
 ```{r}
 
@@ -929,7 +929,7 @@ ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) +
   labs(x = 'MRMS', y = 'TB')
 ```
 
-# ET USGS
+## ETF USGS
 
 ```{r}
 
@@ -1002,7 +1002,7 @@ ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) +
 
 ```
 
-# Save data - same MRMS window
+# Correlation by site
 
 ```{r}
 # same window
@@ -1137,142 +1137,290 @@ comp_r2 <- comp_window %>%
 
 #write_csv(comp_windows, './data/final/mrms/pixel_compare/compare_windows.csv')
 
-# how many events have mrms data but no tb data
-notb <- comp_window %>%
-  mutate(missing = if_else(event_sum_mm.y == 0, 1, 0)) %>%
-  summarize(total_events = n(),
-            missing_evnts = sum(missing)) %>%
-  mutate(percent_missing = (missing_evnts / total_events)*100) %>%
-  left_join(., center_dist, by = 'site')
-
-ggplot(notb, aes(NEAR_DIST, percent_missing)) + geom_point()
-
-
-####################3
-comp_windows_group <- comp_windows %>%
-  group_by(site) %>%
-  summarize(
-    max_mi60_r2 = max(mi60_r2),
-    window_with_max_mi60_r2 = window[which.max(mi60_r2)]
-  )
-
-
-ggplot(comp_windows_group, aes(window_with_max_mi60_r2)) + geom_histogram()
-
-```
-
-# Extracted pixels distance from centroid
-wasn't giving accurate results in R so did it in arc gis - csv is in data folder
-
-```{r}
-
-# distance to centroids
-center_dist <- read_csv('./data/tb_mrms_centroid.csv') %>%
-  select(site, NEAR_DIST)
-
-comp_windows <- left_join(comp_windows, center_dist, by = 'site')
-
-comp_site <- comp_windows %>%
-  #filter(site == 'drowsy') %>% 
-ggplot(aes(window, mi60_r2, color=NEAR_DIST)) + geom_point()
-
-ggplotly(comp_site)
+# # how many events have mrms data but no tb data
+# notb <- comp_window %>%
+#   mutate(missing = if_else(event_sum_mm.y == 0, 1, 0)) %>%
+#   summarize(total_events = n(),
+#             missing_evnts = sum(missing)) %>%
+#   mutate(percent_missing = (missing_evnts / total_events)*100) %>%
+#   left_join(., center_dist, by = 'site')
+# 
+# ggplot(notb, aes(NEAR_DIST, percent_missing)) + geom_point()
+# 
+# 
+# ####################3
+# comp_windows_group <- comp_windows %>%
+#   group_by(site) %>%
+#   summarize(
+#     max_mi60_r2 = max(mi60_r2),
+#     window_with_max_mi60_r2 = window[which.max(mi60_r2)]
+#   )
+# 
+# 
+# ggplot(comp_windows_group, aes(window_with_max_mi60_r2)) + geom_histogram()
 
 ```
 
-# Events when there is TB but no MRMS
+<!-- # Extracted pixels distance from centroid -->
+<!-- wasn't giving accurate results in R so did it in arc gis - csv is in data folder -->
+
+<!-- ```{r} -->
+
+<!-- # distance to centroids -->
+<!-- center_dist <- read_csv('./data/tb_mrms_centroid.csv') %>% -->
+<!--   select(site, NEAR_DIST) -->
+
+<!-- comp_windows <- left_join(comp_windows, center_dist, by = 'site') -->
+
+<!-- comp_site <- comp_windows %>% -->
+<!--   #filter(site == 'drowsy') %>%  -->
+<!-- ggplot(aes(window, mi60_r2, color=NEAR_DIST)) + geom_point() -->
+
+<!-- ggplotly(comp_site) -->
+
+<!-- ``` -->
+
+<!-- # Events when there is TB but no MRMS -->
+
+<!-- ```{r} -->
+
+<!-- # same as filter code but put a ! before filter  -->
+<!-- filter_tb_nomrms <- function(site_name) { -->
+<!--   pixel_site <- pixel_intens %>% -->
+<!--     filter(site == site_name) -->
+
+<!--   tb_site <- tb %>% -->
+<!--     filter(site == site_name) -->
+
+<!--   tb_site_fil <- map2(pixel_site$start_time, pixel_site$end_time, ~ { -->
+<!--     start_time <- .x  -->
+<!--     end_time <- .y  -->
+<!--     #event <- pixel_site$event[pixel_site$start_time == .x]  # Get corresponding event value - CHANGE THIS BACK TO EVENT -->
+
+<!--     # Filter tb_site for rows where datetime falls between start_time and end_time -->
+<!--     tb_site %>% -->
+<!--       filter(!between(datetime, start_time, end_time)) #%>% -->
+<!--       #mutate(event_mrms = event)  # Add the event column -->
+<!--   }) %>% -->
+<!--   bind_rows()  # Combine the filtered results -->
+
+<!--   #return(tb_site_fil) -->
+<!-- } -->
+
+<!-- site_name <- unique(pixel_intens$site) -->
+
+<!-- tb_noMRMS <- map_df(site_name, filter_tb_nomrms) %>%  -->
+<!--   arrange(datetime) -->
+
+<!-- tb_noMRMS <- tb_noMRMS %>% -->
+<!--   mutate(month = month(datetime), -->
+<!--          year = year(datetime)) %>% -->
+<!--   filter(month %in% (5:9), -->
+<!--          year %in% c(2021:2023)) -->
+
+<!-- test <- tb_noMRMS %>% filter(site == 'aspen') -->
+
+<!-- # now find events in the tb_nomrms windows -->
+<!-- # get events for tb_filter -->
+<!-- tb_fil10_nomrms <- tb_noMRMS %>% -->
+<!--   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>% -->
+<!--   group_by(site, timestamps_10min) %>% -->
+<!--   summarize(rain_mm = sum(p_mm)) %>% -->
+<!--   rename(datetime = timestamps_10min) -->
+
+<!-- sites <- unique(tb_fil10_nomrms$site) -->
+
+<!-- # get events for all sites -->
+<!-- tbfil_nomrms_events <- map(sites, ~ get_mrms_all_events(tb_fil10_nomrms, .)) %>% -->
+<!--   bind_rows() -->
+
+<!-- tbfil_nomrms_intens <- map(sites, ~ get_mrms_intensities(tbfil_nomrms_events, .)) %>% -->
+<!--   bind_rows() -->
+
+
+
+<!-- ``` -->
+
+
+<!-- # Confusion matrix -->
+
+<!-- ```{r} -->
+<!-- library(caret) -->
+<!-- library(irr) -->
+
+<!-- # code 0/1 for rain using comp_0window as it was the best based on R2 and histogram -->
+<!-- confusion <- comp_0window %>% -->
+<!--   mutate(true_label = if_else(event_sum_mm.y > 0, 1, 0), -->
+<!--          estimate_label = 1) #%>% -->
+<!--   select(true_label, estimate_label)  -->
+
+<!-- conf_matrix <- confusionMatrix(factor(confusion$true_label), factor(confusion$estimate_label)) -->
+
+<!-- ## -->
+<!-- true_label_levels <- levels(factor(confusion$true_label)) -->
+<!-- estimate_label_levels <- levels(factor(confusion$estimate_label)) -->
+
+<!-- # Combine levels from both true_label and estimate_label -->
+<!-- all_levels <- unique(c(true_label_levels, estimate_label_levels)) -->
+
+<!-- # Convert true_label and estimate_label to factors with combined levels -->
+<!-- confusion$true_label <- factor(confusion$true_label, levels = all_levels) -->
+<!-- confusion$estimate_label <- factor(confusion$estimate_label, levels = all_levels) -->
+
+<!-- # Now, create the confusion matrix -->
+<!-- conf_matrix <- confusionMatrix(confusion$estimate_label, confusion$true_label) -->
+
+<!-- print(conf_matrix) -->
+
+<!-- kappa2(conf_matrix) -->
+
+<!-- ``` -->
+
+# Larimer Co data
+
+## Larimer TB
 
 ```{r}
 
-# same as filter code but put a ! before filter 
-filter_tb_nomrms <- function(site_name) {
-  pixel_site <- pixel_intens %>%
-    filter(site == site_name)
+lar_tb <- read_csv('./data/larimerco_precip.csv') %>%
+  rename(numid = site) %>%
+  mutate(datetime = with_tz(DT_mst, 'MST'))
   
-  tb_site <- tb %>%
-    filter(site == site_name)
+lar_meta <- read_csv('./data/GIS/larimer_tb_meta.csv') %>%
+  dplyr::select(numid, site = name)
+
+# make it so the larimer tb data has site name
+tb <- left_join(lar_tb, lar_meta, by = 'numid')
+
+lar_names <- unique(lar_meta$site)
+site_name <- lar_names
   
-  tb_site_fil <- map2(pixel_site$start_time, pixel_site$end_time, ~ {
-    start_time <- .x 
-    end_time <- .y 
-    #event <- pixel_site$event[pixel_site$start_time == .x]  # Get corresponding event value - CHANGE THIS BACK TO EVENT
-    
-    # Filter tb_site for rows where datetime falls between start_time and end_time
-    tb_site %>%
-      filter(!between(datetime, start_time, end_time)) #%>%
-      #mutate(event_mrms = event)  # Add the event column
-  }) %>%
-  bind_rows()  # Combine the filtered results
-  
-  #return(tb_site_fil)
-}
+pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel10_events.csv') %>%
+  mutate(start_time = with_tz(start_time, 'MST'),
+         end_time = with_tz(end_time, 'MST')) %>%
+  filter(site %in% lar_names)
 
-site_name <- unique(pixel_intens$site)
+tb_filter <- map_df(site_name, filter_tb) %>% 
+  arrange(datetime) # filter tb based on pixel events
 
-tb_noMRMS <- map_df(site_name, filter_tb_nomrms) %>% 
-  arrange(datetime)
-
-tb_noMRMS <- tb_noMRMS %>%
-  mutate(month = month(datetime),
-         year = year(datetime)) %>%
-  filter(month %in% (5:9),
-         year %in% c(2021:2023))
-
-test <- tb_noMRMS %>% filter(site == 'aspen')
-
-# now find events in the tb_nomrms windows
+###
 # get events for tb_filter
-tb_fil10_nomrms <- tb_noMRMS %>%
-  mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+tb_fil10 <- tb_filter %>%
+  mutate(timestamps_10min = ceiling_date(datetime, "10 mins"),
+         p_mm = p_in*25.4) %>%
   group_by(site, timestamps_10min) %>%
-  summarize(rain_mm = sum(p_mm)) %>%
-  rename(datetime = timestamps_10min)
+  summarize(rain_mm = sum(p_mm),
+            event_mrms = mean(event_mrms)) %>%
+  rename(datetime = timestamps_10min) 
 
-sites <- unique(tb_fil10_nomrms$site)
+sites <- unique(tb_fil10$site)
 
 # get events for all sites
-tbfil_nomrms_events <- map(sites, ~ get_mrms_all_events(tb_fil10_nomrms, .)) %>%
+tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10, .)) %>%
   bind_rows()
 
-tbfil_nomrms_intens <- map(sites, ~ get_mrms_intensities(tbfil_nomrms_events, .)) %>%
+tbfil_intens <- map(sites, ~ get_mrms_intensities(tbfil_events, .)) %>%
   bind_rows()
 
+pixel_intens <- pixel10_intens %>%
+  #filter(site == site_name) %>% # update later
+  rename(event_mrms = event)
 
+comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'))
+
+##########
+
+filter <- comp_intens %>%
+  mutate(duration_hr.x = as.numeric(duration_hr.x),
+         duration_hr.y = as.numeric(duration_hr.y)) %>%
+  mutate_at(
+    c(
+      'MI60_mmhr.y',
+      'MI30_mmhr.y',
+      'MI20_mmhr.y',
+      'MI10_mmhr.y',
+      'event_sum_mm.y',
+      'duration_hr.y'),
+    ~ replace_na(., 0)) %>%
+  arrange(start_time.x)
+
+
+cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('Larimer MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+cor_coeff <- cor(filter$MI10_mmhr.y, filter$MI10_mmhr.x)
+
+ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('Larimer MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+cor_coeff <- cor(filter$event_sum_mm.y, filter$event_sum_mm.x)
+
+ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('Larimer event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+cor_coeff <- cor(filter$MI30_mmhr.y, filter$MI30_mmhr.x)
+
+ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
+  geom_point(aes(color = rqi > 0.4)) +
+  scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('Larimer MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+# Corr by site
+comp_r2 <- filter %>%
+  group_by(site) %>%
+  summarize(mi60_cor = cor(MI60_mmhr.y, MI60_mmhr.x),
+         mi30_cor = cor(MI30_mmhr.y, MI30_mmhr.x),
+         mi10_cor = cor(MI10_mmhr.y, MI10_mmhr.x),
+         eventsum_cor = cor(event_sum_mm.y, event_sum_mm.x))
 
 ```
 
+## Check Larimer TB record
 
-# Confusion matrix
+Make this ggplot so I can check dates
 
 ```{r}
-library(caret)
-library(irr)
 
-# code 0/1 for rain using comp_0window as it was the best based on R2 and histogram
-confusion <- comp_0window %>%
-  mutate(true_label = if_else(event_sum_mm.y > 0, 1, 0),
-         estimate_label = 1) #%>%
-  select(true_label, estimate_label) 
+#function to plot all params
+plot_params <- function(site_name) {
+  tb %>%
+    filter(site == site_name) %>%
+    ggplot(aes(x = datetime,
+               y = p_in)) + 
+    geom_line() + 
+    #geom_point(size=2.5) +
+    ggtitle(site_name) +
+    theme_bw()
+}
 
-conf_matrix <- confusionMatrix(factor(confusion$true_label), factor(confusion$estimate_label))
-  
-##
-true_label_levels <- levels(factor(confusion$true_label))
-estimate_label_levels <- levels(factor(confusion$estimate_label))
+name <- levels(tb$site)
 
-# Combine levels from both true_label and estimate_label
-all_levels <- unique(c(true_label_levels, estimate_label_levels))
+lapply(site_name, plot_params)
 
-# Convert true_label and estimate_label to factors with combined levels
-confusion$true_label <- factor(confusion$true_label, levels = all_levels)
-confusion$estimate_label <- factor(confusion$estimate_label, levels = all_levels)
 
-# Now, create the confusion matrix
-conf_matrix <- confusionMatrix(confusion$estimate_label, confusion$true_label)
 
-print(conf_matrix)
-
-kappa2(conf_matrix)
 
 ```
+
+
 
