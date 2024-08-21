@@ -14,9 +14,9 @@ library(httr)
 
 ```{r}
 
-grab_new_larimer <- function(start_date = "2023-06-01"){
+grab_new_larimer <- function(start_date = "2021-06-01"){
 
-end_dt =  "2023-09-01" #format(Sys.Date(), "%Y-%m-%d")
+end_dt =  "2023-10-01" #format(Sys.Date(), "%Y-%m-%d")
 
 #Station numbers
 station_ids <- read_csv('./data/larimer_co_TB.csv') %>%
@@ -24,7 +24,7 @@ station_ids <- read_csv('./data/larimer_co_TB.csv') %>%
   pull(station_id)
 
 
-larimer_co_q_pull <- function(station_id, start_dt = "2023-06-01", end_dt = "2021-06-03"){
+larimer_co_q_pull <- function(station_id, start_dt = "2021-06-01", end_dt = "2023-10-01"){
   
   start_dt <- format(as.POSIXct(start_dt, tz = "MST"), "%Y-%m-%dT%H:%M:%S%z")
   start_dt <- paste0(substr(start_dt, 1, nchar(start_dt) - 2), ":", substr(start_dt, nchar(start_dt) - 1, nchar(start_dt)))
