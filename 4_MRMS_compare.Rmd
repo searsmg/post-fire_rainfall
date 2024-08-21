@@ -1331,6 +1331,33 @@ comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'
 ##########
 
 filter <- comp_intens %>%
+  mutate(condition = case_when(
+      site == 'Fort Collins - Gateway Park' &
+        start_time.x > ymd_hms('2021-10-01 01:00:00', tz = 'MST') ~ 'remove',
+      site == 'Fort Collins - Rustic' &
+        start_time.x > ymd_hms('2023-09-13 13:38:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Crown Gulch Headwaters' &
+        start_time.x < ymd_hms('2023-06-27 08:59:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Turner Hill Weather' &
+        start_time.x < ymd_hms('2023-06-27 16:59:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Tunnel Creek at Hwy 14' &
+        start_time.x < ymd_hms('2022-05-31 23:59:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Chambers Resevoir' &
+        start_time.x < ymd_hms('2022-06-27 10:42:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Joe Wright Resevoir' &
+        start_time.x < ymd_hms('2022-06-14 12:59:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Roaring Creek at Hwy 14' &
+        start_time.x < ymd_hms('2021-08-11 10:59:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Long Draw Resevoir' &
+        start_time.x < ymd_hms('2022-06-24 09:13:00', tz = 'MST') ~ 'remove',
+      site == 'Larimer - Long Draw Resevoir' &
+        start_time.x > ymd_hms('2023-06-01 00:00:00', tz = 'MST') &
+        start_time.x < ymd_hms('2023-07-10 22:59:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep'
+  ) 
+  ) %>%
+  filter(condition == 'keep') %>%
+  filter(!site == 'Larimer - North Fork Big Thompson at Storm Mountain Road') %>% 
   mutate(duration_hr.x = as.numeric(duration_hr.x),
          duration_hr.y = as.numeric(duration_hr.y)) %>%
   mutate_at(
@@ -1343,7 +1370,6 @@ filter <- comp_intens %>%
       'duration_hr.y'),
     ~ replace_na(., 0)) %>%
   arrange(start_time.x)
-
 
 cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
 
@@ -1393,34 +1419,44 @@ comp_r2 <- filter %>%
          mi10_cor = cor(MI10_mmhr.y, MI10_mmhr.x),
          eventsum_cor = cor(event_sum_mm.y, event_sum_mm.x))
 
+# write dates as.character!
+filter1 <- filter %>%
+  mutate(start_time.x = as.character(start_time.x),
+         end_time.x = as.character(end_time.x),
+         start_time.y = as.character(start_time.y),
+         end_time.y = as.character(end_time.y))
+
+
+# export larimer tb.pixel event data
+write_csv(filter1, './data/final/mrms/pixel_compare/larimer_tbpixel_compare.csv')
+
 ```
 
 ## Check Larimer TB record
 
-Make this ggplot so I can check dates
+Make this ggplot so I can check dates.
+
+I added these filtered dates above
 
 ```{r}
 
 #function to plot all params
 plot_params <- function(site_name) {
-  tb %>%
-    filter(site == site_name) %>%
-    ggplot(aes(x = datetime,
-               y = p_in)) + 
-    geom_line() + 
-    #geom_point(size=2.5) +
-    ggtitle(site_name) +
-    theme_bw()
+  {tb %>%
+      filter(site == site_name) %>%
+      ggplot(aes(x = datetime, y = p_in)) +
+      geom_line() + 
+      ggtitle(site_name) +
+      theme_bw()} %>%
+      ggplotly()
 }
 
-name <- levels(tb$site)
+name <- unique(tb$site)
 
-lapply(site_name, plot_params)
-
-
-
+plots <- lapply(name, plot_params)
+plots
 
 ```
 
-
+# Stage
 
