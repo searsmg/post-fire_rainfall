@@ -1,0 +1,840 @@
+---
+title: "Response analysis"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+knitr::opts_chunk$set(echo = F,
+                      message = F,
+                      fig.width = 12,
+                      fig.height = 6)
+
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(here)
+library(ggplot2); theme_set(theme_bw(base_size = 18))
+library(zoo)
+
+```
+
+# Functions
+
+```{r}
+
+# Generate event ID function
+generate_event_ids <- function(event_def) {
+  event_ids <- integer(length(event_def)) # create vector
+  current_id <- 1 # start at 1
+  
+  for (i in seq_along(event_def)) {
+    if (is.na(event_def[i])) {
+      event_ids[i] <- NA # Keep NA if event_def is NA
+    } else if (i == 1) {
+      event_ids[i] <- current_id
+    } else {
+      prev <- event_def[i - 1]
+      curr <- event_def[i]
+      
+      if ((prev == "diff" & curr == "same") | (prev == "same" & curr == "same")) {
+        event_ids[i] <- event_ids[i - 1] # Keep the same event ID as before
+      } else {
+        current_id <- current_id + 1 # Assign a new event ID
+        event_ids[i] <- current_id
+      }
+    }
+  }
+  
+  event_ids
+}
+
+```
+# ETF stream events
+
+```{r}
+
+et_stage <- read_csv(here('data/stage/et_stage_sensors.csv')) %>%
+  dplyr::select(datetime, Stage_cm, site) %>%
+  mutate(datetime = with_tz(datetime, tzone = "MST"))
+
+et_stage_plot <- ggplot(et_stage, aes(datetime, Stage_cm,
+                                      color = site)) +
+  geom_line()
+
+ggplotly(et_stage_plot)
+
+```
+
+## HUM - done
+need to fix 2
+
+```{r}
+
+# Process stage events
+hum_stage_events <- et_stage %>%
+  filter(site == 'hum') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(datetime < ymd_hms('2022-07-12 13:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-21 13:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 12:20:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-10-18 13:25:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-05-24 10:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>% 
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 40, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+################################################################ NEW
+
+filter_hum_stage_events <- et_stage %>%
+  filter(site == 'hum') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(datetime < ymd_hms('2022-07-12 13:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-21 13:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 12:20:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-10-18 13:25:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-05-24 10:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>% 
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+hum_stage <- et_stage %>%
+  filter(site == 'hum')
+
+
+filtered_hum_stage <- hum_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_hum_stage_events$start_time, 
+        filter_hum_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_hum_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+hum_stage_summ <- filtered_hum_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  filter(stage_rise_cm > 10)
+
+```
+
+## MUB - done
+need to fix 1
+
+```{r}
+
+# Process stage events
+mub_stage_events <- et_stage %>%
+  filter(site == 'mub') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 09:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-17 09:40:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-10-18 10:20:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-08-09 10:05:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>% 
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 46, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+####################### NEW
+  # Process stage events
+filter_mub_stage_events <- et_stage %>%
+  filter(site == 'mub') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 09:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-17 09:40:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-10-18 10:20:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-08-09 10:05:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>% 
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+mub_stage <- et_stage %>%
+  filter(site == 'mub')
+
+
+filtered_mub_stage <- mub_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mub_stage_events$start_time, 
+        filter_mub_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mub_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+mub_stage_summ <- filtered_mub_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 10)
+
+
+```
+
+## P1 - done
+no events
+
+```{r}
+
+# Process stage events
+p1_stage_events <- et_stage %>%
+  filter(site == 'p1') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(datetime < ymd_hms('2022-07-12 08:10:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-19 08:40:00', tz = 'MST')) %>% 
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 46, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+# no p1 events
+#################################
+
+  # Process stage events
+filter_p1_stage_events <- et_stage %>%
+  filter(site == 'p1') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(datetime < ymd_hms('2022-07-12 08:10:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-19 08:40:00', tz = 'MST')) %>% 
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+
+p1_stage <- et_stage %>%
+  filter(site == 'p1')
+
+
+filtered_p1_stage <- p1_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_p1_stage_events$start_time, 
+        filter_p1_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_p1_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+p1_stage_summ <- filtered_p1_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  filter(stage_rise_cm > 10)
+
+
+```
+
+## HM - done
+
+```{r}
+
+# Process stage events
+hm_stage_events <- et_stage %>%
+  filter(site == 'hm') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 10:55:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-12 13:05:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-21 13:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-21 13:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-17 12:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 11:50:00', tz = 'MST'),
+         datetime < ymd_hms('2023-05-24 11:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2023-05-24 14:45:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 11:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-27 08:00:00', tz = 'MST')) %>% 
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 35, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) #%>%
+  filter(stage_rise > 10)
+
+########### NEW
+  # Process stage events
+filter_hm_stage_events <- et_stage %>%
+  filter(site == 'hm') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 10:55:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-12 13:05:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-21 13:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-21 13:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-17 12:35:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 11:50:00', tz = 'MST'),
+         datetime < ymd_hms('2023-05-24 11:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2023-05-24 14:45:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-09-28 11:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-27 08:00:00', tz = 'MST')) %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+hm_stage <- et_stage %>%
+  filter(site == 'hm')
+
+
+filtered_hm_stage <- hm_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_hm_stage_events$start_time, 
+        filter_hm_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_hm_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+hm_stage_summ <- filtered_hm_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 10)
+
+
+
+```
+
+## MPM - done
+1 issue
+
+```{r}
+
+# Process stage events
+mpm_stage_events <- et_stage %>%
+  filter(site == 'mpm') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 12:10:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 12:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-21 11:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 13:10:00', tz = 'MST')) %>%
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 35, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+############################## NEW
+# Process stage events
+filter_mpm_stage_events <- et_stage %>%
+  filter(site == 'mpm') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 12:10:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 12:55:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-21 11:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 13:10:00', tz = 'MST')) %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+mpm_stage <- et_stage %>%
+  filter(site == 'mpm')
+
+
+filtered_mpm_stage <- mpm_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mpm_stage_events$start_time, 
+        filter_mpm_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mpm_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+mpm_stage_summ <- filtered_mpm_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  filter(stage_rise_cm > 10)
+
+
+```
+
+## MUM - done
+looks good
+
+```{r}
+
+# Process stage events
+mum_stage_events <- et_stage %>%
+  filter(site == 'mum') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 12:30:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 12:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-09-05 11:00:00', tz = 'MST')) %>%
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 35, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+
+############################## NEW
+# Process stage events
+filter_mum_stage_events <- et_stage %>%
+  filter(site == 'mum') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime < ymd_hms('2022-06-20 12:30:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-07-12 12:15:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-09-05 11:00:00', tz = 'MST')) %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+mum_stage <- et_stage %>%
+  filter(site == 'mum')
+
+
+filtered_mum_stage <- mum_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mum_stage_events$start_time, 
+        filter_mum_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mum_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+mum_stage_summ <- filtered_mum_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  filter(stage_rise_cm > 10)
+
+```
+
+## P2
+
+```{r}
+
+# Process stage events
+p2_stage_events <- et_stage %>%
+  filter(site == 'p2') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime == ymd_hms('2022-07-21 14:25:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 12:50:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-05-24 10:05:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-12 08:20:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST')) %>%
+  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
+                            'increase', 'none')) %>%
+  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
+                            & pos_diff == "none", "increase", 
+                            pos_diff)) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 35, 'same', 
+                             'diff', missing = 'diff'))  %>% # diff for first timestep
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
+         datetime_start = min(datetime),
+         datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  filter(stage_rise > 10)
+
+########################### NEW
+# Process stage events
+filter_p2_stage_events <- et_stage %>%
+  filter(site == 'p2') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>% 
+  filter(!datetime == ymd_hms('2022-07-21 14:25:00', tz = 'MST'),
+         !datetime == ymd_hms('2022-08-04 12:50:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-05-24 10:05:00', tz = 'MST'),
+         datetime < ymd_hms('2022-07-12 08:20:00', tz = 'MST') | 
+         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST')) %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+p2_stage <- et_stage %>%
+  filter(site == 'p2')
+
+
+filtered_p2_stage <- p2_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_p2_stage_events$start_time, 
+        filter_p2_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_p2_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+p2_stage_summ <- filtered_p2_stage %>%
+  group_by(event_id) %>%
+  summarize(min_stage = min(Stage_cm),
+            max_stage = max(Stage_cm),
+            datetime_min = datetime[which.min(Stage_cm)],
+            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  filter(stage_rise_cm > 10)
+
+
+```
+
+## Lower camera sites
+
+lm, lpm, lum, mm
+
+```{r}
+
+camera <- read_csv('./data/et_camera_stream_data.csv') %>%
+  dplyr::select(date = Date, site = Site, datetime_start = Time_first_water,
+         datetime_peak = Time_peak_water, stage_rise_cm) %>%
+  drop_na(stage_rise_cm) %>% 
+  mutate(datetime_start = mdy_hm(paste(date, datetime_start)),
+         datetime_peak = mdy_hm(paste(date, datetime_peak))) %>%
+  filter(stage_rise_cm > 10)
+# set TIME ZONE ON THIS
+
+```
+
+# CPF
+
+## Aspen
+
+```{r}
+
+aspen <- read_csv('./data/stage/Aspen_stage_composite.CSV') %>%
+  mutate(datetime = mdy_hm(datetime, tz = 'MST')) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  mutate(Stage_cm = Stage_mm * 10)
+
+
+aspen_stage_plot <- ggplot(aspen, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(aspen_stage_plot)
+
+```
+
+
+## Bighorn
+## BL4
+## Dadd
+## Dry
+## Michigan
+## Montgomery
+## Mt. Campus
+## Washout
+
+# Rain event datasets for MRMS and TB
+
+```{r}
+
+load('./R/rain_metrics.RData')
+
+et_tb <- read_csv('./data/et_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  #mutate(datetime = force_tz(datetime, tzone='MST')) %>%
+  mutate(site = if_else(site == 'hum2', 'hum', site))
+
+# ET TB sites are hum, lpm, mub, p1
+# start wth hum, mub, and p1 since those have PTs
+
+# hum tb events
+hum_tb <- et_tb %>%
+  filter(site == 'hum')
+
+hum_tb <- get_setup(hum_tb, hum_tb$datetime)
+
+hum_events <- get_events(hum_tb, hum_tb$P_mm, hum_tb$datenumeric,
+                          hum_tb$end, hum_tb$rain_start)
+
+hum_events <- get_intensities(hum_events, hum_events$event, hum_tb)
+
+hum_events <- hum_events %>%
+    mutate(starttime = force_tz(starttime, tz = 'MST'),
+         endtime = force_tz(endtime, tz = 'MST'))
+
+# mub events
+mub_tb <- et_tb %>%
+  filter(site == 'mub')
+
+mub_tb <- get_setup(mub_tb, mub_tb$datetime)
+
+mub_events <- get_events(mub_tb, mub_tb$P_mm, mub_tb$datenumeric,
+                          mub_tb$end, mub_tb$rain_start)
+
+mub_events <- get_intensities(mub_events, mub_events$event, mub_tb)
+
+# p1 events 
+p1_tb <- et_tb %>%
+  filter(site == 'p1')
+
+p1_tb <- get_setup(p1_tb, p1_tb$datetime)
+
+p1_events <- get_events(p1_tb, p1_tb$P_mm, p1_tb$datenumeric,
+                          p1_tb$end, p1_tb$rain_start)
+
+p1_events <- get_intensities(p1_events, p1_events$event, p1_tb)
+
+# need to bring in mrms and separate by site
+
+
+```
+
+# compare
+
+```{r}
+
+compare <- read_csv('./data/stage_tb_mrms/compare_all.csv')
+
+
+library(viridis)
+
+ggplot(compare, aes(mrms_mi60, tb_mi60)) + 
+  geom_point(size=2) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black")
+
+ggplot(compare, aes(mrms_p_sum, tb_p_sum)) + 
+  geom_point(size=2) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") 
+
+compare_miss <- compare %>%
+  filter(mrms_p_sum == 0)
+
+```
+
