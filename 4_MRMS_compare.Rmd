@@ -429,8 +429,8 @@ ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
 # write_csv(pixel_intens, './data/final/mrms/pixel_compare/pixel10_events.csv')
 # write_csv(rqi_mean, './data/final/mrms/pixel_compare/rqi_events_mean.csv')
 
-# pixel_intens <- read_csv('./data/final/mrms/pixel_intens.csv') %>%
-#   force_tz(datetime, tzone = 'MST')
+pixel_intens <- read_csv('./data/final/mrms/pixel_compare/pixel10_events_ours.csv') %>%
+  force_tz(datetime, tzone = 'MST')
 
 ```
 
@@ -545,11 +545,11 @@ tb_filter <- map_df(site_name, filter_tb) %>%
   arrange(datetime) 
 
 # filter some things to just see mont to make sure above code is good - ONLY FOR TESTING
-mont_tb <- tb %>%
-  filter(site == 'montgomery')
-
-mont_pixel <- pixel10_intens %>%
-  filter(site == 'montgomery')
+# mont_tb <- tb %>%
+#   filter(site == 'montgomery')
+# 
+# mont_pixel <- pixel10_intens %>%
+#   filter(site == 'montgomery')
 
 ```
 
@@ -626,6 +626,8 @@ comp_etf <- comp_intens %>%
     ~ replace_na(., 0)) %>%
   arrange(start_time.x)
 
+write_csv(comp_etf, './data/final/mrms/pixel_compare/etf_pixel_compare.csv')
+
 # filter <- comp_etf %>%
 #   filter(site %in% c('hum2'))
 
@@ -638,8 +640,20 @@ comp_etf <- comp_intens %>%
 
 cor_coeff <- cor(comp_etf$MI60_mmhr.y, comp_etf$MI60_mmhr.x)
 
-ggplot(comp_etf, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
-  geom_point(aes(color = rqi > 0.4)) +
+library(RColorBrewer)
+
+ggplot(comp_etf %>% arrange(desc(rqi)),  # Arrange data so higher rqi values are plotted first
+       aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  geom_point(alpha = 0.9, size = 3) +
+  scale_color_distiller(palette = "Spectral") +  # Use a continuous ColorBrewer palette
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('etf MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(comp_etf, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  geom_point(aes(#color = rqi > 0.4,
+                 alpha=1)) +
   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
@@ -750,6 +764,15 @@ comp_benn <- comp_intens %>%
 filter <- comp_benn
 
 cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
+
+ggplot(filter %>% arrange(desc(rqi)),  # Arrange data so higher rqi values are plotted first
+       aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_distiller(palette = "Spectral") +  # Use a continuous ColorBrewer palette
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('benn MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
 
 ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
   geom_point(aes(color = rqi > 0.4)) +
@@ -890,8 +913,17 @@ filter <- comp_cpf #%>%
 
 cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
 
-ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
-  geom_point(aes(color = rqi > 0.4)) +
+ggplot(filter %>% arrange(desc(rqi)),  # Arrange data so higher rqi values are plotted first
+       aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  geom_point(alpha = 0.7, size = 3) +
+  scale_color_distiller(palette = "Spectral") +  # Use a continuous ColorBrewer palette
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+  geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
+  ggtitle(paste('cpf MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
+  labs(x = 'MRMS', y = 'TB')
+
+ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi)) + 
+  #geom_point(aes(color = rqi > 0.4)) +
   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
