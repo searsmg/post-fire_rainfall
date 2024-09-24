@@ -109,16 +109,16 @@ Need to divide MultiQPE by QPE to get the correction used (this later gets appli
 
 setwd("/Users/megansears/Documents/MRMS")
 
-# File names of the rasters in Multi Sensor QPE and QPE only
+# List files of the rasters in Multi Sensor QPE and radar QPE only
 multi_rasters <- list.files("./MultiSensor/2021", pattern = ".grib2", full.names = TRUE)
 folder2_rasters <- list.files("./QPE/2021", pattern = "grib2", full.names = TRUE)
 
-# Function to perform the division (multi_qpe / qpe) and save raster
+# Multi_qpe / qpe and save raster
 perform_division <- function(raster1, raster2, result_folder) {
   
   library(raster)
   
-  # Extract the last 21 digits (i.e., datetime) from the file name (datetime)
+  # Extract the last 21 digits (datetime) from the file name
   last_21_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 20, 1))
   last_21_digits2 <- substring(basename(raster2), max(nchar(basename(raster2)) - 20, 1))
   
@@ -141,7 +141,7 @@ perform_division <- function(raster1, raster2, result_folder) {
     
     result_raster[is.infinite(result_raster)] <- 0
     
-    # Save the resulting raster
+    # Save
     output_file <-
       file.path(result_folder, paste0("result_", last_21_digits1, ".tif"))
     
@@ -149,21 +149,20 @@ perform_division <- function(raster1, raster2, result_folder) {
   }
 }
 
-# Apply the function to each pair of matching rasters
-result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"  # Path to the folder to store the resulting rasters
+result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"  # Path to the folder to save the resulting rasters
 
-# Set the number of cores to use for parallel processing
+# Set the number of cores for parallel processing
 num_cores <- 8
 
-# Initialize parallel processing
+# parallel processing
 cl <- makeCluster(num_cores)
 
-# Export necessary variables for parallel processing
+
 clusterExport(cl, c("folder2_rasters", "result_folder", "perform_division", "bbox"))
 
-# Division using parallel processing
+# Division
 parLapply(cl, multi_rasters, function(raster1) {
-  # Extract the last 21 digits from the file name of raster1
+  # Extract the last 21 digits from the file name of raster1 (this is the datetime characters)
   last_21_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 20, 1))
 
   # Find matching rasters in folder2
@@ -173,7 +172,7 @@ parLapply(cl, multi_rasters, function(raster1) {
   mapply(perform_division, raster1, matching_rasters, MoreArgs = list(result_folder = result_folder))
 })
 
-# Stop the parallel processing
+# Stop
 stopCluster(cl)
 
 ```
@@ -236,14 +235,14 @@ folder_path2 <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/miss
 # Get the list of GRIB2 files in the folder
 files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
 
-# Set the number of cores to use (adjust according to your system)
+# Set the number of cores
 num_cores <- 8
 
-# Initialize parallel processing
+# PP settings
 cl <- makeCluster(num_cores)
 registerDoParallel(cl)
 
-# Define a function to process a single GRIB2 file
+# project and crop function
 process_file <- function(file) {
   
   # Read the GRIB2 file as a raster
@@ -251,7 +250,6 @@ process_file <- function(file) {
   
   crs(r) <- "+proj=longlat +datum=WGS84 +no_defs"
   
-  # Crop the raster
   r <- raster::crop(r, bbox)
   
   # Save the raster as .tif
@@ -259,11 +257,11 @@ process_file <- function(file) {
   new_file_path <- file.path(folder_path2, new_file_name)
   writeRaster(r, filename = new_file_path, overwrite = TRUE)
   
-  # Remove unnecessary objects
+  # Remove (memory fills up if not)
   rm(r)
 }
 
-# Use parallel processing with foreach
+# PP with foreach
 foreach(file = files, .packages = c("raster")) %dopar% {
   tryCatch({
     process_file(file)
@@ -273,7 +271,6 @@ foreach(file = files, .packages = c("raster")) %dopar% {
   })
 }
 
-# Stop parallel processing
 stopCluster(cl)
 
 beep(sound=8)
@@ -288,13 +285,12 @@ First remove 'processed' from the projected and cropped SPR (2min) data
 
 ```{r}
 
-# Set the folder path
 dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing'
 
 # Get the list of files in the folder
 file_list <- list.files(dir, full.names = TRUE)
 
-# Loop through each file and take off _processed
+# Loop through each file and take off '_processed'
 for (file_path in file_list) {
 
   file_name <- basename(file_path)
@@ -319,12 +315,12 @@ Now multiply
 
 ```{r}
 
-# Define the folder paths for the result (result of the divide) and precip rate rasters
+# Folder paths for the result (result of the divide) and precip rate rasters
 result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"
 precip_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing"
 multiplied_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021" # where the rasters will go
 
-# List of precip rate raster files
+# List precip rate raster files
 precip_files <- list.files(precip_folder, pattern = "^PrecipRate_.*\\.tif$", full.names = TRUE)
 
 # Parallel processing
@@ -342,7 +338,7 @@ get_result_hour <- function(precip_hour, precip_minute, precip_date) {
         # If the minute is "00", use the same hour for the result hour
         result_hour[i] <- precip_hour[i]
       } else {
-        # Otherwise, set the result hour to "00"
+        # if not, set the result hour to "00"
         result_hour[i] <- "00"
         precip_date[i] <- as.character(as.Date(precip_date[i], format = "%Y%m%d") + 1)
         # Remove hyphens from date
@@ -352,7 +348,7 @@ get_result_hour <- function(precip_hour, precip_minute, precip_date) {
       # If the minute is "00", use the same hour for the result hour
       result_hour[i] <- precip_hour[i]
     } else {
-      # Otherwise, increment the hour as before
+      # if not, increment the hour as before
       result_hour[i] <- sprintf("%02d", as.numeric(precip_hour[i]) + 1)
     }
   }
@@ -360,7 +356,7 @@ get_result_hour <- function(precip_hour, precip_minute, precip_date) {
   return(list(result_hour = result_hour, precip_date = precip_date))
 }
 
-# Foreach for parallel processing
+# Foreach for PP
 foreach(precip_file = precip_files, .packages = c("raster")) %dopar% {
   
   # Get the last digits from the precip rate raster filename (datetime)
@@ -376,7 +372,7 @@ foreach(precip_file = precip_files, .packages = c("raster")) %dopar% {
   result_hour <- result_info$result_hour
   precip_date <- result_info$precip_date
   
-  # Construct the result raster filename based on the date and result hour
+  # construct the result raster filename based on the date and result hour
   result_filename <- paste0("result_", precip_date, "-", result_hour, "0000.tif")
   result_file <- file.path(result_folder, result_filename)
   
@@ -385,24 +381,24 @@ foreach(precip_file = precip_files, .packages = c("raster")) %dopar% {
     # Read the precip rate raster
     precip_raster <- raster(precip_file)
     
-    # Read the result raster
+    # Read result raster
     result_raster <- raster(result_file)
     
-    # Multiply the precip rate raster by the result raster
+    # precip rate raster * the result raster
     multiplied_raster <- precip_raster * result_raster
     
     # Construct the output file path for the multiplied raster
     output_filename <- paste0("multiplied_", precip_datetime, ".tif")
     output_path <- file.path(multiplied_folder, output_filename)
     
-    # Save the multiplied raster to the output file
+    # output
     writeRaster(multiplied_raster, filename = output_path, format = "GTiff")
     
     cat("Raster multiplication completed for:", precip_file, "\n")
   } 
 }
 
-# Stop parallel processing
+# Stop PP
 stopCluster(cl)
 
 beep(sound=8)
