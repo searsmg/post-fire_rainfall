@@ -58,6 +58,7 @@ generate_event_ids <- function(event_def) {
 }
 
 ```
+
 # ETF stream events
 
 ```{r}
@@ -79,8 +80,7 @@ need to fix 2
 
 ```{r}
 
-# Process stage events
-hum_stage_events <- et_stage %>%
+hum_stage <- et_stage %>%
   filter(site == 'hum') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
@@ -90,38 +90,57 @@ hum_stage_events <- et_stage %>%
          !datetime == ymd_hms('2022-08-04 12:20:00', tz = 'MST'),
          !datetime == ymd_hms('2022-10-18 13:25:00', tz = 'MST'),
          !datetime == ymd_hms('2023-05-24 10:55:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>% 
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 40, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
+         !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>%
+    mutate(Stage_fix = ifelse(datetime < ymd_hms('2022-07-12 08:25:00', tz = 'MST'),
+                            Stage_cm,
+                            Stage_cm -1.9),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 13:50:00', tz = 'MST'),
+                            Stage_fix + 4.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 12:15:00', tz = 'MST'),
+                            Stage_fix - 3.5,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-17 12:50:00', tz = 'MST'),
+                            Stage_fix + 1.6,
+                            Stage_fix)) %>%
+  filter(datetime < ymd_hms('2023-05-24 10:00:00', tz = 'MST') | 
+         datetime > ymd_hms('2023-05-24 15:25:00', tz = 'MST')) %>%
+  mutate(Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:20:00', tz = 'MST'),
+                            Stage_fix - 0.89,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST'),
+                            Stage_fix + 4.0,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 10:10:00', tz = 'MST'),
+                            Stage_fix + 11.9,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
+                            Stage_fix - 4.3,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 10:15:00', tz = 'MST'),
+                            Stage_fix - 4.5,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 11:50:00', tz = 'MST'),
+                            Stage_fix - 2.4,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 10:30:00', tz = 'MST'),
+                            Stage_fix + 14.1,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:15:00', tz = 'MST'),
+                            Stage_fix - 6.4,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 08:50:00', tz = 'MST'),
+                            Stage_fix - 3.5,
+                            Stage_fix)) #%>% 
 
-################################################################ NEW
+hum_stage_plot <- ggplot(hum_stage, aes(datetime, Stage_fix)) +
+  geom_line()
 
-filter_hum_stage_events <- et_stage %>%
-  filter(site == 'hum') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(datetime < ymd_hms('2022-07-12 13:00:00', tz = 'MST') | 
-         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-07-21 13:55:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-08-04 12:20:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-10-18 13:25:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-05-24 10:55:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>% 
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+ggplotly(hum_stage_plot)
+
+
+filter_hum_stage_events <- hum_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -133,9 +152,6 @@ filter_hum_stage_events <- et_stage %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(2),
          end_time = filter_time + hours(3))
-
-hum_stage <- et_stage %>%
-  filter(site == 'hum')
 
 
 filtered_hum_stage <- hum_stage %>%
@@ -158,61 +174,42 @@ filtered_hum_stage <- hum_stage %>%
 
 hum_stage_summ <- filtered_hum_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
   filter(stage_rise_cm > 10)
 
 ```
 
 ## MUB - done
-need to fix 1
+double check 8/24/23 event
 
 ```{r}
 
-# Process stage events
-mub_stage_events <- et_stage %>%
-  filter(site == 'mub') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(!datetime < ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-08-04 09:15:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-08-17 09:40:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-10-18 10:20:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-08-09 10:05:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>% 
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 46, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
-
-####################### NEW
   # Process stage events
-filter_mub_stage_events <- et_stage %>%
+mub_stage <- et_stage %>%
   filter(site == 'mub') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
-  filter(!datetime < ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
+  filter(!datetime < ymd_hms('2022-06-20 13:55:00', tz = 'MST'),
          !datetime == ymd_hms('2022-08-04 09:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-08-17 09:40:00', tz = 'MST'),
          !datetime == ymd_hms('2022-10-18 10:20:00', tz = 'MST'),
          !datetime == ymd_hms('2023-08-09 10:05:00', tz = 'MST'),
          !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>% 
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+    mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
+                            Stage_cm + 4.3,
+                            Stage_cm))
+  
+mub_stage_plot <- ggplot(mub_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(mub_stage_plot)
+
+filter_mub_stage_events <- mub_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -224,9 +221,6 @@ filter_mub_stage_events <- et_stage %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(2),
          end_time = filter_time + hours(3))
-
-mub_stage <- et_stage %>%
-  filter(site == 'mub')
 
 
 filtered_mub_stage <- mub_stage %>%
@@ -249,10 +243,10 @@ filtered_mub_stage <- mub_stage %>%
 
 mub_stage_summ <- filtered_mub_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
   filter(stage_rise_cm > 10)
 
@@ -260,47 +254,43 @@ mub_stage_summ <- filtered_mub_stage %>%
 ```
 
 ## P1 - done
-no events
 
 ```{r}
 
-# Process stage events
-p1_stage_events <- et_stage %>%
-  filter(site == 'p1') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(datetime < ymd_hms('2022-07-12 08:10:00', tz = 'MST') | 
-         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-07-19 08:40:00', tz = 'MST')) %>% 
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 46, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
-
-# no p1 events
-#################################
-
   # Process stage events
-filter_p1_stage_events <- et_stage %>%
+p1_stage <- et_stage %>%
   filter(site == 'p1') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
   filter(datetime < ymd_hms('2022-07-12 08:10:00', tz = 'MST') | 
          datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
          !datetime == ymd_hms('2023-07-19 08:40:00', tz = 'MST')) %>% 
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+    mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 08:05:00', tz = 'MST'),
+                            Stage_cm - 1.8,
+                            Stage_cm),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST'),
+                            Stage_fix + 3.41,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
+                            Stage_fix - 4.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 09:30:00', tz = 'MST'),
+                            Stage_fix + 5.2,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 08:30:00', tz = 'MST'),
+                            Stage_fix + 2.1,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 11:55:00', tz = 'MST'),
+                            Stage_fix + 2.0,
+                            Stage_fix))
+
+p1_stage_plot <- ggplot(p1_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(p1_stage_plot)
+
+filter_p1_stage_events <- p1_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -312,10 +302,6 @@ filter_p1_stage_events <- et_stage %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(2),
          end_time = filter_time + hours(3))
-
-
-p1_stage <- et_stage %>%
-  filter(site == 'p1')
 
 
 filtered_p1_stage <- p1_stage %>%
@@ -338,10 +324,10 @@ filtered_p1_stage <- p1_stage %>%
 
 p1_stage_summ <- filtered_p1_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) #%>%
   filter(stage_rise_cm > 10)
 
@@ -352,42 +338,8 @@ p1_stage_summ <- filtered_p1_stage %>%
 
 ```{r}
 
-# Process stage events
-hm_stage_events <- et_stage %>%
-  filter(site == 'hm') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(!datetime < ymd_hms('2022-06-20 10:55:00', tz = 'MST'),
-         datetime < ymd_hms('2022-07-12 13:05:00', tz = 'MST') | 
-         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
-         datetime < ymd_hms('2022-07-21 13:00:00', tz = 'MST') | 
-         datetime > ymd_hms('2022-07-21 13:35:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-08-17 12:35:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-09-28 11:50:00', tz = 'MST'),
-         datetime < ymd_hms('2023-05-24 11:00:00', tz = 'MST') | 
-         datetime > ymd_hms('2023-05-24 14:45:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-09-28 11:55:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-07-27 08:00:00', tz = 'MST')) %>% 
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 35, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) #%>%
-  filter(stage_rise > 10)
-
-########### NEW
   # Process stage events
-filter_hm_stage_events <- et_stage %>%
+hm_stage <- et_stage %>%
   filter(site == 'hm') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
@@ -402,7 +354,45 @@ filter_hm_stage_events <- et_stage %>%
          datetime > ymd_hms('2023-05-24 14:45:00', tz = 'MST'),
          !datetime == ymd_hms('2023-09-28 11:55:00', tz = 'MST'),
          !datetime == ymd_hms('2023-07-27 08:00:00', tz = 'MST')) %>%
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 12:55:00', tz = 'MST'),
+                            Stage_cm + 1.1,
+                            Stage_cm),
+         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST') &
+                              datetime < ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
+                            Stage_fix + 3.8,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 10:50:00', tz = 'MST'),
+                            Stage_fix - 17.3,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 12:25:00', tz = 'MST'),
+                            Stage_fix + 4.0,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 14:10:00', tz = 'MST'),
+                            Stage_fix + 2.6,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 12:30:00', tz = 'MST'),
+                            Stage_fix - 3.3,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 13:50:00', tz = 'MST'),
+                            Stage_fix - 2.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 11:25:00', tz = 'MST'),
+                            Stage_fix + 8.3,
+                            Stage_fix),         
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 13:15:00', tz = 'MST'),
+                            Stage_fix + 3.7,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:40:00', tz = 'MST'),
+                            Stage_fix - 9.6,
+                            Stage_fix))
+
+hm_stage_plot <- ggplot(hm_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(hm_stage_plot)
+
+filter_hm_stage_events <- hm_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -412,12 +402,8 @@ filter_hm_stage_events <- et_stage %>%
   mutate(event_id = generate_event_ids(event_def)) %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
-  mutate(start_time = filter_time - hours(2),
+  mutate(start_time = filter_time - hours(4),
          end_time = filter_time + hours(3))
-
-hm_stage <- et_stage %>%
-  filter(site == 'hm')
-
 
 filtered_hm_stage <- hm_stage %>%
   rowwise() %>%
@@ -439,24 +425,21 @@ filtered_hm_stage <- hm_stage %>%
 
 hm_stage_summ <- filtered_hm_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
   filter(stage_rise_cm > 10)
-
-
 
 ```
 
 ## MPM - done
-1 issue
 
 ```{r}
 
 # Process stage events
-mpm_stage_events <- et_stage %>%
+mpm_stage <- et_stage %>%
   filter(site == 'mpm') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
@@ -464,34 +447,62 @@ mpm_stage_events <- et_stage %>%
          !datetime == ymd_hms('2022-07-12 12:55:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-21 11:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-12 13:10:00', tz = 'MST')) %>%
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 35, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
+    mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 11:10:00', tz = 'MST'),
+                            Stage_cm - 1.7,
+                            Stage_cm),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:05:00', tz = 'MST'),
+                            Stage_fix + 11.7,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:05:00', tz = 'MST'),
+                            Stage_fix - 10.0,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 10:35:00', tz = 'MST'),
+                            Stage_fix + 3.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 11:00:00', tz = 'MST'),
+                            Stage_fix + 6.8,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 09:55:00', tz = 'MST'),
+                            Stage_fix - 3.5,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 09:35:00', tz = 'MST'),
+                            Stage_fix - 3.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:05:00', tz = 'MST'),
+                            Stage_fix + 6.2,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 13:55:00', tz = 'MST'),
+                            Stage_fix + 5.5,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:50:00', tz = 'MST'),
+                            Stage_fix - 9.1,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-09-05 11:15:00', tz = 'MST'),
+                            Stage_fix + 2.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 13:00:00', tz = 'MST'),
+                            Stage_fix + 16.2,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 09:45:00', tz = 'MST'),
+                            Stage_fix - 7.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 09:35:00', tz = 'MST'),
+                            Stage_fix + 2.2,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 10:10:00', tz = 'MST'),
+                            Stage_fix + 4.8,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 11:00:00', tz = 'MST'),
+                            Stage_fix + 3.4,
+                            Stage_fix))
 
-############################## NEW
-# Process stage events
-filter_mpm_stage_events <- et_stage %>%
-  filter(site == 'mpm') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(!datetime < ymd_hms('2022-06-20 12:10:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-07-12 12:55:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-07-21 11:15:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-07-12 13:10:00', tz = 'MST')) %>%
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+mpm_stage_plot <- ggplot(mpm_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(mpm_stage_plot)
+
+filter_mpm_stage_events <- mpm_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -501,12 +512,8 @@ filter_mpm_stage_events <- et_stage %>%
   mutate(event_id = generate_event_ids(event_def)) %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
-  mutate(start_time = filter_time - hours(2),
+  mutate(start_time = filter_time - hours(4),
          end_time = filter_time + hours(3))
-
-mpm_stage <- et_stage %>%
-  filter(site == 'mpm')
-
 
 filtered_mpm_stage <- mpm_stage %>%
   rowwise() %>%
@@ -528,57 +535,45 @@ filtered_mpm_stage <- mpm_stage %>%
 
 mpm_stage_summ <- filtered_mpm_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
   filter(stage_rise_cm > 10)
 
 
 ```
 
 ## MUM - done
-looks good
 
 ```{r}
 
 # Process stage events
-mum_stage_events <- et_stage %>%
+mum_stage <- et_stage %>%
   filter(site == 'mum') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
   filter(!datetime < ymd_hms('2022-06-20 12:30:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-12 12:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-09-05 11:00:00', tz = 'MST')) %>%
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 35, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
+    mutate(Stage_fix = ifelse(datetime < ymd_hms('2023-05-24 12:05:00', tz = 'MST'),
+                            Stage_cm,
+                            Stage_cm + 5.7),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:25:00', tz = 'MST'),
+                            Stage_fix + 11.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 13:10:00', tz = 'MST'),
+                            Stage_fix - 1.6,
+                            Stage_fix))
 
+mum_stage_plot <- ggplot(mum_stage, aes(datetime, Stage_fix)) +
+  geom_line()
 
-############################## NEW
-# Process stage events
-filter_mum_stage_events <- et_stage %>%
-  filter(site == 'mum') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(!datetime < ymd_hms('2022-06-20 12:30:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-07-12 12:15:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-09-05 11:00:00', tz = 'MST')) %>%
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+ggplotly(mum_stage_plot)
+
+filter_mum_stage_events <- mum_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -588,12 +583,8 @@ filter_mum_stage_events <- et_stage %>%
   mutate(event_id = generate_event_ids(event_def)) %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
-  mutate(start_time = filter_time - hours(2),
+  mutate(start_time = filter_time - hours(4),
          end_time = filter_time + hours(3))
-
-mum_stage <- et_stage %>%
-  filter(site == 'mum')
-
 
 filtered_mum_stage <- mum_stage %>%
   rowwise() %>%
@@ -615,21 +606,21 @@ filtered_mum_stage <- mum_stage %>%
 
 mum_stage_summ <- filtered_mum_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  mutate(stage_rise_cm = max_stage -  min_stage) #%>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
   filter(stage_rise_cm > 10)
 
 ```
 
-## P2
+## P2 - done
 
 ```{r}
 
 # Process stage events
-p2_stage_events <- et_stage %>%
+p2_stage <- et_stage %>%
   filter(site == 'p2') %>% 
   mutate(month = month(datetime)) %>%
   filter(month %in% c(6:9)) %>% 
@@ -638,35 +629,38 @@ p2_stage_events <- et_stage %>%
          !datetime == ymd_hms('2023-05-24 10:05:00', tz = 'MST'),
          datetime < ymd_hms('2022-07-12 08:20:00', tz = 'MST') | 
          datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST')) %>%
-  mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 0.5,
-                            'increase', 'none')) %>%
-  mutate(pos_diff = if_else(lead(pos_diff) == "increase" 
-                            & pos_diff == "none", "increase", 
-                            pos_diff)) %>%
-  filter(pos_diff == 'increase') %>%
-  mutate(time_diff = as.numeric(difftime(datetime, 
-                                         lag(datetime), units = 'mins'))) %>%
-  mutate(event_def = if_else(time_diff < 35, 'same', 
-                             'diff', missing = 'diff'))  %>% # diff for first timestep
-  mutate(event_id = generate_event_ids(event_def)) %>%
-  group_by(event_id) %>%
-  summarize(stage_rise = max(Stage_cm) - first(Stage_cm),
-         datetime_start = min(datetime),
-         datetime_peak = datetime[which.max(Stage_cm)]) %>%
-  filter(stage_rise > 10)
+    mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 10:20:00', tz = 'MST'),
+                            Stage_cm - 4.0,
+                            Stage_cm),
+         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 15:25:00', tz = 'MST'),
+                            Stage_fix + 3.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 13:10:00', tz = 'MST'),
+                            Stage_fix - 4.6,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2022-08-17 14:20:00', tz = 'MST'),
+                            Stage_fix - 2.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 09:55:00', tz = 'MST'),
+                            Stage_fix + 20.8,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 07:50:00', tz = 'MST'),
+                            Stage_fix - 8.9,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 08:30:00', tz = 'MST'),
+                            Stage_fix - 6.3,
+                            Stage_fix),
+        Stage_fix = ifelse(datetime > ymd_hms('2023-08-09 12:05:00', tz = 'MST'),
+                            Stage_fix - 3.9,
+                            Stage_fix))
 
-########################### NEW
-# Process stage events
-filter_p2_stage_events <- et_stage %>%
-  filter(site == 'p2') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) %>% 
-  filter(!datetime == ymd_hms('2022-07-21 14:25:00', tz = 'MST'),
-         !datetime == ymd_hms('2022-08-04 12:50:00', tz = 'MST'),
-         !datetime == ymd_hms('2023-05-24 10:05:00', tz = 'MST'),
-         datetime < ymd_hms('2022-07-12 08:20:00', tz = 'MST') | 
-         datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST')) %>%
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm) > 2,
+p2_stage_plot <- ggplot(p2_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(p2_stage_plot)
+
+filter_p2_stage_events <- p2_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -676,12 +670,8 @@ filter_p2_stage_events <- et_stage %>%
   mutate(event_id = generate_event_ids(event_def)) %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
-  mutate(start_time = filter_time - hours(2),
+  mutate(start_time = filter_time - hours(4),
          end_time = filter_time + hours(3))
-
-p2_stage <- et_stage %>%
-  filter(site == 'p2')
-
 
 filtered_p2_stage <- p2_stage %>%
   rowwise() %>%
@@ -703,10 +693,10 @@ filtered_p2_stage <- p2_stage %>%
 
 p2_stage_summ <- filtered_p2_stage %>%
   group_by(event_id) %>%
-  summarize(min_stage = min(Stage_cm),
-            max_stage = max(Stage_cm),
-            datetime_min = datetime[which.min(Stage_cm)],
-            datetime_peak = datetime[which.max(Stage_cm)]) %>%
+  summarize(min_stage = min(Stage_fix),
+            max_stage = max(Stage_fix),
+            datetime_min = datetime[which.min(Stage_fix)],
+            datetime_peak = datetime[which.max(Stage_fix)]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) #%>%
   filter(stage_rise_cm > 10)
 
