@@ -1489,6 +1489,3 @@ plots <- lapply(name, plot_params)
 plots
 
 ```
-
-# Stage
-
