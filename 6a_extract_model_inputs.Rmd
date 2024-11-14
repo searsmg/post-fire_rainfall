@@ -122,9 +122,9 @@ mean_sp <- sp %>%
 
 # Potential water deficit
 
-This uses etr b/c et0 is not available. Talk to SK about this.
-
-This is a dynamic variable.
+PPT-ETo = PWD
+-Cumulative WY values
+-Lagged by a day
 
 ```{r}
 # Pull gridmet data
@@ -161,13 +161,13 @@ weighted_means <- map(1:dim(gridmet_p)[3],
 # Add a site column, create date column, rename the first column to p_mm
 tidy_up <- function(df, all_sites) {
   
-  # Extract the name of the first column/header
+  # Extract the name of the first column
   first_header <- names(df)[1]
   
-  # Drop the "pr_" prefix from the name of the first header
+  # Drop the "pr_" prefix from the name
   new_first_header <- sub("^pr_", "", first_header)
   
-  # Use the modified name as the date column values
+  # Name date column
   df$date <- new_first_header
   
   # Add the site column
@@ -217,13 +217,13 @@ weighted_means <- map(1:dim(gridmet_et)[3],
 # Add a site column, create date column, rename the first column to p_mm
 tidy_up <- function(df, all_sites) {
   
-  # Extract the name of the first column/header
+  # Extract the name of the first column
   first_header <- names(df)[1]
   
-  # Drop the "pr_" prefix from the name of the first header
+  # Drop the "pr_"
   new_first_header <- sub("^etr_", "", first_header)
   
-  # Use the modified name as the date column values
+  # Name the date column
   df$date <- new_first_header
   
   # Add the site column
@@ -245,8 +245,9 @@ gridmet_et <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
   group_by(site, waterYear) %>%
   mutate(et_cumu_mm = cumsum(et_mm))
 
-####################3
+####################
 
+# use p and et to calculate pwd, lag by a day
 pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
   dplyr::select(-waterYear.y) %>%
   dplyr::rename(WY = waterYear.x) %>%
