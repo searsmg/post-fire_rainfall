@@ -25,7 +25,7 @@ library(stringr)
 
 ```{r}
 
-#whitebox::install_whitebox() # I think this only has to be done once
+#whitebox::install_whitebox() # only needs to be done once
 
 ```
 
@@ -43,6 +43,7 @@ catchments <- vect('./data/GIS/catchments_all_lidar.shp') %>%
 # the script assumes the DEM is clipped to the catchments
 # if not use code commented out below
 # mask the lidar to polygons first (we don't need elevation values outside of the catchments)
+# lidar_path <- './data/GIS/clipped_lidar.tif'
 # lidar <- rast(lidar_path)
 # catchments <- vect(catchments_path)
 # 
@@ -52,7 +53,7 @@ catchments <- vect('./data/GIS/catchments_all_lidar.shp') %>%
 # update the lidar path to the clipped lidar
 lidar_path <- './data/GIS/clipped_lidar.tif'
 lidar <- rast('./data/GIS/clipped_lidar.tif')
-
+              
 ```
 
 # Elongation ratio
@@ -82,12 +83,11 @@ head(circle) # sample top few rows
 
 ```
 
-# Geomorphons
+# Geomorphons, Frac of valley and hollow
 
 More info and key: https://www.whiteboxgeo.com/manual/wbt_book/available_tools/geomorphometric_analysis.html#Geomorphons
 
--After getting the geomorphon data: get the fraction of valley & hollow in the catchment (done)
--Then somehow valley bottom width (possibly do in Arc) - done manually, but data read in below
+-After getting the geomorphon data: get the fraction of valley & hollow in the catchment
 
 ```{r}
 
@@ -138,7 +138,7 @@ wbt_flow_accumulation_full_workflow(
 # filter out by 50k
 flow <- rast('./data/GIS/flow_accum.tif')
 
-filter <- ifel(flow < 50000, NA, 1) # filter by 50,000 ## CHECK TO SEE IF BENNY GETS FILTERED OUT
+filter <- ifel(flow < 50000, NA, 1) # filter by 50,000 
 
 # raster to polyline
 wbt_raster_to_vector_lines(
@@ -401,6 +401,8 @@ metrics <- left_join(metrics,
 ```
 
 # Valley bottom width
+
+This was done manually in Arc
 
 ```{r}
 
