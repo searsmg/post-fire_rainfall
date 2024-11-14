@@ -25,20 +25,22 @@ Read in stage data
 
 ```{r}
 
+# Raw stage data - already converted to stage height
 stage_raw <- read_csv(here('./data/stage/et_stage_sensors.csv')) %>%
-  mutate(datetime = datetime - 25200)
+  mutate(datetime = datetime - 25200) # only apply this if it's NOT in MST
 
+# forze TZ
 tz(stage_raw$datetime) <- 'MST'
-  
 
+# read in manual discharge measurements
 manual_q <- read_csv(here('./data/discharge_et.csv')) %>%
   mutate(datetime = mdy_hms(paste(date, time), tz = 'MST')) %>%
   select(site, datetime, manual_stage_mean, bed_elev_adjustment_cm, discharge_Ls)
 
-field_notes <- read_csv(here('./data/et_field_notes.csv')) %>%
+# read in field notes (manual stage, bed elevation)
+field_notes <- read_csv(here('./data/field_notes/et_field_notes.csv')) %>%
   mutate(datetime = mdy_hms(paste(date, time), tz = 'MST')) %>%
   select(-c(date, time))
-  
 
 ```
 
@@ -53,7 +55,7 @@ ggplotly(hydrograph)
 
 ```
 
-# HM - GOOD
+# HM
 
 ```{r}
 
@@ -77,44 +79,19 @@ hm_adjust <- hm_adjust %>%
          datetime > ymd_hms('2023-05-24 14:45:00', tz = 'MST'),
          !datetime == ymd_hms('2023-09-28 11:55:00', tz = 'MST'),
          !datetime == ymd_hms('2023-07-27 08:00:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 12:55:00', tz = 'MST'),
-                            Stage_cm + 1.1,
-                            Stage_cm),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST') &
-                              datetime < ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
-                            Stage_fix + 3.8,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 10:50:00', tz = 'MST'),
-                            Stage_fix - 17.3,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 12:25:00', tz = 'MST'),
-                            Stage_fix + 4.0,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 14:10:00', tz = 'MST'),
-                            Stage_fix + 2.6,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 12:30:00', tz = 'MST'),
-                            Stage_fix - 3.3,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 13:50:00', tz = 'MST'),
-                            Stage_fix - 2.3,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 11:25:00', tz = 'MST'),
-                            Stage_fix + 8.3,
-                            Stage_fix),         
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 13:15:00', tz = 'MST'),
-                            Stage_fix + 3.7,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:40:00', tz = 'MST'),
-                            Stage_fix - 9.6,
-                            Stage_fix))
-         
+  mutate(Stage_fix = Stage_cm - 17.5,
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-05 19:00:00', tz = 'MST'),
+                             Stage_fix + 6,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-08-04 12:35:00', tz = 'MST'),
+                             Stage_fix - 1.5,
+                             Stage_fix))
 
 hm <- ggplot(hm_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
   geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = hm_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  geom_point(data = hm_field, aes(x=datetime, y=manual_stage_adjusted), color = 'red')
 
 ggplotly(hm)
 
@@ -135,11 +112,13 @@ ggplotly(hm_q)
 q_manual_hm <- left_join(q_manual_hm, hm_adjust, by = 'datetime')
 
 hm_r2 <- cor(q_manual_hm$discharge_Ls, q_manual_hm$Q_Ls, use = 'complete.obs')^2
-#0.83
+#0.88
 
 ```
 
 # HUM - BAD
+
+cannot use rating curve here
 
 ```{r}
 
@@ -160,53 +139,51 @@ hum_adjust <- hum_adjust %>%
          !datetime == ymd_hms('2022-10-18 13:25:00', tz = 'MST'),
          !datetime == ymd_hms('2023-05-24 10:55:00', tz = 'MST'),
          !datetime == ymd_hms('2023-07-19 10:15:00', tz = 'MST')) %>% 
-  mutate(Stage_fix = ifelse(datetime < ymd_hms('2022-07-12 08:25:00', tz = 'MST'),
-                            Stage_cm,
-                            Stage_cm -1.9),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 13:50:00', tz = 'MST'),
-                            Stage_fix + 4.3,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 12:15:00', tz = 'MST'),
-                            Stage_fix - 3.5,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-17 12:50:00', tz = 'MST'),
-                            Stage_fix + 1.6,
-                            Stage_fix)) %>%
   filter(datetime < ymd_hms('2023-05-24 10:00:00', tz = 'MST') | 
          datetime > ymd_hms('2023-05-24 15:25:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:20:00', tz = 'MST'),
-                            Stage_fix - 0.89,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST'),
-                            Stage_fix + 4.0,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 10:10:00', tz = 'MST'),
-                            Stage_fix + 11.9,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
-                            Stage_fix - 4.3,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 10:15:00', tz = 'MST'),
-                            Stage_fix - 4.5,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 11:50:00', tz = 'MST'),
-                            Stage_fix - 2.4,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 10:30:00', tz = 'MST'),
-                            Stage_fix + 14.1,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 08:15:00', tz = 'MST'),
-                            Stage_fix - 6.4,
-                            Stage_fix),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 08:50:00', tz = 'MST'),
-                            Stage_fix - 3.5,
-                            Stage_fix))
-         
+  mutate(Stage_fix = Stage_cm - 4.3,
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-14 23:10:00', tz = 'MST'),
+                             Stage_fix - 4.5,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-21 14:00:00', tz = 'MST'),
+                             Stage_fix + 6,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-28 17:50:00', tz = 'MST'),
+                             Stage_fix - 7,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-08-04 13:22:00', tz = 'MST'),
+                             Stage_fix - 3,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-08-15 19:40:00', tz = 'MST'),
+                             Stage_fix - 6,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-08-17 13:55:00', tz = 'MST'),
+                             Stage_fix + 2,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-11-18 12:00:00', tz = 'MST'),
+                             Stage_fix + 18.5,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-05-24 10:30:00', tz = 'MST'),
+                             Stage_fix - 25,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-07-19 10:05:00', tz = 'MST'),
+                             Stage_fix + 11.5,
+                             Stage_fix)) %>%
+  filter(!datetime == ymd_hms('2023-07-19 10:05:00', tz = 'MST'),
+         !datetime == ymd_hms('2023-07-19 10:10:00', tz = 'MST')) %>%
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2023-07-27 09:35:00', tz = 'MST'),
+                             Stage_fix - 6,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-08-24 17:20:00', tz = 'MST'),
+                             Stage_fix - 9,
+                             Stage_fix))
+
+
 hum <- ggplot(hum_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
   geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = hum_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  geom_point(data = hum_field, aes(x=datetime, y=manual_stage_adjusted), color = 'red')
 
 ggplotly(hum)
 
@@ -227,11 +204,11 @@ ggplotly(hum_q)
 q_manual_hum <- left_join(q_manual_hum, hum_adjust, by = 'datetime')
 
 hum_r2 <- cor(q_manual_hum$discharge_Ls, q_manual_hum$Q_Ls, use = 'complete.obs')^2
-#0.72
+#0.31
 
 ```
 
-# MPM - BAD
+# MPM - GOOD
 
 ```{r}
 
@@ -248,60 +225,34 @@ mpm_adjust <- mpm_adjust %>%
          !datetime == ymd_hms('2022-07-12 12:55:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-21 11:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-12 13:10:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 11:10:00', tz = 'MST'),
-                            Stage_cm - 1.7,
-                            Stage_cm),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:05:00', tz = 'MST'),
-                            Stage_fix + 11.7,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:05:00', tz = 'MST'),
-                            Stage_fix - 10.0,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-10-18 10:35:00', tz = 'MST'),
-                            Stage_fix + 3.9,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 11:00:00', tz = 'MST'),
-                            Stage_fix + 6.8,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 09:55:00', tz = 'MST'),
-                            Stage_fix - 3.5,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 09:35:00', tz = 'MST'),
-                            Stage_fix - 3.3,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:05:00', tz = 'MST'),
-                            Stage_fix + 6.2,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 13:55:00', tz = 'MST'),
-                            Stage_fix + 5.5,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 10:50:00', tz = 'MST'),
-                            Stage_fix - 9.1,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-09-05 11:15:00', tz = 'MST'),
-                            Stage_fix + 2.9,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-05 13:00:00', tz = 'MST'),
-                            Stage_fix + 16.2,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 09:45:00', tz = 'MST'),
-                            Stage_fix - 7.9,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 09:35:00', tz = 'MST'),
-                            Stage_fix + 2.2,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 10:10:00', tz = 'MST'),
-                            Stage_fix + 4.8,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 11:00:00', tz = 'MST'),
-                            Stage_fix + 3.4,
-                            Stage_fix))
-        
+  mutate(Stage_fix = Stage_cm + 6.4,
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-05 15:15:00', tz = 'MST'),
+                             Stage_fix - 4.5,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-09-05 11:20:00', tz = 'MST'),
+                             Stage_fix - 1,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-03-01 12:00:00', tz = 'MST'),
+                             Stage_fix + 12,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-06-29 09:40:00', tz = 'MST'),
+                             Stage_fix - 4,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-07-01 16:40:00', tz = 'MST'),
+                             Stage_fix + 2.5,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-07-20 05:30:00', tz = 'MST'),
+                             Stage_fix + 4.5,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-08-02 17:15:00', tz = 'MST'),
+                             Stage_fix - 8.5,
+                             Stage_fix))
+         
 mpm <- ggplot(mpm_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
-  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = mpm_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  #geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
+  geom_point(data = mpm_field, aes(x=datetime, y=manual_stage_adjusted), color = 'red')
 
 ggplotly(mpm)
 
@@ -323,11 +274,13 @@ ggplotly(mpm_q)
 q_manual_mpm <- left_join(q_manual_mpm, mpm_adjust, by = 'datetime')
 
 mpm_r2 <- cor(q_manual_mpm$discharge_Ls, q_manual_mpm$Q_Ls, use = 'complete.obs')^2
-#0.63
+#0.86
 
 ```
 
-# MUB - GREAT
+# MUB - GOOD
+
+go back
 
 ```{r}
 
@@ -339,29 +292,30 @@ mub_field <- field_notes %>%
   filter(site %in% c('MUb', 'MUB')) %>%
   mutate(site = tolower(site))
 
-mub_adjust <- mub_adjust %>%
+mub_adjust2 <- mub_adjust %>%
   filter(!datetime < ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
          !datetime == ymd_hms('2022-08-04 09:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-08-17 09:40:00', tz = 'MST'),
          !datetime == ymd_hms('2022-10-18 10:20:00', tz = 'MST'),
          !datetime == ymd_hms('2023-08-09 10:05:00', tz = 'MST'),
          !datetime == ymd_hms('2023-09-28 09:35:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 13:50:00', tz = 'MST'),
-                            Stage_cm + 4.3,
-                            Stage_cm))
-        #  Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:25:00', tz = 'MST'),
-        #                     Stage_fix + 11.9,
-        #                     Stage_fix),
-        # Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 13:10:00', tz = 'MST'),
-        #                     Stage_fix - 1.6,
-        #                     Stage_fix))
+  mutate(Stage_fix = Stage_cm + 4.3,
+         Stage_fix = if_else(datetime >= ymd_hms('2022-06-26 22:40:00', tz = 'MST'),
+                             Stage_fix - 2.5,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-08-28 20:00:00', tz = 'MST'),
+                             Stage_fix + 2,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-04-01 12:00:00', tz = 'MST'),
+                             Stage_fix - 2.5,
+                             Stage_fix))
+         
 
-
-mub <- ggplot(mub_adjust)+
+mub <- ggplot(mub_adjust2)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
-  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = mub_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  #geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
+  geom_point(data = mub_field, aes(x=datetime, y=manual_stage_adjusted), color = 'blue')
 
 ggplotly(mub)
 
@@ -370,24 +324,24 @@ q_manual_mub <- manual_q %>%
   filter(site == 'mub')
 
 # lets apply rating curve!!
-mub_adjust <- mub_adjust %>%
+mub_adjust2 <- mub_adjust2 %>%
   mutate(Q_Ls = (-6.664736 + 0.7205008*Stage_fix)^2)
 
-mub_q <- ggplot(mub_adjust)+
+mub_q <- ggplot(mub_adjust2)+
   geom_line(aes(x=datetime,y=Q_Ls)) +
   geom_point(data = q_manual_mub, aes(x=datetime, y=discharge_Ls), color = 'blue')
 
 ggplotly(mub_q)
 
-q_manual_mub <- left_join(q_manual_mub, mub_adjust, by = 'datetime')
+q_manual_mub <- left_join(q_manual_mub, mub_adjust2, by = 'datetime')
 
 mub_r2 <- cor(q_manual_mub$discharge_Ls, q_manual_mub$Q_Ls, use = 'complete.obs')^2
-#0.94
+#0.86
 
 ```
 
 
-# MUM - GREAT
+# MUM - BAD, need to redo RC
 
 ```{r}
 
@@ -403,29 +357,45 @@ mum_adjust <- mum_adjust %>%
   filter(!datetime < ymd_hms('2022-06-20 12:30:00', tz = 'MST'),
          !datetime == ymd_hms('2022-07-12 12:15:00', tz = 'MST'),
          !datetime == ymd_hms('2022-09-05 11:00:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime < ymd_hms('2023-05-24 12:05:00', tz = 'MST'),
-                            Stage_cm,
-                            Stage_cm + 5.7),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 12:25:00', tz = 'MST'),
-                            Stage_fix + 11.9,
-                            Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 13:10:00', tz = 'MST'),
-                            Stage_fix - 1.6,
-                            Stage_fix))
+  mutate(Stage_fix = Stage_cm + 11.7,
+         Stage_fix = if_else(datetime >= ymd_hms('2022-07-05 17:05:00', tz = 'MST'),
+                             Stage_fix - 3,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-01-01 12:00:00', tz = 'MST'),
+                             Stage_fix - 3.5,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-05-24 12:10:00', tz = 'MST'),
+                             Stage_fix + 7,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-06-03 15:30:00', tz = 'MST'),
+                             Stage_fix - 3,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-06-07 13:50:00', tz = 'MST'),
+                             Stage_fix - 8,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-08-09 11:05:00', tz = 'MST'),
+                             Stage_fix +2,
+                             Stage_fix),
+        Stage_fix = if_else(datetime >= ymd_hms('2023-08-25 10:40:00', tz = 'MST'),
+                             Stage_fix - 5,
+                             Stage_fix))
 
 
-mum <- ggplot(mum_adjust)+
+
+
+
+
+mum <- ggplot(mum_adjust) +
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
-  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = mum_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  #geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
+  geom_point(data = mum_field, aes(x=datetime, y=manual_stage_adjusted), color = 'red')
 
 ggplotly(mum)
 
 # get manual Qs
 q_manual_mum <- manual_q %>%
   filter(site == 'mum')
-
 
 # lets apply rating curve!!
 mum_adjust <- mum_adjust %>%
@@ -440,7 +410,7 @@ ggplotly(mum_q)
 q_manual_mum <- left_join(q_manual_mum, mum_adjust, by = 'datetime')
 
 mum_r2 <- cor(q_manual_mum$discharge_Ls, q_manual_mum$Q_Ls, use = 'complete.obs')^2
-#0.88
+# NEED TO REDO RATING CURVE
 
 ```
 
@@ -460,31 +430,41 @@ p1_adjust <- p1_adjust %>%
   filter(datetime < ymd_hms('2022-07-12 08:10:00', tz = 'MST') | 
          datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST'),
          !datetime == ymd_hms('2023-07-19 08:40:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 08:05:00', tz = 'MST'),
-                            Stage_cm - 1.8,
-                            Stage_cm),
-         Stage_fix = ifelse(datetime > ymd_hms('2023-07-19 08:05:00', tz = 'MST'),
-                            Stage_fix + 3.41,
+  mutate(Stage_fix = Stage_cm + 5.2,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-07-12 09:10:00', tz = 'MST'),
+                            Stage_fix - 3,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-07-27 08:00:00', tz = 'MST'),
-                            Stage_fix - 4.3,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-07-29 12:00:00', tz = 'MST'),
+                            Stage_fix + 4,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-06-20 09:30:00', tz = 'MST'),
-                            Stage_fix + 5.2,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-08-15 14:40:00', tz = 'MST'),
+                            Stage_fix + 2,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 08:30:00', tz = 'MST'),
-                            Stage_fix + 2.1,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-08-26 18:00:00', tz = 'MST'),
+                            Stage_fix - 2,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-29 11:55:00', tz = 'MST'),
-                            Stage_fix + 2.0,
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-06-15 07:20:00', tz = 'MST'),
+                            Stage_fix - 4,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-07-19 08:10:00', tz = 'MST'),
+                            Stage_fix + 7,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-07-27 07:50:00', tz = 'MST'),
+                            Stage_fix - 3,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-08-25 02:00:00', tz = 'MST'),
+                            Stage_fix - 3.5,
                             Stage_fix))
-        
+         
+
+
         
 p1 <- ggplot(p1_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
-  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = p1_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  #geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
+  geom_point(data = p1_field, aes(x=datetime, y=manual_stage_adjusted), color = 'blue')
+
 
 ggplotly(p1)
 
@@ -505,7 +485,7 @@ ggplotly(p1_q)
 q_manual_p1 <- left_join(q_manual_p1, p1_adjust, by = 'datetime')
 
 p1_r2 <- cor(q_manual_p1$discharge_Ls, q_manual_p1$Q_Ls, use = 'complete.obs')^2
-#0.88
+#0.96
 
 ```
 
@@ -528,37 +508,39 @@ p2_adjust <- p2_adjust %>%
          !datetime == ymd_hms('2023-05-24 10:05:00', tz = 'MST'),
          datetime < ymd_hms('2022-07-12 08:20:00', tz = 'MST') | 
          datetime > ymd_hms('2022-07-12 15:35:00', tz = 'MST')) %>%
-  mutate(Stage_fix = ifelse(datetime > ymd_hms('2022-07-12 10:20:00', tz = 'MST'),
-                            Stage_cm - 4.0,
+  mutate(Stage_fix = ifelse(datetime >= ymd_hms('2022-07-07 15:35:00', tz = 'MST'),
+                            Stage_cm - 2,
                             Stage_cm),
-         Stage_fix = ifelse(datetime > ymd_hms('2022-07-21 15:25:00', tz = 'MST'),
-                            Stage_fix + 3.9,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-07-12 10:20:00', tz = 'MST'),
+                            Stage_fix - 2,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-04 13:10:00', tz = 'MST'),
-                            Stage_fix - 4.6,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-07-14 19:35:00', tz = 'MST'),
+                            Stage_fix - 7,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2022-08-17 14:20:00', tz = 'MST'),
-                            Stage_fix - 2.3,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-07-28 19:00:00', tz = 'MST'),
+                            Stage_fix + 5,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-05-24 09:55:00', tz = 'MST'),
-                            Stage_fix + 20.8,
+         Stage_fix = ifelse(datetime >= ymd_hms('2022-08-04 13:00:00', tz = 'MST'),
+                            Stage_fix - 2,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-06-15 07:50:00', tz = 'MST'),
-                            Stage_fix - 8.9,
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-04-15 23:00:00', tz = 'MST'),
+                            Stage_fix + 9,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-07-12 08:30:00', tz = 'MST'),
-                            Stage_fix - 6.3,
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-06-07 14:00:00', tz = 'MST'),
+                            Stage_fix - 4,
                             Stage_fix),
-        Stage_fix = ifelse(datetime > ymd_hms('2023-08-09 12:05:00', tz = 'MST'),
-                            Stage_fix - 3.9,
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-07-27 08:50:00', tz = 'MST'),
+                            Stage_fix - 3,
+                            Stage_fix),
+         Stage_fix = ifelse(datetime >= ymd_hms('2023-08-25 06:00:00', tz = 'MST'),
+                            Stage_fix - 3,
                             Stage_fix))
-
 
 p2 <- ggplot(p2_adjust)+
   geom_line(aes(x=datetime,y=Stage_fix)) +
   #geom_point(aes(x=datetime,y=Stage_fix)) +
-  geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
-  geom_point(data = p2_field, aes(x=datetime, y=stream_stage_cm), color = 'blue')
+  #geom_line(aes(x=datetime, y= Stage_cm), color = 'grey') +
+  geom_point(data = p2_field, aes(x=datetime, y=manual_stage_adjusted), color = 'blue')
 
 ggplotly(p2)
 
@@ -581,7 +563,7 @@ ggplotly(p2_q)
 q_manual_p2 <- left_join(q_manual_p2, p2_adjust, by = 'datetime')
 
 p2_r2 <- cor(q_manual_p2$discharge_Ls, q_manual_p2$Q_Ls, use = 'complete.obs')^2
-# 0.75
+# 0.78
 
 ```
 
