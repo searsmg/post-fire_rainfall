@@ -743,7 +743,7 @@ comp_benn <- comp_intens %>%
         start_time.x > ymd_hms('2021-07-31 13:32:00', tz = 'MST') ~ 'remove',
       site == 'uw' & 
         start_time.x < ymd_hms('2021-07-19 14:00:00', tz = 'MST') ~ 'remove',
-      site == 'um' & 
+      site == 'uw' & 
         start_time.x > ymd_hms('2023-09-07 14:05:00', tz = 'MST') ~ 'remove',
       TRUE ~ 'keep')) %>%
   filter(condition == 'keep') %>%
