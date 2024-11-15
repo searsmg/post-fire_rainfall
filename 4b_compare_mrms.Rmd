@@ -24,6 +24,7 @@ library(plotly)
 library(here)
 library(ggplot2); theme_set(theme_bw(base_size = 18))
 library(zoo)
+library(caret)
 
 source('./R/mrms_metrics.R')
 
@@ -4037,6 +4038,8 @@ stats <- cross_summary %>%
 
 # Logistic regression
 
+Stage data gaps were deleted in excel after exported in the above site chunks
+
 ## ETF TB
 
 ```{r}
@@ -4046,7 +4049,8 @@ etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb.csv') %>%
   mutate(date = mdy(date))
 
 burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  select(site, mean_dnbr)
+  select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
 
 etf_tb <- left_join(etf_tb,
                     burn,
@@ -4061,25 +4065,37 @@ etf_tb <- left_join(etf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
-              data=etf_tb,
-              family='binomial')
-model1
+# model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
+#               data=etf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_tb <- etf_tb %>% 
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
 
-pred1 <- predict(model1,
-                 type='response')
+# conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
+# conf_matrix
 
-etf_tb <- etf_tb %>% 
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
+# Group by site and calculate kappa value for each site
+site_kappa_values <- etf_tb %>%
+  group_by(site) %>%
+  filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
+  mutate(predicted_prob = predict(glm(flow ~ MI30_mmhr + mean_dnbr + lag_pwd,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use), factor(flow))$overall["Kappa"])
 
-library(caret)
 
-conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
-conf_matrix
+site_kappa_values
 
 ```
 
@@ -4088,10 +4104,27 @@ conf_matrix
 ```{r}
 
 etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms.csv') %>%
-  mutate(date = mdy(date)) 
-
-burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  select(site, mean_dnbr)
+  mutate(date = mdy(date),
+         start_time = mdy_hm(start_time, tz ='MST')) %>%
+  filter(start_time > ymd_hms('2022-06-20 11:00:00', tz = 'MST')) %>%
+  mutate(
+    condition = case_when(
+      site == 'hum' &
+        start_time > ymd_hms('2022-08-04 11:16:00', tz = 'MST') ~ 'remove',
+      site == 'p1' &
+        start_time > ymd_hms('2022-07-12 08:36:00', tz = 'MST') &
+        start_time < ymd_hms('2022-07-21 16:00:00', tz = 'MST') ~ 'remove',
+      site == 'p1' &
+        start_time > ymd_hms('2023-07-21 23:57:00', tz = 'MST') ~ 'remove',
+      site == 'lpm' &
+        start_time > ymd_hms('2022-10-18 10:23:00', tz = 'MST') &
+        start_time < ymd_hms('2023-05-24 13:20:00', tz = 'MST') ~ 'remove',
+      site == 'lpm' &
+        start_time > ymd_hms('2023-06-11 16:55:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep'
+    )
+  ) %>%
+  filter(condition == 'keep')
 
 etf_mrms <- left_join(etf_mrms,
                     burn,
@@ -4102,38 +4135,52 @@ etf_mrms <- left_join(etf_mrms,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-              data=etf_mrms,
-              family='binomial')
-model1
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=etf_mrms,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_mrms <- etf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
 
-pred1 <- predict(model1,
-                 type='response')
+# by site
+site_kappa_values <- etf_mrms %>%
+  group_by(site) %>%
+  filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ event_sum_mm
+                                      + lag_pwd + mean_dnbr,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
 
-etf_mrms <- etf_mrms %>% 
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
 
-library(caret)
-
-conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
-conf_matrix
+site_kappa_values
 
 ```
 
 ## CPF TB
 
+- Remove Michigan in both bc no stream events
+
+
 ```{r}
 
 cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb.csv') %>%
   drop_na(MI60_mmhr) %>%
-  mutate(date = mdy(date))
-
-burn <- burn %>%
-  mutate(site = tolower(site))
+  mutate(date = mdy(date)) %>%
+  filter(!site == 'michigan')
 
 cpf_tb <- left_join(cpf_tb,
                     burn,
@@ -4149,35 +4196,122 @@ cpf_tb <- left_join(cpf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-              data=cpf_tb,
-              family='binomial')
-model1
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_tb <- cpf_tb %>% 
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
 
-pred1 <- predict(model1,
-                 type='response')
+# conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
+# conf_matrix
 
-cpf_tb <- cpf_tb %>% 
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
+# by site
+site_kappa_values <- cpf_tb %>%
+  group_by(site) %>%
+  filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ MI60_mmhr
+                                      + lag_pwd + mean_dnbr,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
 
-library(caret)
-
-conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
-conf_matrix
+site_kappa_values
 
 ```
 
-# CPF MRMS
+## CPF MRMS
 
 ```{r}
 
 cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms.csv') %>%
-  mutate(date = mdy(date)) 
-
+  filter(!site == 'michigan') %>% 
+  mutate(date = mdy(date),
+         start_time = mdy_hm(start_time, tz = 'MST')) %>%
+  mutate(
+    condition = case_when(
+      site == 'aspen' &
+        start_time < ymd_hms('2021-05-18 14:30:00', tz = 'MST') ~ 'remove',
+      site == 'aspen' &
+        start_time > ymd_hms('2021-06-28 11:56:00', tz = 'MST') &
+        start_time < ymd_hms('2021-10-7 15:00:00', tz = 'MST') ~ 'remove',
+      site == 'aspen' &
+        start_time > ymd_hms('2023-09-21 12:45:00', tz = 'MST') ~ 'remove',
+      site == 'bighorn' &
+        start_time < ymd_hms('2021-05-07 11:20:00', tz = 'MST') ~ 'remove',
+      site == 'bl4' &
+        start_time < ymd_hms('2021-06-11 13:00:00', tz = 'MST') ~ 'remove',
+      site == 'bl4' &
+        start_time > ymd_hms('2023-09-04 14:15:00', tz = 'MST') ~ 'remove',
+      site == 'dadd' &
+        start_time > ymd_hms('2022-05-12 15:00:00', tz = 'MST') ~ 'remove',
+      site == 'dry' &
+        start_time < ymd_hms('2021-05-18 11:15:00', tz = 'MST') ~ 'remove',
+      site == 'michigan' &
+        start_time > ymd_hms('2021-10-24 11:15:00', tz = 'MST') ~ 'remove',
+      site == 'montgomery' &
+        start_time < ymd_hms('2021-06-11 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'montgomery' &
+        start_time > ymd_hms('2023-09-19 19:00:00', tz = 'MST') ~ 'remove',
+      site == 'me' &
+        start_time < ymd_hms('2021-07-19 15:45:00', tz = 'MST') ~ 'remove',
+      site == 'me' &
+        start_time > ymd_hms('2021-10-21 14:00:00', tz = 'MST') &
+        start_time < ymd_hms('2022-06-16 11:00:00', tz = 'MST') ~ 'remove',
+      site == 'me' & 
+        start_time > ymd_hms('2023-09-07 15:45:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time < ymd_hms('2021-09-06 13:30:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2021-10-12 15:35:00', tz = 'MST') &
+        start_time < ymd_hms('2022-05-22 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2022-06-07 01:25:00', tz = 'MST') &
+        start_time < ymd_hms('2022-08-10 10:00:00', tz = 'MST') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2022-12-15 19:55:00', tz = 'MST') &
+        start_time < ymd_hms('2023-06-09 09:15:00', tz = 'MST') ~ 'remove',
+      site == 'mm' & 
+        start_time > ymd_hms('2023-09-28 13:10:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time < ymd_hms('2021-08-20 10:50:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2021-10-14 12:42:00', tz = 'MST') &
+        start_time < ymd_hms('2022-05-06 12:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2022-07-06 12:10:00', tz = 'MST') &
+        start_time < ymd_hms('2022-08-03 10:15:00', tz = 'MST') ~ 'remove',
+      site == 'mw' & 
+        start_time > ymd_hms('2023-09-19 15:05:00', tz = 'MST') ~ 'remove',
+      site == 'ue' &
+        start_time < ymd_hms('2021-09-06 13:00:00', tz = 'MST') ~ 'remove',
+      site == 'ue' &
+        start_time > ymd_hms('2021-10-12 13:17:00', tz = 'MST') &
+        start_time < ymd_hms('2022-05-07 12:00:00', tz = 'MST') ~ 'remove',
+      site == 'mw' & 
+        start_time > ymd_hms('2023-05-22 11:33:00', tz = 'MST') ~ 'remove',
+      site == 'um' & 
+        start_time < ymd_hms('2021-07-19 14:00:00', tz = 'MST') ~ 'remove',
+      site == 'um' & 
+        start_time > ymd_hms('2023-09-07 14:05:00', tz = 'MST') ~ 'remove', # um stage sensor uses uw tb so have same dates
+      site == 'uw' & 
+        start_time < ymd_hms('2021-07-19 14:00:00', tz = 'MST') ~ 'remove',
+      site == 'uw' & 
+        start_time > ymd_hms('2023-09-07 14:05:00', tz = 'MST') ~ 'remove',
+      TRUE ~ 'keep')) %>%
+  filter(condition == 'keep') 
+  
 cpf_mrms <- left_join(cpf_mrms,
                     burn,
                     by = 'site')
@@ -4187,25 +4321,36 @@ cpf_mrms <- left_join(cpf_mrms,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~MI30_mmhr + lag_pwd + mean_dnbr,
-              data=cpf_mrms,
-              family= binomial(link = "logit"))
-model1
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_mrms,
+#               family= binomial(link = "logit"))
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_mrms <- cpf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
 
-pred1 <- predict(model1,
-                 type='response')
+# by site
+site_kappa_values <- cpf_mrms %>%
+  group_by(site) %>%
+  #filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ event_sum_mm + lag_pwd + mean_dnbr,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
 
-cpf_mrms <- cpf_mrms %>% 
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
-
-library(caret)
-
-conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
-conf_matrix
+site_kappa_values
 
 ```
 
