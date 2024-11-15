@@ -647,24 +647,37 @@ ggsave('./data/mrms_data/bbox_2fires/ptot_mrms_fil01_plot.png', dpi=600, width=1
 ```{r}
 
 gridmet21 <- read_stars('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
-  st_warp(., sum_all23) %>%
+  st_warp(., sum_all23) #%>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2021,
          source = 'Gridmet')
   
-  #mapview(gridmet21) + mapview(sum_all23)
+  #mapview(gridmet21) + mapview(sum_all21)
 
-gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+  gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2022,
          source = 'Gridmet')
 
+prism23 <- read_stars('./data/mrms_data/bbox_2fires/prism23.ppt.tif') %>%
+  st_warp(., sum_all23) %>%
+    as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2023,
+         source = 'Gridmet')
+
+mapview(prism23) + mapview(gridmet23)
+
+test_diff <- prism23-gridmet23
+mapview(test_diff)
+
+
           
 gridmet23 <- read_stars('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
-  st_warp(., sum_all23) %>%
+  st_warp(., sum_all23) #%>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2023,
