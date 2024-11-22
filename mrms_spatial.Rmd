@@ -647,15 +647,15 @@ ggsave('./data/mrms_data/bbox_2fires/ptot_mrms_fil01_plot.png', dpi=600, width=1
 ```{r}
 
 gridmet21 <- read_stars('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
-  st_warp(., sum_all23) #%>%
+  st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2021,
          source = 'Gridmet')
   
-  #mapview(gridmet21) + mapview(sum_all21)
+#mapview(gridmet21) + mapview(sum_all21)
 
-  gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
@@ -674,8 +674,21 @@ mapview(prism23) + mapview(gridmet23)
 test_diff <- prism23-gridmet23
 mapview(test_diff)
 
+plot(test_diff)
 
-          
+# Convert raster to a data frame
+test_diff_df <- as.data.frame(test_diff,xy=T)
+
+# Rename the value column (adjust as needed)
+names(test_diff_df)[3] <- "diff"
+
+# Plot with ggplot2
+ggplot(test_diff_df, aes(x = x, y = y, fill = diff)) +
+  geom_raster() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0) +
+  coord_fixed() +
+  labs(fill = "Difference")
+
 gridmet23 <- read_stars('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) #%>%
   as.data.frame(., xy = TRUE) %>%
@@ -1018,8 +1031,6 @@ ggsave('./data/mrms_data/bbox_2fires/pover10_mi10_fil01_plot.png', dpi=600, widt
 
 ```
 
-
-
 ### Merge & plot
 
 ```{r}
@@ -1061,4 +1072,433 @@ ggsave(paste0('./data/mrms_data/bbox_2fires/p20_20', year, '_fil01_plot.png'), d
 
 ```
 
+# Elev vs P
+
+## Total rain
+
+### MRMS
+
+```{r}
+
+dem1 <- rast('./data/GIS/USGS_13_n41w106_20230314.tif')
+dem2 <- rast('./data/GIS/USGS_13_n41w107_20230314.tif')
+
+dem <- merge(dem1, dem2)
+
+writeRaster(dem, './data/GIS/dem_10m.tif',
+            overwrite=T)
+
+## cameron peak 21
+sum_all21 <- rast('./data/mrms_data/bbox_2fires/summertotal_2021_fil01.tif') %>%
+  project(., crs(dem1))
+
+dem1km <- aggregate(dem, fact = 1000, fun = "mean")
+
+dem_resam <- resample(dem1km, sum_all21, method = "bilinear")
+
+## cameron peak 21
+dem_cp <- extract(dem_resam, 
+                  cp,
+                  xy=T)
+
+sum21_cp <- extract(sum_all21, 
+                  cp,
+                  xy=T)
+
+dem_sum21_cp <- left_join(dem_cp, sum21_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2021',
+         source = 'mrms') %>% 
+  rename(mrms_total = 6)
+
+
+ggplot(dem_sum21_cp, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point() +
+  ggtitle('CPF 2021')
+
+## cameron peak 22
+sum_all22 <- rast('./data/mrms_data/bbox_2fires/summertotal_2022_fil01.tif') %>%
+  project(., crs(dem1))
+
+sum22_cp <- extract(sum_all22, 
+                  cp,
+                  xy=T)
+
+dem_sum22_cp <- left_join(dem_cp, sum22_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2022',
+         source = 'mrms') %>% 
+  rename(mrms_total = 6)
+
+
+ggplot(dem_sum22_cp, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point() +
+  ggtitle('CPF 2022')
+
+## cameron peak 23
+sum_all23 <- rast('./data/mrms_data/bbox_2fires/summertotal_2023_fil01.tif') %>%
+  project(., crs(dem1))
+
+sum23_cp <- extract(sum_all23, 
+                  cp,
+                  xy=T)
+
+dem_sum23_cp <- left_join(dem_cp, sum23_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2023',
+         source = 'mrms') %>%
+  rename(mrms_total = 6)
+
+
+ggplot(dem_sum23_cp, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point() +
+  ggtitle('CPF 2023')
+
+## etf 2021
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+sum_all21 <- rast('./data/mrms_data/bbox_2fires/summertotal_2021_fil01.tif') %>%
+  project(., crs(dem1))
+
+sum21_et <- extract(sum_all21, 
+                  et,
+                  xy=T)
+
+dem_sum21_et <- left_join(dem_et, sum21_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2021',
+         source = 'mrms') %>% 
+  rename(mrms_total = 6)
+
+
+ggplot(dem_sum21_et, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point() +
+  ggtitle('ETF 2021')
+
+## etf 2022
+sum_all22 <- rast('./data/mrms_data/bbox_2fires/summertotal_2022_fil01.tif') %>%
+  project(., crs(dem1))
+
+sum22_et <- extract(sum_all22, 
+                  et,
+                  xy=T)
+
+dem_sum22_et <- left_join(dem_et, sum22_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2022',
+         source = 'mrms') %>% 
+  rename(mrms_total = 6)
+
+
+ggplot(dem_sum22_et, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point()
+
+## etf 2023
+sum_all23 <- rast('./data/mrms_data/bbox_2fires/summertotal_2023_fil01.tif') %>%
+  project(., crs(dem1))
+
+sum23_et <- extract(sum_all23, 
+                  et,
+                  xy=T)
+
+dem_sum23_et <- left_join(dem_et, sum23_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2023',
+         source = 'mrms') %>% 
+  rename(mrms_total = 6)
+
+ggplot(dem_sum23_et, aes(USGS_13_n41w106_20230314,
+                         mrms_total)) +
+  geom_point()
+
+## join all for mrms
+dem_mrms <- bind_rows(dem_sum21_cp,
+                      dem_sum22_cp,
+                      dem_sum23_cp,
+                      dem_sum21_et,
+                      dem_sum22_et,
+                      dem_sum23_et)
+
+ggplot(dem_mrms, aes(USGS_13_n41w106_20230314,
+                     mrms_total)) +
+  geom_point() +
+  facet_wrap(~fire + year)
+
+```
+
+### Gridmet
+
+```{r}
+
+dem4km <- aggregate(dem, fact = 4000, fun = "mean")
+
+gridmet21 <- rast('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
+  project(., sum_all23)
+
+dem_resam <- resample(dem4km, gridmet21, method = "bilinear")
+
+## cpf 2021
+sum21grid_cp <- extract(gridmet21, 
+                  cp,
+                  xy=T)
+
+dem_sum21grid_cp <- left_join(dem_cp, sum21grid_cp, by = c("x", "y")) %>%
+  rename(grid21_total = 6)
+
+ggplot(dem_sum21grid_cp, aes(x=USGS_13_n41w106_20230314,
+                         y=grid21_total)) +
+  geom_point() +
+  ggtitle('Gridmet CPF 2021')
+
+## cpf 2022
+gridmet22 <- rast('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+  project(., sum_all23)
+
+sum22grid_cp <- extract(gridmet22, 
+                  cp,
+                  xy=T)
+
+dem_sum22grid_cp <- left_join(dem_cp, sum22grid_cp, by = c("x", "y")) %>%
+  rename(grid22_total = 6)
+
+ggplot(dem_sum22grid_cp, aes(x=USGS_13_n41w106_20230314,
+                         y=grid22_total)) +
+  geom_point() +
+  ggtitle('Gridmet CPF 2022')
+
+## cpf 2023
+gridmet23 <- rast('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
+  project(., sum_all23)
+
+sum23grid_cp <- extract(gridmet23, 
+                  cp,
+                  xy=T)
+
+dem_sum23grid_cp <- left_join(dem_cp, sum23grid_cp, by = c("x", "y")) %>%
+  rename(grid23_total = 6)
+
+ggplot(dem_sum23grid_cp, aes(x=USGS_13_n41w106_20230314,
+                         y=grid23_total)) +
+  geom_point() +
+  ggtitle('Gridmet CPF 2023')
+
+
+```
+
+## P over MI60 10 mm/hr
+
+```{r}
+# cpf 2023
+year <- 23
+pover <- 10
+
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi60_p10_23 <- bind_rows(stack10left, stack10right)
+
+mi60_p10_23_rast <- rast(mi60_p10_23, type = "xyz")
+crs(mi60_p10_23_rast) <- "EPSG:4326" 
+
+mi60_p10_23_rast <- project(mi60_p10_23_rast, crs(dem1))
+writeRaster(mi60_p10_23_rast, './data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+
+dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
+
+## cameron peak 23
+dem_cp <- extract(dem_resam, 
+                  cp,
+                  xy=T)
+
+pover10_mi60_cp <- extract(mi60_p10_23_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2023',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_cp, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('CPF 2023') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+## 2022 cpf
+year <- 22
+pover <- 10
+
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi60_p10_22 <- bind_rows(stack10left, stack10right)
+
+mi60_p10_22_rast <- rast(mi60_p10_22, type = "xyz")
+crs(mi60_p10_22_rast) <- "EPSG:4326" 
+
+mi60_p10_22_rast <- project(mi60_p10_22_rast, crs(dem1))
+writeRaster(mi60_p10_22_rast, './data/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
+
+dem_resam <- resample(dem1km, mi60_p10_22_rast, method = "bilinear")
+
+dem_cp <- extract(dem_resam, 
+                  cp,
+                  xy=T)
+
+pover10_mi60_cp <- extract(mi60_p10_22_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2022',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_cp, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('CPF 2022') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+## 2021 cpf
+year <- 21
+pover <- 10
+
+stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+mi60_p10_21 <- bind_rows(stack10left, stack10right)
+
+mi60_p10_21_rast <- rast(mi60_p10_21, type = "xyz")
+crs(mi60_p10_21_rast) <- "EPSG:4326" 
+
+mi60_p10_21_rast <- project(mi60_p10_21_rast, crs(dem1))
+writeRaster(mi60_p10_21_rast, './data/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
+
+dem_resam <- resample(dem1km, mi60_p10_21_rast, method = "bilinear")
+
+## cameron peak 21
+dem_cp <- extract(dem_resam, 
+                  cp,
+                  xy=T)
+
+pover10_mi60_cp <- extract(mi60_p10_21_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2021',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_cp, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('CPF 2021') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+## etf 2023
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+pover10_mi60_et <- extract(mi60_p10_23_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2023',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_et, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('ETF 2023') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+## etf 2022
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+pover10_mi60_et <- extract(mi60_p10_22_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2022',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_et, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('ETF 2022') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+## etf 2021
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+pover10_mi60_et <- extract(mi60_p10_21_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2021',
+         source = 'mrms')
+
+ggplot(dem_p10_mi60_et, aes(USGS_13_n41w106_20230314,
+                         p_over)) +
+  geom_point() +
+  ggtitle('ETF 2021') +
+  labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+
+
+```
 
