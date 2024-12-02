@@ -4248,7 +4248,8 @@ site_kappa_values
 # site count for 1s
 etf_tb_count <- etf_tb %>%
   group_by(site) %>%
-  summarize(sum = sum(flow))
+  summarize(sum = sum(flow),
+            count = n())
 
 ```
 
@@ -4340,7 +4341,8 @@ site_kappa_values
 # site count for 1s
 etf_mrms_count <- etf_mrms %>%
   group_by(site) %>%
-  summarize(sum = sum(flow))
+  summarize(sum = sum(flow),
+            count = n())
 
 ```
 
@@ -4405,7 +4407,8 @@ site_kappa_values
 # site count for 1s
 cpf_tb_count <- cpf_tb %>%
   group_by(site) %>%
-  summarize(sum = sum(flow))
+  summarize(sum = sum(flow),
+            count = n())
 
 ```
 
@@ -4540,7 +4543,8 @@ cpf_comp_01 <- full_join(cpf_tb, cpf_mrms, by = c('site', 'date'))
 # site count for 1s
 cpf_mrms_count <- cpf_mrms %>%
   group_by(site) %>%
-  summarize(sum = sum(flow))
+  summarize(sum = sum(flow),
+            count = n())
 
 
 ```
