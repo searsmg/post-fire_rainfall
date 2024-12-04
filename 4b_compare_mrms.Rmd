@@ -22,7 +22,8 @@ library(tidyverse)
 library(lubridate)
 library(plotly)
 library(here)
-library(ggplot2); theme_set(theme_bw(base_size = 18))
+library(ggplot2); theme_set(theme_bw(base_size = 24,
+                                     base_family = "Arial"))
 library(zoo)
 library(caret)
 
@@ -4213,28 +4214,28 @@ etf_tb <- left_join(etf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
-              data=etf_tb,
-              family='binomial')
-model1
-
-pred1 <- predict(model1,
-                 type='response')
-
-etf_tb <- etf_tb %>%
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
-
-conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
+# model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
+#               data=etf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_tb <- etf_tb %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
 # conf_matrix
 
 # Group by site and calculate kappa value for each site
 site_kappa_values <- etf_tb %>%
   group_by(site) %>%
-  filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
+  #filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
   mutate(predicted_prob = predict(glm(flow ~ event_sum_mm + lag_pwd,
                                       data = pick(everything()), 
                                       family = 'binomial'), 
@@ -4243,7 +4244,9 @@ site_kappa_values <- etf_tb %>%
   summarise(kappa_value = confusionMatrix(factor(predict_use), factor(flow))$overall["Kappa"])
 
 
-site_kappa_values
+et_tb_kappa <- site_kappa_values %>%
+  mutate(fire = 'etf',
+         source = 'tb')
 
 # site count for 1s
 etf_tb_count <- etf_tb %>%
@@ -4305,22 +4308,22 @@ etf_mrms <- left_join(etf_mrms,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-              data=etf_mrms,
-              family='binomial')
-model1
-
-pred1 <- predict(model1,
-                 type='response')
-
-etf_mrms <- etf_mrms %>%
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
-
-conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=etf_mrms,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_mrms <- etf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
 
 # by site
 site_kappa_values <- etf_mrms %>%
@@ -4336,7 +4339,9 @@ site_kappa_values <- etf_mrms %>%
                                           factor(flow, levels = c(0, 1)))$overall["Kappa"])
 
 
-site_kappa_values
+et_mrms_kappa <- site_kappa_values %>%
+  mutate(fire = 'etf',
+         source = 'mrms')
 
 # site count for 1s
 etf_mrms_count <- etf_mrms %>%
@@ -4372,21 +4377,21 @@ cpf_tb <- left_join(cpf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-              data=cpf_tb,
-              family='binomial')
-model1
-
-pred1 <- predict(model1,
-                 type='response')
-
-cpf_tb <- cpf_tb %>%
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
-
-conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_tb <- cpf_tb %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
 # conf_matrix
 
 # by site
@@ -4401,6 +4406,11 @@ site_kappa_values <- cpf_tb %>%
   mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
   summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
                                           factor(flow, levels = c(0, 1)))$overall["Kappa"])
+
+cp_tb_kappa <- site_kappa_values %>%
+  mutate(fire = 'cpf',
+         source = 'tb')
+
 
 site_kappa_values
 
@@ -4502,22 +4512,22 @@ cpf_mrms <- left_join(cpf_mrms,
                     pwd,
                     by = c('site', 'date'))
 
-model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-              data=cpf_mrms,
-              family= binomial(link = "logit"))
-model1
-
-pred1 <- predict(model1,
-                 type='response')
-
-cpf_mrms <- cpf_mrms %>%
-  mutate(predicted_prob = pred1) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5,
-                               0, 1))
-
-conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
-kappa_value <- conf_matrix$overall["Kappa"]
-kappa_value
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_mrms,
+#               family= binomial(link = "logit"))
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_mrms <- cpf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
 
 # by site
 site_kappa_values <- cpf_mrms %>%
@@ -4531,7 +4541,10 @@ site_kappa_values <- cpf_mrms %>%
   summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
                                           factor(flow, levels = c(0, 1)))$overall["Kappa"])
 
-site_kappa_values
+cp_mrms_kappa <- site_kappa_values %>%
+  mutate(fire = 'cpf',
+         source = 'mrms')
+
 
 me_predict <- site_kappa_values %>%
   filter(site == 'me')
@@ -4549,7 +4562,52 @@ cpf_mrms_count <- cpf_mrms %>%
 
 ```
 
+## Join kappa values
+
+```{r}
+
+kappa <- bind_rows(et_tb_kappa,
+                   et_mrms_kappa,
+                   cp_tb_kappa,
+                   cp_mrms_kappa) %>%
+  mutate(source = toupper(source))
+
+new_facet_titles <- c(
+  "cpf" = "Cameron Peak",
+  "etf" = "East Troublesome"
+)
+
+ggplot(kappa, aes(x=source, y = kappa_value,
+                  fill = fire)) + 
+  # geom_violin(position = position_dodge(0.9),
+  #             width = 0.9) +
+  geom_boxplot(
+               position = position_dodge(0.9)) +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'Kappa value',
+       x = 'Source') 
+
+ggplot(kappa, aes(x = source, y = kappa_value, fill = fire)) + 
+  geom_boxplot(position = position_dodge(0.9)) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.text = element_text(color = "black")) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'Kappa value', x = 'Source')
+
+ggsave('./figures/kappa_boxplots.png', dpi=600)
 
 
 ```
+
+
 
