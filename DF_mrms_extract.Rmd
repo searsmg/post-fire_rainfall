@@ -51,12 +51,12 @@ left_10min_21 <- read_csv('./data/mrms_data/bbox_2fires/mrms2021_10min_left.csv'
 ```{r}
 
 # filter for cpf dates needed - need 2021 season through 7/26/21
-right_cp <- right_10min_21 %>%
-  filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
+right_cp <- right_10min_21 #%>%
+  #filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
 
 # now do left date filter
-left_cp <- left_10min_21 %>%
-  filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
+left_cp <- left_10min_21 #%>%
+  #filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
 
 # small enough to combine left and right
 # then group by pixel
