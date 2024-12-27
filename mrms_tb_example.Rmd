@@ -1,0 +1,177 @@
+---
+title: "mrms_tb example"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(tidyverse)
+library(lubridate)
+library(terra)
+library(stars)
+library(tmap)
+library(sf)
+library(mapview)
+
+```
+
+# Dry
+6/30/21
+
+TB: 40.70672394,-105.6393929
+
+```{r}
+
+load("./data/mrms_data/bbox_2fires/stack_2022_fil01.RData")
+
+stack_raw <- stack2022_fil.1 %>%
+  filter(datetime > ymd_hms('2022-07-06 13:10:00'),
+         datetime < ymd_hms('2022-07-06 14:50:00'))
+
+st_crs(stack_raw) <- st_crs("+proj=longlat +datum=WGS84")
+dry_p10 <- st_crop(stack_raw, dry1, as_points=F)
+
+dry_p10 <- as.data.frame(dry_p10) %>%
+  drop_na()
+
+
+p <- ggplot() +
+  geom_raster(data = dry_p10, aes(x = x, y = y, fill = filter_function)) +
+  geom_sf(data = dry, fill = NA, color = 'black', lwd = 1) +
+  #geom_sf(data = point_sf, color = 'red', size = 3) +
+  scale_fill_viridis(option = "turbo", na.value = "white") +
+  labs(
+    title = "Precipitation Heatmap",
+    x = "Longitude",
+    y = "Latitude",
+    fill = "Precipitation (mm)"
+  ) +
+  theme_minimal() +
+  facet_wrap(~datetime)
+
+p
+
+#above is old and used for testing
+
+#######
+dry <- st_read('./data/GIS/catchments_all_lidar.shp') %>%
+  filter(site == 'bl4')
+
+# filter date 
+mrrms_10min_22 <- read_csv('./data/mrms_data/bbox_2fires/mrms2022_10min_left.csv')
+mrrms_10min_21 <- read_csv('./data/mrms_data/bbox_2fires/mrms2021_10min_left.csv')
+
+filter_mrms <- mrrms_10min_21 %>%
+  mutate(datetime_round = force_tz(datetime_round, tzone = 'MST')) %>% 
+  filter(datetime_round < ymd_hms('2021-07-30 14:10:00', tz = 'MST')) %>%
+  filter(datetime_round > ymd_hms('2021-07-30 13:00:00', tz = 'MST'))
+
+stack_p10 <- st_as_stars(filter_mrms, dims = c("x", "y", "datetime_round"))
+st_crs(stack_p10) <- st_crs("+proj=longlat +datum=WGS84")
+
+dry <- st_transform(dry, crs = 4326)
+
+dry1 <- st_bbox(dry)
+
+# crop to dry 
+dry_p10 <- st_crop(stack_p10, dry1, as_points=F)
+
+#mapview(dry_p10) + mapview(dry)
+
+dry_p10 <- as.data.frame(dry_p10) %>%
+  drop_na()
+
+	
+# # me
+# 	point_data <- data.frame(
+#   x = -105.5329463,
+#   y = 40.64609596
+# )
+
+
+# uw 
+# 	point_data <- data.frame(
+#   x = -105.5578187,
+#   y = 40.66005439
+# )
+
+# # mont
+# 	point_data <- data.frame(
+#   x = -105.8817328,
+#   y = 40.54368283
+# )
+
+# dry
+# point_data <- data.frame(
+#   x = -105.6393929,
+#   y = 40.70672394
+# )
+# 
+# # bl4
+point_data <- data.frame(
+  x = -105.8610908,
+  y = 40.59079764
+)
+# # Convert to a spatial object
+point_sf <- st_as_sf(point_data, coords = c("x", "y"), crs = 4326)
+
+p <- ggplot() +
+  geom_raster(data = dry_p10, aes(x = x, y = y, fill = p_mm*6)) +
+  geom_sf(data = dry, fill = NA, color = 'black', lwd = 1) +
+  geom_sf(data = point_sf, color = 'red', size = 1) +
+  scale_fill_viridis(option = "plasma", na.value = "white") +
+  labs(
+    x = "Longitude",
+    y = "Latitude",
+    fill = "Precipitation (mm/hr)"
+  ) +
+  theme_bw() +
+  facet_wrap(~datetime_round)
+
+p
+
+
+p <- ggplot() +
+  geom_raster(data = dry_p10, aes(x = x, y = y, fill = cut(p_mm * 6, breaks = seq(0, 50, by = 5), right = FALSE))) +
+  geom_sf(data = dry, fill = NA, color = 'black', lwd = 1) +
+  geom_sf(data = point_sf, color = 'red', size = 3) +
+  scale_fill_viridis(option = "mako", na.value = "white", discrete = TRUE, direction = -1) +
+  
+  # Customize x-axis labels to add degree and W
+  scale_x_continuous(
+    labels = function(x) paste0(format(x, nsmall = 3), "°W"),
+    breaks = seq(min(dry_p10$x), max(dry_p10$x), by = 0.015)
+  ) +
+  
+  labs(
+    fill = "Rain (mm/hr)"
+  ) +
+  theme_bw() +
+  facet_wrap(~datetime_round) +
+  theme_bw(base_size = 20) +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = 'bottom',
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "white")
+  )
+
+p
+
+ggsave('./figures/mrms_tb_eg.png', dpi=600, width=15, height = 10)
+
+```
+
