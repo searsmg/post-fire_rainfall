@@ -618,7 +618,16 @@ p_df <- bind_rows(p_df21, p_df22, p_df23)
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
 
-#plot
+huc <- st_read('./data/GIS/WBDHU2.shp')
+
+library(scales)
+
+# Get raster extent
+x_min <- min(p_df$x)
+x_max <- max(p_df$x)
+y_min <- min(p_df$y)
+y_max <- max(p_df$y)
+
 ptot_plot <- ggplot() +
   geom_raster(data = p_df, 
               aes(x = x, y = y, fill = sum)) +
@@ -626,19 +635,83 @@ ptot_plot <- ggplot() +
                        option = "turbo",
                        direction = 1,
                        limits = c(0, 610)) +
-  facet_wrap(~as.character(year), ncol = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'black',
+          color = 'grey29',
           lwd = 1) +
-     theme_bw(base_size=20) +
-  theme(axis.title.x = element_blank(),
-    axis.title.y = element_blank())
+  geom_sf(data = huc,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'none',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 10,  # Adjust width of the colorbar
+    barheight = 1)) 
 
 ptot_plot
 
 # save fig
-ggsave('./data/mrms_data/bbox_2fires/ptot_mrms_fil01_plot.png', dpi=600, width=15, height = 20)
+ggsave('./figures/mrms_ptotal.svg', dpi=600, width=15, height = 20)
+
+## get legend
+ptot_legend <- ggplot() +
+  geom_raster(data = p_df, 
+              aes(x = x, y = y, fill = sum)) +
+  scale_fill_viridis_c(name = "P total (mm)", 
+                       option = "turbo",
+                       direction = 1,
+                       limits = c(0, 610)) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'black',
+          lwd = 1) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'right',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #axis.text.y = element_blank(),
+    #axis.ticks.y = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+   ) +
+    guides(fill = guide_colorbar(
+    barwidth = 1,  # Adjust width of the colorbar
+    barheight = 10))
+
+ptot_legend
+ggsave('./figures/ptotal_legend.svg', dpi=600, width=15, height = 20)
 
 ```
 
@@ -690,7 +763,7 @@ ggplot(test_diff_df, aes(x = x, y = y, fill = diff)) +
   labs(fill = "Difference")
 
 gridmet23 <- read_stars('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
-  st_warp(., sum_all23) #%>%
+  st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2023,
@@ -701,26 +774,58 @@ gridmet_all <- bind_rows(gridmet21, gridmet22, gridmet23)
 
 #p_combine <- bind_rows(p_df, gridmet_all)
 
-gridmet_all <- ggplot() +
+# Get raster extent
+x_min <- min(gridmet_all$x)
+x_max <- max(gridmet_all$x)
+y_min <- min(gridmet_all$y)
+y_max <- max(gridmet_all$y)
+
+gridmet_all_plot <- ggplot() +
   geom_raster(data = gridmet_all, 
               aes(x = x, y = y, fill = sum)) +
   scale_fill_viridis_c(name = "P total (mm)", 
                        option = "turbo",
                        direction = 1,
                        limits = c(0, 610)) +
-  facet_wrap(~as.character(year), ncol = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'black',
+          color = 'grey29',
           lwd = 1) +
-     theme_bw(base_size=20) +
-  theme(axis.title.x = element_blank(),
-    axis.title.y = element_blank())
+    theme_bw(base_size = 23) +
+      geom_sf(data = huc,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme(
+    legend.position = 'none',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_blank(),
+    # strip.text = element_text(hjust = 0, 
+    #                           face = "bold",
+    #                           margin = margin(t = -1),
+    #strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  )
 
-gridmet_all
+gridmet_all_plot
 
 # save fig
-ggsave('./data/mrms_data/bbox_2fires/ptot_gridmet_plot.png', dpi=600, width=15, height = 20)
+ggsave('./figures/ptot_gridmet_plot.svg', dpi=600, width=15, height = 20)
 
 ```
 
@@ -770,8 +875,63 @@ rqi21 <- as.data.frame(rqi_mean_2021, xy = TRUE) %>%
 
 rqi <- bind_rows(rqi21, rqi22, rqi23)
 
+x_min <- min(rqi$x)
+x_max <- max(rqi$x)
+y_min <- min(rqi$y)
+y_max <- max(rqi$y)
+
 # figure
 rqi_all <- ggplot() +
+  geom_raster(data = rqi, 
+              aes(x = x, y = y, fill = mean)) +
+  scale_fill_viridis_c(name = "Mean RQI", 
+                       option = "cividis",
+                       direction = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'grey29',
+          lwd = 1) +
+        geom_sf(data = huc,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank()) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'none',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #axis.text.x = element_blank(),
+    #axis.ticks.x = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 10,  # Adjust width of the colorbar
+    barheight = 1))
+
+rqi_all
+
+# save fig
+ggsave('./figures/rqi_mean_plot.svg', dpi=600, width=15, height = 20)
+
+# create rqi legend
+# figure
+rqi_legend <- ggplot() +
   geom_raster(data = rqi, 
               aes(x = x, y = y, fill = mean)) +
   scale_fill_viridis_c(name = "Mean RQI", 
@@ -784,12 +944,34 @@ rqi_all <- ggplot() +
           lwd = 1) +
      theme_bw(base_size=20) +
   theme(axis.title.x = element_blank(),
-    axis.title.y = element_blank())
+    axis.title.y = element_blank()) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'right',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #axis.text.y = element_blank(),
+    #axis.ticks.y = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 1,  # Adjust width of the colorbar
+    barheight = 10))
 
-rqi_all
+rqi_legend
 
-# save fig
-ggsave('./data/mrms_data/bbox_2fires/rqi_mean_plot.png', dpi=600, width=15, height = 20)
+ggsave('./figures/rqi_legend.png', dpi=600, width=15, height = 20)
+
 
 ```
 
@@ -948,86 +1130,199 @@ stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10
   # mutate(id = cur_group_id()) %>%
   # filter(id == 6621) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
 stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
   group_by(x,y) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
-mi30_p_23 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2023)
+mi60_p_23 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2023,
+         metric = 'MI60') 
 
 year <- 22
 
 stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
   group_by(x,y) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
 stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
   group_by(x,y) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
-mi30_p_22 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2022)
+mi60_p_22 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2022,
+         metric = 'MI60')
 
 year <- 21
 
 stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
   group_by(x,y) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
 stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
   group_by(x,y) %>%
   arrange(datetime_round) %>% 
-  #mutate(sum_mm = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
-  mutate(sum_mm = p_mm*6) %>% 
+  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  #mutate(sum_mm = p_mm*6) %>% 
   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
   summarize(p_over = sum(over))
 
-mi30_p_21 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2021)
+mi60_p_21 <- bind_rows(stack10left, stack10right) %>%
+  mutate(year = 2021,
+         metric = 'MI60')
 
-mi30_p <- bind_rows(mi30_p_23, mi30_p_22, mi30_p_21)
+mi60_p <- bind_rows(mi60_p_23, mi60_p_22, mi60_p_21)
+
+write_csv(mi60_p, './data/mrms_data/bbox_2fires/mi60_pover10.csv')
 
 # plot
-p_mi30_plot <- ggplot() +
-  geom_raster(data = mi30_p, 
+# p_mi30_plot <- ggplot() +
+#   geom_raster(data = mi30_p, 
+#               aes(x = x, y = y, fill = p_over)) +
+#   facet_wrap(~year, ncol=1) +
+#   scale_fill_viridis_c(name = "P total > MI10 10 mm/hr", 
+#                        option = "turbo",
+#                        direction = 1) +
+#   geom_sf(data = fires,
+#           fill = NA,
+#           color = 'black',
+#           lwd = 0.75) +
+#      theme_bw(base_size=20) +
+#   theme(axis.title.x = element_blank(),
+#     axis.title.y = element_blank())
+# 
+# p_mi30_plot
+# 
+# # save fig
+# ggsave('./data/mrms_data/bbox_2fires/pover10_mi10_fil01_plot.png', dpi=600, width=15, height = 20)
+
+
+huc <- st_read('./data/GIS/WBDHU2.shp')
+mapview(huc) + mapview(fires)
+
+
+# Get raster extent
+x_min <- min(mi60_p$x)
+x_max <- max(mi60_p$x)
+y_min <- min(mi60_p$y)
+y_max <- max(mi60_p$y)
+
+# figure
+mi60_over <- ggplot() +
+  geom_raster(data = mi60_p, 
               aes(x = x, y = y, fill = p_over)) +
-  facet_wrap(~year, ncol=1) +
-  scale_fill_viridis_c(name = "P total > MI10 10 mm/hr", 
+  scale_fill_viridis_c(name = "Total P > MI60 10 mm/hr", 
                        option = "turbo",
                        direction = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'black',
-          lwd = 0.75) +
+          color = 'grey48',
+          lwd = 1) +
+  geom_sf(data = huc,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
      theme_bw(base_size=20) +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
   theme(axis.title.x = element_blank(),
-    axis.title.y = element_blank())
+    axis.title.y = element_blank()) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'none',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 18,  # Adjust width of the colorbar
+    barheight = 1))
 
-p_mi30_plot
+mi60_over
 
-# save fig
-ggsave('./data/mrms_data/bbox_2fires/pover10_mi10_fil01_plot.png', dpi=600, width=15, height = 20)
+ggsave('./figures/mi60_pover10.png', dpi=600, width=15, height = 20)
+
+# legen dfor mi60 p over
+mi60_over_legend <- ggplot() +
+  geom_raster(data = mi60_p, 
+              aes(x = x, y = y, fill = p_over)) +
+  scale_fill_viridis_c(name = "Total P > MI60 10 mm/hr", 
+                       option = "turbo",
+                       direction = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'grey48',
+          lwd = 1) +
+  geom_sf(data = huc,
+          fill = NA,
+          color='white',
+          lwd = 0.6,
+          linetype = 'dotted') +
+     theme_bw(base_size=20) +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank()) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'right',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #axis.text.y = element_blank(),
+    #axis.ticks.y = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 1,  # Adjust width of the colorbar
+    barheight = 10))
+
+mi60_over_legend
+
+ggsave('./figures/mi60_over_legend.png', dpi=600, width=15, height = 20)
+
 
 ```
 
@@ -1090,7 +1385,9 @@ writeRaster(dem, './data/GIS/dem_10m.tif',
 
 ## cameron peak 21
 sum_all21 <- rast('./data/mrms_data/bbox_2fires/summertotal_2021_fil01.tif') %>%
-  project(., crs(dem1))
+  project(., crs(dem))
+
+dem <- rast('./data/GIS/dem_10m.tif')
 
 dem1km <- aggregate(dem, fact = 1000, fun = "mean")
 
@@ -1296,30 +1593,32 @@ ggplot(dem_sum23grid_cp, aes(x=USGS_13_n41w106_20230314,
 
 ```{r}
 # cpf 2023
-year <- 23
-pover <- 10
+# year <- 23
+# pover <- 10
+# 
+# stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# mi60_p10_23 <- bind_rows(stack10left, stack10right)
+# 
+# mi60_p10_23_rast <- rast(mi60_p10_23, type = "xyz")
+# crs(mi60_p10_23_rast) <- "EPSG:4326" 
+# 
+# mi60_p10_23_rast <- project(mi60_p10_23_rast, crs(dem1))
+# writeRaster(mi60_p10_23_rast, './data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
 
-stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-mi60_p10_23 <- bind_rows(stack10left, stack10right)
-
-mi60_p10_23_rast <- rast(mi60_p10_23, type = "xyz")
-crs(mi60_p10_23_rast) <- "EPSG:4326" 
-
-mi60_p10_23_rast <- project(mi60_p10_23_rast, crs(dem1))
-writeRaster(mi60_p10_23_rast, './data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+mi60_p10_23_rast <- rast('./data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
 
 dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
 
@@ -1339,9 +1638,32 @@ dem_p10_mi60_cp <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
 
 ggplot(dem_p10_mi60_cp, aes(USGS_13_n41w106_20230314,
                          p_over)) +
-  geom_point() +
+  geom_boxplot() +
   ggtitle('CPF 2023') +
   labs(y = 'P total (mm) over MI60 10 mm/hr')
+
+dem_p10_mi60_cp <- dem_p10_mi60_cp %>%
+  mutate(elevation_bin = cut(USGS_13_n41w106_20230314, 
+                             breaks = seq(min(USGS_13_n41w106_20230314, na.rm = TRUE), 
+                                          max(USGS_13_n41w106_20230314, na.rm = TRUE), 
+                                          by = 200),
+                             include.lowest = TRUE,
+                             labels = paste0(seq(min(USGS_13_n41w106_20230314, na.rm = TRUE), 
+                                                 max(USGS_13_n41w106_20230314, na.rm = TRUE) - 100, 
+                                                 by = 200), 
+                                             "–", 
+                                             seq(min(USGS_13_n41w106_20230314, na.rm = TRUE) + 100, 
+                                                 max(USGS_13_n41w106_20230314, na.rm = TRUE), 
+                                                 by = 200))))
+
+# Plot with bins
+ggplot(dem_p10_mi60_cp, aes(elevation_bin, p_over)) +
+  geom_violin() +
+  ggtitle('CPF 2023') +
+  labs(x = 'Elevation Bin (m)', y = 'P total (mm) over MI60 10 mm/hr') +
+  theme_bw(base_size = 16) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
 
 ## 2022 cpf
 year <- 22
@@ -1501,4 +1823,189 @@ ggplot(dem_p10_mi60_et, aes(USGS_13_n41w106_20230314,
 
 
 ```
+
+# Elevation v2
+
+```{r}
+
+# dem1 <- rast('./data/GIS/USGS_13_n41w106_20230314.tif')
+# dem2 <- rast('./data/GIS/USGS_13_n41w107_20230314.tif')
+# 
+# dem <- merge(dem1, dem2)
+# 
+# writeRaster(dem, './data/GIS/dem_10m.tif',
+#             overwrite=T)
+
+dem <- rast('./data/GIS/dem_10m.tif')
+
+dem1km <- aggregate(dem, fact = 1000, fun = "mean")
+
+mi60_p10_23_rast <- rast('./data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+
+# need to resample DEM to match MRMS
+dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
+
+# cameron peak 23
+dem_cp <- extract(dem_resam, 
+                  cp,
+                  xy=T)
+
+pover10_mi60_cp <- extract(mi60_p10_23_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp23 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2023',
+         source = 'mrms')
+
+# cp 22
+mi60_p10_22_rast <- rast('./data/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
+
+pover10_mi60_cp <- extract(mi60_p10_22_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp22 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2022',
+         source = 'mrms')
+
+# cp 21
+mi60_p10_21_rast <- rast('./data/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
+
+pover10_mi60_cp <- extract(mi60_p10_21_rast, 
+                  cp,
+                  xy=T)
+
+dem_p10_mi60_cp21 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
+  mutate(fire = 'cp',
+         year = '2021',
+         source = 'mrms')
+
+# et 23
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+pover10_mi60_et <- extract(mi60_p10_23_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et23 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2023',
+         source = 'mrms')
+
+# et 22
+pover10_mi60_et <- extract(mi60_p10_22_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et22 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2022',
+         source = 'mrms')
+
+# et 21
+pover10_mi60_et <- extract(mi60_p10_21_rast, 
+                  et,
+                  xy=T)
+
+dem_p10_mi60_et21 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
+  mutate(fire = 'et',
+         year = '2021',
+         source = 'mrms')
+
+
+dem_p10over <- bind_rows(dem_p10_mi60_cp21,
+                         dem_p10_mi60_cp22,
+                         dem_p10_mi60_cp23,
+                         dem_p10_mi60_et21,
+                         dem_p10_mi60_et22,
+                         dem_p10_mi60_et23)
+
+dem_p10over <- dem_p10over %>%
+  mutate(elev_m = USGS_13_n41w106_20230314) %>%
+  mutate(
+    elevation_bin = cut(
+      elev_m, 
+      breaks = seq(1700, 4000, by = 150), # Set breaks to 150-meter intervals
+      include.lowest = TRUE,
+      labels = paste0(
+        seq(1700, 3850, by = 150), # Start and end adjusted for 150-meter bins
+        "–", 
+        seq(1850, 4000, by = 150)
+      )
+    ),
+    year = as.factor(year)
+  )
+
+# Plot with elevation bins on x-axis and fire as fill
+ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+  geom_boxplot() +
+  labs(x = 'Elevation Bin (m)', 
+       y = 'P total (mm) over MI60 10 mm/hr', 
+       fill = 'Fire') +
+  theme_bw(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    facet_wrap(~fire+year, scales = 'free')
+
+
+
+ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+  geom_violin(scale = 'width') +
+  labs(x = 'Elevation (m)', 
+       y = 'P total (mm) over MI60 10 mm/hr', 
+       fill = 'Fire') +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = c(.9, 1.04),
+    legend.title = element_blank(),
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),         # Adjust legend text size
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    #strip.text = element_blank()
+  ) +
+  scale_fill_manual(
+    values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
+    labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
+  ) +
+  facet_grid(~year)  
+
+ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+  geom_violin(scale = 'width') +
+  labs(x = 'Elevation (m)', 
+       y = 'P total (mm) over MI60 10 mm/hr', 
+       fill = 'Fire') +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = c(.89, 1.015),
+    legend.title = element_blank(),
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),         # Adjust legend text size
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
+  ) +
+  scale_fill_manual(
+    values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
+    labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
+  ) +
+  facet_grid(~year)
+
+ggsave('./figures/elev_vs_pixel_mrms.png', dpi=600)
+
+```
+
+
 
