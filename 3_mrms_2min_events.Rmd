@@ -78,7 +78,7 @@ get_mrms_events <- function(df, datetime) {
 #   mutate(datetime = force_tz(datetime, tzone = 'MST')) #%>%
 #   #filter(!ID == 'MiddleUnburned')
 
-all <- read_csv('./data/final/mrms/all_combined.csv') %>%
+all <- read_csv('./data/final/mrms/mrms_catchments_raw/all_combined.csv') %>%
   mutate(datetime = with_tz(datetime, tzone = 'MST'))
 
 # # load in lower ET sites (including mub - delete mub from above dataframes)
@@ -115,11 +115,13 @@ all <- read_csv('./data/final/mrms/all_combined.csv') %>%
 # all <- read_csv('/Users/megansears/Desktop/debris_flows/cpf_combined_p.csv')
 
 all <- all %>%
+  mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
   mutate(year = year(datetime),
          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
   group_by(ID, timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
   rename(datetime = timestamps_10min)
+
 
 ```
 
