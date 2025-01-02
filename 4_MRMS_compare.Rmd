@@ -367,7 +367,8 @@ Don't need to run anymore
 # right now getting it into 10 min timesteps since the smallest MI we do is 10
 pixel10 <- both %>%
   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
-  mutate(RQI = if_else(RQI < 0, 0, RQI)) %>%
+  mutate(RQI = if_else(RQI < 0, 0, RQI),
+         p_mm = if_else(p_mm < 0.1, 0, p_mm)) %>%
   group_by(site, timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm), 
             rqi = mean(RQI, na.rm=T)) %>%
@@ -426,10 +427,10 @@ pixel_intens <- map(sites, ~ get_mrms_intensities(pixel_events, .)) %>%
 ggplot(pixel_intens, aes(y=MI60_mmhr, x=site)) + geom_boxplot()
 ggplot(pixel_intens, aes(y=event_sum_mm, x=site)) + geom_boxplot()
 
-# write_csv(pixel_intens, './data/final/mrms/pixel_compare/pixel10_events.csv')
+#write_csv(pixel_intens, './data/final/mrms/pixel_compare/pixel10_events_ours2.csv')
 # write_csv(rqi_mean, './data/final/mrms/pixel_compare/rqi_events_mean.csv')
 
-pixel_intens <- read_csv('./data/final/mrms/pixel_compare/pixel10_events_ours.csv') %>%
+pixel_intens <- read_csv('./data/final/mrms/pixel_compare/pixel10_events_ours2.csv') %>%
   force_tz(datetime, tzone = 'MST')
 
 ```
@@ -524,7 +525,7 @@ write_csv(dadd_events, './data/final/mrms/pixel_compare/dadd_obs_events.csv')
 
 ```{r}
 
-pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel_events/pixel10_events_ours.csv') %>%
+pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel_events/pixel10_events_ours2.csv') %>%
   mutate(start_time = with_tz(start_time, 'MST'),
          end_time = with_tz(end_time, 'MST')) %>%
   mutate(site = case_when(
@@ -1056,7 +1057,7 @@ corrs_all <- comp_all %>%
                               MI30_mmhr.x,
                               method = 'spearman'))
     
-write_csv(corrs_all, './data/final/mrms/pixel_compare/compare/corr_bysite.csv')
+write_csv(corrs_all, './data/final/mrms/pixel_compare/compare/corr_bysite2.csv')
 
 ```
 
@@ -1122,7 +1123,7 @@ spearman_corrs <- comp_all %>%
   summarize(spearman_corr = cor(MI30_mmhr.y, MI30_mmhr.x, method = "spearman"))
 
 plot1 <- ggplot(comp_all %>% arrange(desc(rqi)), 
-                aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi_bucket)) +
+                aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi_bucket)) +
   geom_point(alpha = 0.6, size = 4, stroke = 1) +
   scale_color_brewer(palette = 'Dark2') +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
