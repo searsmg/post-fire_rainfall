@@ -2007,5 +2007,55 @@ ggsave('./figures/elev_vs_pixel_mrms.png', dpi=600)
 
 ```
 
+# Fire stats
 
+```{r}
+
+gridmet_extract <- gridmet_all %>% 
+  pivot_wider(names_from = year, values_from = sum)
+
+gridmet_extract <- st_as_stars(gridmet_all, 
+                            dims = c("x", "y", 'year'))
+
+st_crs(gridmet_extract) <- st_crs("EPSG:4326")
+
+cp <- st_transform(cp, "EPSG:4326")
+
+gridmet_extract <- st_extract(gridmet_extract, cp)
+
+##
+gridmet_extract <- gridmet_all %>% 
+  pivot_wider(names_from = year, values_from = sum)
+
+gridmet_extract <- st_as_stars(gridmet_all, 
+                            dims = c("x", "y", 'year'))
+
+st_crs(gridmet_extract) <- st_crs("EPSG:4326")
+
+et <- st_transform(et, "EPSG:4326")
+
+gridmet_extract <- st_extract(gridmet_extract, et)
+
+######
+dem <- rast('./data/GIS/dem_10m.tif')
+
+# cp elev
+dem_cp <- extract(dem, 
+                  cp,
+                  xy=T)
+
+# et elev
+dem_et <- extract(dem_resam, 
+                  et,
+                  xy=T)
+
+# burn boundaries
+dnbr_etf <- read_stars('./data/GIS/co4020310623920201014_20200904_20210907_dnbr.tif')
+
+dnbr_cpf <- rast(here('./data/GIS/co4060910587920200813_20180915_20210907_dnbr.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+plot(dnbr_etf)
+
+```
 
