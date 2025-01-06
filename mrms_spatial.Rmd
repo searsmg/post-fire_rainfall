@@ -1840,7 +1840,7 @@ dem <- rast('./data/GIS/dem_10m.tif')
 
 dem1km <- aggregate(dem, fact = 1000, fun = "mean")
 
-mi60_p10_23_rast <- rast('./data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+mi60_p10_23_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
 
 # need to resample DEM to match MRMS
 dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
@@ -1860,7 +1860,7 @@ dem_p10_mi60_cp23 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
          source = 'mrms')
 
 # cp 22
-mi60_p10_22_rast <- rast('./data/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
+mi60_p10_22_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
 
 pover10_mi60_cp <- extract(mi60_p10_22_rast, 
                   cp,
@@ -1872,7 +1872,7 @@ dem_p10_mi60_cp22 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
          source = 'mrms')
 
 # cp 21
-mi60_p10_21_rast <- rast('./data/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
+mi60_p10_21_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
 
 pover10_mi60_cp <- extract(mi60_p10_21_rast, 
                   cp,
@@ -1926,84 +1926,179 @@ dem_p10over <- bind_rows(dem_p10_mi60_cp21,
                          dem_p10_mi60_et23)
 
 dem_p10over <- dem_p10over %>%
-  mutate(elev_m = USGS_13_n41w106_20230314) %>%
+  rename(elev_m = USGS_13_n41w106_20230314) %>%
   mutate(
     elevation_bin = cut(
-      elev_m, 
+      elev_m,
       breaks = seq(1700, 4000, by = 150), # Set breaks to 150-meter intervals
       include.lowest = TRUE,
       labels = paste0(
         seq(1700, 3850, by = 150), # Start and end adjusted for 150-meter bins
-        "–", 
+        "–",
         seq(1850, 4000, by = 150)
       )
     ),
     year = as.factor(year)
-  )
+  ) %>%
+  separate(elevation_bin, into = c("bin_start", "bin_end"), sep = "–", convert = TRUE) %>%
+  mutate(median_elev = (bin_start + bin_end) / 2)
+
 
 # Plot with elevation bins on x-axis and fire as fill
-ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
-  geom_boxplot() +
-  labs(x = 'Elevation Bin (m)', 
-       y = 'P total (mm) over MI60 10 mm/hr', 
-       fill = 'Fire') +
-  theme_bw(base_size = 20) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    facet_wrap(~fire+year, scales = 'free')
+# ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+#   geom_boxplot() +
+#   labs(x = 'Elevation Bin (m)', 
+#        y = 'P total (mm) over MI60 10 mm/hr', 
+#        fill = 'Fire') +
+#   theme_bw(base_size = 20) +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#     facet_wrap(~fire+year, scales = 'free')
 
 
 
-ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
-  geom_violin(scale = 'width') +
+# ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+#   geom_violin(scale = 'width') +
+#   labs(x = 'Elevation (m)', 
+#        y = 'P total (mm) over MI60 10 mm/hr', 
+#        fill = 'Fire') +
+#   theme_bw(base_size = 20) +
+#   theme(
+#     legend.position = c(.9, 1.04),
+#     legend.title = element_blank(),
+#     legend.justification = c(0, 1.1), 
+#     legend.text = element_text(size = 16),         # Adjust legend text size
+#     panel.grid = element_blank(),
+#     panel.background = element_rect(fill = "white"),
+#     strip.background = element_blank(),
+#     text = element_text(color = "black"),
+#     axis.title = element_text(color = "black"),
+#     axis.text = element_text(color = "black"),
+#     #strip.text = element_blank()
+#   ) +
+#   scale_fill_manual(
+#     values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
+#     labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
+#   ) +
+#   facet_grid(~year)  
+# 
+# ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
+#   geom_violin(scale = 'width') +
+#   labs(x = 'Elevation (m)', 
+#        y = 'P total (mm) over MI60 10 mm/hr', 
+#        fill = 'Fire') +
+#   theme_bw(base_size = 20) +
+#   theme(
+#     legend.position = c(.89, 1.015),
+#     legend.title = element_blank(),
+#     legend.justification = c(0, 1.1), 
+#     legend.text = element_text(size = 16),         # Adjust legend text size
+#     panel.grid = element_blank(),
+#     panel.background = element_rect(fill = "white"),
+#     strip.background = element_blank(),
+#     text = element_text(color = "black"),
+#     axis.title = element_text(color = "black"),
+#     axis.text = element_text(color = "black"),
+#     axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
+#   ) +
+#   scale_fill_manual(
+#     values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
+#     labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
+#   ) +
+#   facet_grid(~year)
+# 
+# ggsave('./figures/elev_vs_pixel_mrms.png', dpi=600)
+
+ggplot(dem_p10over %>% filter(fire == "cp"),
+       aes(x = as.character(median_elev), y = p_over)) +
+  geom_violin(scale = 'width', fill = 'steelblue',
+              alpha=0.5) +
+  stat_summary(
+    fun = median,                             # Calculate median
+    geom = "point",                           # Plot as points
+    size = 2,                                 # Adjust point size
+    color = "black",                          # Point color
+    position = position_dodge(width = 0.9)    # Align within violins
+  ) +
   labs(x = 'Elevation (m)', 
        y = 'P total (mm) over MI60 10 mm/hr', 
        fill = 'Fire') +
   theme_bw(base_size = 20) +
   theme(
-    legend.position = c(.9, 1.04),
-    legend.title = element_blank(),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
     strip.background = element_blank(),
+    #strip.text = element_blank(),
     text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
+    axis.title.x = element_blank(),
     axis.text = element_text(color = "black"),
-    #strip.text = element_blank()
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
   ) +
-  scale_fill_manual(
-    values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
-    labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
-  ) +
-  facet_grid(~year)  
+  facet_wrap(~year)
 
-ggplot(dem_p10over, aes(x = elevation_bin, y = p_over, fill = fire)) +
-  geom_violin(scale = 'width') +
+ggsave('./figures/elev_vs_pixel_mrms_cpf_test.png', dpi=600)
+
+ggplot(dem_p10over %>% filter(fire == "et"),
+       aes(x = as.character(median_elev), y = p_over)) +
+  geom_violin(scale = 'width', fill = 'steelblue',
+              alpha=0.5) +
+  stat_summary(
+    fun = median,                             # Calculate median
+    geom = "point",                           # Plot as points
+    size = 2,                                 # Adjust point size
+    color = "black",                          # Point color
+    position = position_dodge(width = 0.9)    # Align within violins
+  ) +
   labs(x = 'Elevation (m)', 
        y = 'P total (mm) over MI60 10 mm/hr', 
        fill = 'Fire') +
   theme_bw(base_size = 20) +
   theme(
-    legend.position = c(.89, 1.015),
-    legend.title = element_blank(),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
     strip.background = element_blank(),
+    strip.text = element_blank(),
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
     axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
   ) +
-  scale_fill_manual(
-    values = c("cp" = "#A8B6CC", "et" = "#E57A77"),
-    labels = c("cp" = "CPF", "et" = "ETF")  # Rename legend labels
-  ) +
   facet_grid(~year)
 
-ggsave('./figures/elev_vs_pixel_mrms.png', dpi=600)
+ggsave('./figures/elev_vs_pixel_mrms_etf.png', dpi=600)
+
+dem_p10over <- dem_p10over %>%
+  mutate(fire = recode(fire,
+                       "cp" = "Cameron Peak",
+                       "et" = "East Troublesome"))
+
+ggplot(dem_p10over,
+       aes(x = as.character(median_elev), y = p_over)) +
+  geom_violin(scale = 'width', fill = 'steelblue',
+              alpha=0.5) +
+  stat_summary(
+    fun = median,                             # Calculate median
+    geom = "point",                           # Plot as points
+    size = 2,                                 # Adjust point size
+    color = "black",                          # Point color
+    position = position_dodge(width = 0.9)    # Align within violins
+  ) +
+  labs(x = 'Elevation (m)', 
+       y = 'P total (mm) over MI60 10 mm/hr', 
+       fill = 'Fire') +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    #strip.text = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
+  ) +
+  facet_grid(fire ~ year, scales = "free")
+
+ggsave('./figures/elev_vs_pixel_combine.png', dpi=600)
 
 ```
 
