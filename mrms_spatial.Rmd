@@ -2154,3 +2154,22 @@ plot(dnbr_etf)
 
 ```
 
+# Annual P stats
+
+```{r}
+library(climateR)
+
+system.time({
+  gridmet_p = getGridMET(AOI = cp,
+                 varname = c('pr'),
+                 startDate = "2000-1-1",
+                 endDate  = "2023-12-31")
+})
+
+gridmet_p <- gridmet_p[[1]] %>% # remove it from a list to just spatraster
+  terra::project('EPSG:26913')
+
+
+
+```
+
