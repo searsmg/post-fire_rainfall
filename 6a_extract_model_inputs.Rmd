@@ -120,6 +120,22 @@ mean_sp <- sp %>%
 
 ```
 
+# Sp
+avg from 2000-2019
+
+```{r}
+
+sp <- rast('/Volumes/Kampf/Private/Cameron_Peak_Fire/snow/snow_persistence/SP_mean.tif')
+
+mean_sp <- sp %>%
+  terra::extract(catch, fun = mean) %>%
+  mutate(site = catch$site)
+
+write_csv(mean_sp, './data/final_model_inputs/sp_2000_2019_avg_catchments.csv')
+
+```
+
+
 # Potential water deficit
 
 PPT-ETo = PWD
