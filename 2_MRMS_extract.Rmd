@@ -146,10 +146,10 @@ stopCluster(cl)
 
 ```{r}
 
-setwd("/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021")
+setwd("/Users/megansears/Documents/MRMS/mrms_data/2min_2023")
 
 # Output dir
-output_dir <- "/Users/megansears/Desktop/debris_flows/2021_p/"
+output_dir <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_23/"
 
 # List raster filenames
 filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
@@ -160,46 +160,22 @@ registerDoParallel(cl)
 
 # Loop for PP
 foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')) %dopar% {
-  
-  # Bring in all catchments
-  # etf_lower <- vect('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/etf_lower.shp') %>% # UPDATE BASED ON SITE
-  #   terra::project(., 'EPSG:26913')
-  # 
 
-  catchments_all <- vect('/Users/megansears/Desktop/debris_flows/initiation.shp') %>%
+  catchments_all <- vect('/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/data/GIS/catchments_all/catchments_all_lidar.shp') %>%
     terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
-  
-  # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
-  # catchments <- as(catchments_all, 'Spatial') %>%
-  #   st_as_sf() %>%
-  #   mutate(
-  #     Name = ifelse(is.na(Name), "michigan_river", Name),
-  #     Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
-  #                   Name)
-  #   ) %>%
-  #   filter(!Name %in% c(
-  #     'burn_transitional',
-  #     'dry_trib',
-  #     'USGSWillowRes',
-  #     'USGSWillow'
-  #   )) %>%
-  #   filter(!grepl("Lower", Name)) %>%
-  #   filter(!Name == 'michiganditch')
-  # 
-  # # put back to spatvector
-  # catchments_all <- vect(catchments) %>%
-  #   terra::project(., 'EPSG:26913')
-  
+
   # Pull in raster
   r <- terra::rast(fileName)
   
   names(r) <- "p_mmhr"
   
   # Extract using terra- zonal stats, weighted mean
-  extract <- terra::zonal(r, catchments_all, weights = T)
+  #extract <- terra::zonal(r, catchments_all, weights = T)
   
-  extract$catchment <- catchments_all$wID
-  #extract$ID <- hillslopes_all$ID
+  # Extract using terra zonal stats, max w/in catchment
+  extract <- terra::zonal(r, catchments_all, fun='max')
+  
+  extract$catchment <- catchments_all$site
   
   timestamp <- substr(fileName, 12, 26)
   
@@ -232,7 +208,7 @@ This combines all the csvs
 ```{r}
 
 # Path to individual CSVs
-csv_directory <- "/Users/megansears/Desktop/debris_flows/2021_p"
+csv_directory <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_23"
 
 # List csvs
 csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
@@ -279,7 +255,34 @@ final_data <- final_data %>%
   rename(MI2_mmhr = p_mmhr)
            
 # Write the combined data to csv
-write.csv(final_data, '/Users/megansears/Desktop/debris_flows/2021_p/cpf_debrisflow_p_2021.csv')
+write.csv(final_data, '/Users/megansears/Documents/MRMS/mrms_data/max_catchment23_2min.csv')
+
+```
+
+```{r}
+
+# old code
+  # #Get rid of and rename some - ONLY NEED FOR CATCHMENT AREAS
+  # catchments <- as(catchments_all, 'Spatial') %>%
+  #   st_as_sf() %>%
+  #   mutate(
+  #     Name = ifelse(is.na(Name), "michigan_river", Name),
+  #     Name = ifelse(Name == 'noburn_transitional', 'mt_campus',
+  #                   Name)
+  #   ) %>%
+  #   filter(!Name %in% c(
+  #     'burn_transitional',
+  #     'dry_trib',
+  #     'USGSWillowRes',
+  #     'USGSWillow'
+  #   )) %>%
+  #   filter(!grepl("Lower", Name)) %>%
+  #   filter(!Name == 'michiganditch')
+  # 
+  # # put back to spatvector
+  # catchments_all <- vect(catchments) %>%
+  #   terra::project(., 'EPSG:26913')
+
 
 ```
 
