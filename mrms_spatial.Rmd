@@ -2173,3 +2173,33 @@ gridmet_p <- gridmet_p[[1]] %>% # remove it from a list to just spatraster
 
 ```
 
+# landfire
+
+```{r}
+
+veg <- read_stars('/Users/megansears/Downloads/LF2020_BPS_220_CONUS/Tif/LC20_BPS_220.tif')
+
+veg_cp <- st_crop(veg, cp)
+
+mapview(veg_cp) 
+
+veg_cpdf <- as.data.frame(veg_cp, xy=T) %>%
+  drop_na() %>%
+  group_by(LC20_BPS_220.tif) %>%
+  summarize(sum = n()) %>%
+  mutate(percent = round((sum / 939349) * 100, 2))
+
+veg_et <- st_crop(veg, et)
+
+veg_etdf <- as.data.frame(veg_et, xy=T) %>%
+  drop_na() %>%
+  group_by(LC20_BPS_220.tif) %>%
+  summarize(sum = n()) %>%
+  mutate(percent = round((sum / 849488) * 100, 2))
+
+mapview(veg_et)
+
+
+```
+
+
