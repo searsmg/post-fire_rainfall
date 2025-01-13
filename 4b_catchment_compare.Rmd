@@ -4522,7 +4522,8 @@ etf_tb_count <- etf_tb %>%
 ```{r}
 
 etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms2.csv') %>%
-  mutate(date = mdy(date)) %>%
+  mutate(date = mdy(date),
+         start_time = mdy_hm(start_time)) %>%
   filter(date > ymd('2022-06-20')) %>%
   mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>% 
   mutate(
