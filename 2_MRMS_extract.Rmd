@@ -146,16 +146,16 @@ stopCluster(cl)
 
 ```{r}
 
-setwd("/Users/megansears/Documents/MRMS/mrms_data/2min_2023")
+setwd("/Users/megansears/Documents/MRMS/mrms_data/2min_2022")
 
 # Output dir
-output_dir <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_23/"
+output_dir <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_22/"
 
 # List raster filenames
 filenames <- list.files(".", pattern = ".tif", full.names = FALSE)
 
 # PP settings
-cl <- makeCluster(8)
+cl <- makeCluster(6)
 registerDoParallel(cl)
 
 # Loop for PP
@@ -169,11 +169,13 @@ foreach(fileName = filenames, .packages = c("terra", "lubridate", "dplyr", 'sf')
   
   names(r) <- "p_mmhr"
   
-  # Extract using terra- zonal stats, weighted mean
+  # Extract using terra- zonal stats, weighted mean # oldest runs
   #extract <- terra::zonal(r, catchments_all, weights = T)
   
   # Extract using terra zonal stats, max w/in catchment
-  extract <- terra::zonal(r, catchments_all, fun='max')
+  #extract <- terra::zonal(r, catchments_all, fun='mean', exact=T)
+  
+  extract <- terra::zonal(r, catchments_all, 'max', touches=T)
   
   extract$catchment <- catchments_all$site
   
@@ -208,7 +210,7 @@ This combines all the csvs
 ```{r}
 
 # Path to individual CSVs
-csv_directory <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_23"
+csv_directory <- "/Users/megansears/Documents/MRMS/mrms_data/max_catchment_22/"
 
 # List csvs
 csv_files <- list.files(csv_directory, pattern = "\\.csv$", full.names = TRUE)
@@ -255,7 +257,7 @@ final_data <- final_data %>%
   rename(MI2_mmhr = p_mmhr)
            
 # Write the combined data to csv
-write.csv(final_data, '/Users/megansears/Documents/MRMS/mrms_data/max_catchment23_2min.csv')
+write.csv(final_data, '/Users/megansears/Documents/MRMS/mrms_data/max_catchment22_2min.csv')
 
 ```
 
