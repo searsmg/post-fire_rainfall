@@ -61,42 +61,47 @@ get_mrms_events <- function(df, datetime) {
 ```{r rainfall metrics, echo=FALSE}
 
 # # load in 2023
-# all_2023 <- read_csv('./data/final/mrms/mrms_catchments_raw/max_catchment23_2min.csv') %>%
-#   dplyr::select(-1) %>%
+# all_2023 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment23_2min.csv') %>%
+#   dplyr::select(-c(1)) %>%
 #   rename(ID = catchment) %>%
 #   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 # 
 # # load in 2021
-# all_2021 <- read_csv('./data/final/mrms/mrms_catchments_raw/max_catchment21_2min.csv') %>%
-#   dplyr::select(-1) %>%
+# all_2021 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment21_2min.csv') %>%
+#   dplyr::select(-c(1)) %>%
 #   rename(ID = catchment) %>%
 #   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 # 
 # # load 2022
-# all_2022 <- read_csv('./data/final/mrms/mrms_catchments_raw/max_catchment22_2min.csv') %>%
+# all_2022 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment22_2min.csv') %>%
 #   dplyr::select(-1) %>%
 #   rename(ID = catchment) %>%
 #   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 # 
 # all <- bind_rows(all_2021, all_2022, all_2023)
+# #
+# # # export all as 2 min mrms precip for all sites
+# write.csv(all, './data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv')
+
+# all <- read_csv('./data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv') %>%
+#   select(-1) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
 # 
-# # export all as 2 min mrms precip for all sites
-# write.csv(all, './data/final/mrms/mrms_catchments_raw/max_catchment_2min_all.csv')
+# all <- all %>%
+#   mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
+#   mutate(year = year(datetime),
+#          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+#   group_by(ID, timestamps_10min) %>%
+#   summarize(rain_mm = sum(p_mm)) %>%
+#   rename(datetime = timestamps_10min) %>%
+#   mutate(ID = if_else(ID == 'mm',
+#                       'mm_et', ID)) # udpate mm_et site name, MM benn is capital
+# 
+# write.csv(all, './data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv')
 
-all <- read_csv('./data/final/mrms/mrms_catchments_raw/max_catchment_2min_all.csv') %>%
-  select(-1) %>% 
+all <- read_csv('./data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv') %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST'))
-
-all <- all %>%
-  mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
-  mutate(year = year(datetime),
-         timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
-  group_by(ID, timestamps_10min) %>%
-  summarize(rain_mm = sum(p_mm)) %>%
-  rename(datetime = timestamps_10min) %>%
-  mutate(ID = if_else(ID == 'mm',
-                      'mm_et', ID))
-
+  
 ```
 
 # Events
@@ -182,7 +187,7 @@ all_intens <- all_intens %>%
 ggplot(all_intens, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
 ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
-write.csv(all_intens, './data/final/mrms/catchment_mrms_intensities_MAX.csv')
+write.csv(all_intens, './data/final/mrms/catchment_mrms_intensities_wmean_exact.csv')
 
 ```
 
