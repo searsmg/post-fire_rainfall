@@ -2511,7 +2511,13 @@ ben_tb <- read_csv('./data/TB_raw/bennett_TB_rain.csv') %>%
 
 # trying this analysis with MAX mrms values going into the catchment intensities
 # max for mrms extract and touches = T
-mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities_MAXtouches.csv') %>%
+# mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities_MAXtouches.csv') %>%
+#   mutate(start_time = force_tz(start_time, tzone='MST'),
+#          end_time = force_tz(end_time, tzone='MST')) %>%
+#   mutate(ID = tolower(ID))
+
+# try this weight mean EXACT (instead of weights, which is approx)
+mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact.csv') %>%
   mutate(start_time = force_tz(start_time, tzone='MST'),
          end_time = force_tz(end_time, tzone='MST')) %>%
   mutate(ID = tolower(ID))
@@ -2573,7 +2579,7 @@ hum_cross <- hum_stage_summ %>%
 #            './data/final/stage_YN_response/cross/hum_cross2.csv') # 2 has data where 0.1 was filtered before summed to 10 min
 
 write.csv(hum_cross,
-           './data/final/stage_YN_response/cross/hum_cross_max.csv') # using mrms max extract for each catchment (touches=T)
+           './data/final/stage_YN_response/cross/hum_cross_wmean.csv') # using mrms max extract for each catchment (touches=T)
 
 # hum_cross <- read_csv('./data/final/stage_YN_response/cross/hum_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -2589,7 +2595,7 @@ hum_tb_noflow <- hum_tb_events %>%
 #           './data/final/stage_YN_response/noflow_rain/hum_tb_noflow2.csv')
 
 write.csv(hum_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/hum_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/hum_tb_noflow_wmean.csv')
 
 hum_mrms_noflow <- hum_mrms_events %>%
   filter(!start_time %in% c(hum_cross$start_time.y)) %>%
@@ -2600,7 +2606,7 @@ hum_mrms_noflow <- hum_mrms_events %>%
 #           './data/final/stage_YN_response/noflow_rain/hum_mrms_noflow2.csv')
 
 write.csv(hum_mrms_noflow,
-          './data/final/stage_YN_response/noflow_rain/hum_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/hum_mrms_noflow_wmean.csv')
 
 
 #rain_noflow <- bind_rows(hum_tb_noflow, hum_mrms_noflow)
@@ -2658,7 +2664,7 @@ p1_cross <- p1_stage_summ %>%
 #           './data/final/stage_YN_response/cross/p1_cross2.csv')
 
 write.csv(p1_cross,
-          './data/final/stage_YN_response/cross/p1_cross_max.csv')
+          './data/final/stage_YN_response/cross/p1_cross_wmean.csv')
 
 # p1_cross <- read_csv('./data/final/stage_YN_response/cross/p1_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -2674,7 +2680,7 @@ p1_tb_noflow <- p1_tb_events %>%
 #           './data/final/stage_YN_response/noflow_rain/p1_tb_noflow2.csv')
 
 write.csv(p1_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/p1_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/p1_tb_noflow_wmean.csv')
 
 p1_mrms_noflow <- p1_mrms_events %>%
   filter(!start_time %in% c(p1_cross$start_time.y)) %>%
@@ -2685,7 +2691,7 @@ p1_mrms_noflow <- p1_mrms_events %>%
 #           './data/final/stage_YN_response/noflow_rain/p1_mrms_noflow2.csv')
 
 write.csv(p1_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/p1_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/p1_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, p1_tb_noflow, p1_mrms_noflow)
 
@@ -2724,7 +2730,7 @@ hm_cross <- hm_stage_summ %>%
               ~ if_else(is.na(.), 0, .)))
 
 write.csv(hm_cross,
-          './data/final/stage_YN_response/cross/hm_cross_max.csv')
+          './data/final/stage_YN_response/cross/hm_cross_wmean.csv')
 
 #hm_cross <- read_csv('./data/final/stage_YN_response/cross/hm_cross.csv')
 
@@ -2735,7 +2741,7 @@ hm_tb_noflow <- hum_tb_events %>%
          source='tb')
 
 write.csv(hm_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/hm_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/hm_tb_noflow_wmean.csv')
 
 hm_mrms_noflow <- hm_mrms_events %>%
   filter(!start_time %in% c(hm_cross$start_time.y)) %>%
@@ -2743,7 +2749,7 @@ hm_mrms_noflow <- hm_mrms_events %>%
          source='mrms')
 
 write.csv(hm_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/hm_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/hm_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, hm_tb_noflow, hm_mrms_noflow)
 
@@ -2802,7 +2808,7 @@ mpm_cross <- mpm_stage_summ %>%
 
 # 
 write.csv(mpm_cross,
-          './data/final/stage_YN_response/cross/mpm_cross_max.csv')
+          './data/final/stage_YN_response/cross/mpm_cross_wmean.csv')
 
 # mpm_cross <- read_csv('./data/final/stage_YN_response/cross/mpm_cross2.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -2815,7 +2821,7 @@ mpm_tb_noflow <- mub_tb_events %>%
          source='tb')
 
 write.csv(mpm_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mpm_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mpm_tb_noflow_wmean.csv')
 
 mpm_mrms_noflow <- mpm_mrms_events %>%
   filter(!start_time %in% c(mpm_cross$start_time.y)) %>%
@@ -2823,7 +2829,7 @@ mpm_mrms_noflow <- mpm_mrms_events %>%
          source='mrms')
 
 write.csv(mpm_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mpm_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mpm_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mpm_tb_noflow, mpm_mrms_noflow)
 
@@ -2859,7 +2865,7 @@ mub_cross <- mub_stage_summ %>%
   
 # 
 write.csv(mub_cross,
-          './data/final/stage_YN_response/cross/mub_cross_max.csv')
+          './data/final/stage_YN_response/cross/mub_cross_wmean.csv')
 
 # mub_cross <- read_csv('./data/final/stage_YN_response/cross/mub_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -2872,7 +2878,7 @@ mub_tb_noflow <- mub_tb_events %>%
          source='tb')
 
 write.csv(mub_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mub_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mub_tb_noflow_wmean.csv')
 
 mub_mrms_noflow <- mub_mrms_events %>%
   filter(!start_time %in% c(mub_cross$start_time.y)) %>%
@@ -2880,7 +2886,7 @@ mub_mrms_noflow <- mub_mrms_events %>%
          source='mrms')
 
 write.csv(mub_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mub_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mub_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mub_tb_noflow, mub_mrms_noflow)
 
@@ -2915,7 +2921,7 @@ mum_cross <- mum_stage_summ %>%
               ~ if_else(is.na(.), 0, .)))
   
 write.csv(mum_cross,
-          './data/final/stage_YN_response/cross/mum_cross_max.csv')
+          './data/final/stage_YN_response/cross/mum_cross_wmean.csv')
 
 # mum_cross <- read_csv('./data/final/stage_YN_response/cross/mum_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -2928,7 +2934,7 @@ mum_tb_noflow <- mub_tb_events %>%
          source='tb')
 
 write.csv(mum_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mum_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mum_tb_noflow_wmean.csv')
 
 mum_mrms_noflow <- mum_mrms_events %>%
   filter(!start_time %in% c(mum_cross$start_time.y)) %>%
@@ -2936,7 +2942,7 @@ mum_mrms_noflow <- mum_mrms_events %>%
          source='mrms')
 
 write.csv(mum_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mum_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mum_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mum_tb_noflow, mum_mrms_noflow)
 
@@ -2990,12 +2996,12 @@ p2_cross <- p2_stage_summ %>%
   left_join(., p2_mrms_events,
             by = 'date') %>%
   mutate(across(event_sum_mm.y:duration_hr.y,
-              ~ if_else(is.na(.), 0, .))) %>%
-  slice(-1)
+              ~ if_else(is.na(.), 0, .))) #%>%
+  # slice(-1)
 
 # 
 write.csv(p2_cross,
-          './data/final/stage_YN_response/cross/p2_cross_max.csv')
+          './data/final/stage_YN_response/cross/p2_cross_wmean.csv')
 
 # p2_cross <- read_csv('./data/final/stage_YN_response/cross/p2_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3008,7 +3014,7 @@ p2_tb_noflow <- p1_tb_events %>%
          source='tb')
 
 write.csv(p2_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/p2_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/p2_tb_noflow_wmean.csv')
 
 p2_mrms_noflow <- p2_mrms_events %>%
   filter(!start_time %in% c(p2_cross$start_time.y)) %>%
@@ -3016,7 +3022,7 @@ p2_mrms_noflow <- p2_mrms_events %>%
          source='mrms')
 
 write.csv(p2_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/p2_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/p2_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, p2_tb_noflow, p2_mrms_noflow)
 
@@ -3075,7 +3081,7 @@ lm_cross <- lm_stage_summ %>%
               ~ if_else(is.na(.), 0, .)))
 
 write.csv(lm_cross,
-          './data/final/stage_YN_response/cross/lm_cross_max.csv')
+          './data/final/stage_YN_response/cross/lm_cross_wmean.csv')
 
 # lm_cross <- read_csv('./data/final/stage_YN_response/cross/lm_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3088,7 +3094,7 @@ lm_tb_noflow <- lpm_tb_events %>%
          source='tb')
 
 write.csv(lm_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lm_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lm_tb_noflow_wmean.csv')
 
 lm_mrms_noflow <- lm_mrms_events %>%
   filter(!start_time %in% c(lm_cross$start_time.y)) %>%
@@ -3096,7 +3102,7 @@ lm_mrms_noflow <- lm_mrms_events %>%
          source='mrms')
 
 write.csv(lm_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lm_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lm_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, lm_tb_noflow, lm_mrms_noflow)
 
@@ -3132,7 +3138,7 @@ lpm_cross <- lpm_stage_summ %>%
   
 # 
 write.csv(lpm_cross,
-          './data/final/stage_YN_response/cross/lpm_cross_max.csv')
+          './data/final/stage_YN_response/cross/lpm_cross_wmean.csv')
 
 # lpm_cross <- read_csv('./data/final/stage_YN_response/cross/lpm_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3145,7 +3151,7 @@ lpm_tb_noflow <- lpm_tb_events %>%
          source='tb')
 
 write.csv(lpm_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lpm_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lpm_tb_noflow_wmean.csv')
 
 lpm_mrms_noflow <- lpm_mrms_events %>%
   filter(!start_time %in% c(lpm_cross$start_time.y)) %>%
@@ -3153,7 +3159,7 @@ lpm_mrms_noflow <- lpm_mrms_events %>%
          source='mrms')
 
 write.csv(lpm_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lpm_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lpm_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, lpm_tb_noflow, lpm_mrms_noflow)
 
@@ -3189,7 +3195,7 @@ lum_cross <- lum_stage_summ %>%
               ~ if_else(is.na(.), 0, .)))
 # 
 write.csv(lum_cross,
-          './data/final/stage_YN_response/cross/lum_cross_max.csv')
+          './data/final/stage_YN_response/cross/lum_cross_wmean.csv')
 
 # lum_cross <- read_csv('./data/final/stage_YN_response/cross/lum_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3202,7 +3208,7 @@ lum_tb_noflow <- lpm_tb_events %>%
          source='tb')
 
 write.csv(lum_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lum_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lum_tb_noflow_wmean.csv')
 
 lum_mrms_noflow <- lum_mrms_events %>%
   filter(!start_time %in% c(lum_cross$start_time.y)) %>%
@@ -3210,7 +3216,7 @@ lum_mrms_noflow <- lum_mrms_events %>%
          source='mrms')
 
 write.csv(lum_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/lum_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/lum_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, lum_tb_noflow, lum_mrms_noflow)
 
@@ -3247,7 +3253,7 @@ mm_et_cross <- mm_et_stage_summ %>%
   slice(-c(6,8))
 
 write.csv(mm_et_cross,
-          './data/final/stage_YN_response/cross/mm_et_cross_max.csv')
+          './data/final/stage_YN_response/cross/mm_et_cross_wmean.csv')
 
 # mm_et_cross <- read_csv('./data/final/stage_YN_response/cross/mm_et_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3260,7 +3266,7 @@ mm_et_tb_noflow <- mub_tb_events %>%
          source='tb')
 
 write.csv(mm_et_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mm_et_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mm_et_tb_noflow_wmean.csv')
 
 mm_et_mrms_noflow <- mm_et_mrms_events %>%
   filter(!start_time %in% c(mm_et_cross$start_time.y)) %>%
@@ -3268,7 +3274,7 @@ mm_et_mrms_noflow <- mm_et_mrms_events %>%
          source='mrms')
 
 write.csv(mm_et_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mm_et_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mm_et_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mm_et_tb_noflow, mm_et_mrms_noflow)
 
@@ -3318,7 +3324,7 @@ bighorn_cross <- bighorn_stage_summ %>%
             by = 'date')
 # 
 write.csv(bighorn_cross,
-          './data/final/stage_YN_response/cross/bighorn_cross_max.csv')
+          './data/final/stage_YN_response/cross/bighorn_cross_wmean.csv')
 
 # bighorn_cross <- read_csv('./data/final/stage_YN_response/cross/bighorn_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3331,7 +3337,7 @@ bighorn_tb_noflow <- bighorn_tb_events %>%
          source='tb')
 
 write.csv(bighorn_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/bighorn_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/bighorn_tb_noflow_wmean.csv')
 
 bighorn_mrms_noflow <- bighorn_mrms_events %>%
   filter(!start_time %in% c(bighorn_cross$start_time.y)) %>%
@@ -3339,7 +3345,7 @@ bighorn_mrms_noflow <- bighorn_mrms_events %>%
          source='mrms')
 
 write.csv(bighorn_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/bighorn_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/bighorn_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, bighorn_tb_noflow, bighorn_mrms_noflow)
 
@@ -3394,7 +3400,7 @@ bl4_cross <- bl4_stage_summ %>%
             by = 'date')
 # 
 write.csv(bl4_cross,
-          './data/final/stage_YN_response/cross/bl4_cross_max.csv')
+          './data/final/stage_YN_response/cross/bl4_cross_wmean.csv')
 
 #bl4_cross <- read_csv('./data/final/stage_YN_response/cross/bl4_cross2.csv') 
 
@@ -3405,7 +3411,7 @@ bl4_tb_noflow <- bl4_tb_events %>%
          source='tb')
 
 write.csv(bl4_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/bl4_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/bl4_tb_noflow_wmean.csv')
 
 bl4_mrms_noflow <- bl4_mrms_events %>%
   filter(!start_time %in% c(bl4_cross$start_time.y)) %>%
@@ -3413,7 +3419,7 @@ bl4_mrms_noflow <- bl4_mrms_events %>%
          source='mrms')
 
 write.csv(bl4_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/bl4_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/bl4_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, bl4_tb_noflow, bl4_mrms_noflow)
 
@@ -3460,10 +3466,11 @@ dry_cross <- dry_stage_summ %>%
             by = 'date') %>%
   left_join(., dry_mrms_events,
             by = 'date') %>%
-  slice(-c(7,8,9,12)) # check
+  # slice(-c(7,8,9,13)) # check
+  slice(-c(7,11))
 # 
 write.csv(dry_cross,
-          './data/final/stage_YN_response/cross/dry_cross_max.csv')
+          './data/final/stage_YN_response/cross/dry_cross_wmean.csv')
 
 # dry_cross <- read_csv('./data/final/stage_YN_response/cross/dry_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3476,7 +3483,7 @@ dry_tb_noflow <- dry_tb_events %>%
          source='tb')
 
 write.csv(dry_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/dry_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/dry_tb_noflow_wmean.csv')
 
 dry_mrms_noflow <- dry_mrms_events %>%
   filter(!start_time %in% c(dry_cross$start_time.y)) %>%
@@ -3484,7 +3491,7 @@ dry_mrms_noflow <- dry_mrms_events %>%
          source='mrms')
 
 write.csv(dry_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/dry_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/dry_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, dry_tb_noflow, dry_mrms_noflow)
 
@@ -3540,7 +3547,7 @@ mich_cross <- mich_stage_summ %>%
             by = 'date')
 
 write.csv(mich_cross,
-          './data/final/stage_YN_response/cross/mich_cross_max.csv')
+          './data/final/stage_YN_response/cross/mich_cross_wmean.csv')
 
 #mich_cross <- read_csv('./data/final/stage_YN_response/cross/mich_cross2.csv')
 
@@ -3551,7 +3558,7 @@ michigan_tb_noflow <- mich_tb_events %>%
          source='tb')
 
 write.csv(michigan_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/michigan_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/michigan_tb_noflow_wmean.csv')
 
 michigan_mrms_noflow <- mich_mrms_events %>%
   filter(!start_time %in% c(mich_cross$start_time.y)) %>%
@@ -3559,7 +3566,7 @@ michigan_mrms_noflow <- mich_mrms_events %>%
          source='mrms')
 
 write.csv(michigan_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/michigan_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/michigan_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, michigan_tb_noflow, michigan_mrms_noflow)
 
@@ -3611,8 +3618,8 @@ mont_cross <- mont_stage_summ %>%
   left_join(., mont_tb_events,
             by = 'date') %>%
   left_join(., mont_mrms_events,
-            by = 'date') #%>%
-  slice(-c(10,11)) %>% # FIX THIS MANUALLY bc rain tb even starts on 8/1 in all cross 2
+            by = 'date') %>%
+  slice(-c(9,11,12)) %>% # FIX THIS MANUALLY bc rain tb even starts on 8/1 in all cross 2
   mutate(start_time.x = if_else(event_id == 90, 
                                 NA, start_time.x),
          end_time.x = if_else(event_id == 90, 
@@ -3628,7 +3635,7 @@ mont_cross <- mont_stage_summ %>%
 
 # 
 write.csv(mont_cross,
-          './data/final/stage_YN_response/cross/mont_cross_max.csv')
+          './data/final/stage_YN_response/cross/mont_cross_wmean.csv')
 
 # mont_cross <- read_csv('./data/final/stage_YN_response/cross/mont_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3641,7 +3648,7 @@ mont_tb_noflow <- mont_tb_events %>%
          source='tb')
 
 write.csv(mont_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mont_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mont_tb_noflow_wmean.csv')
 
 mont_mrms_noflow <- mont_mrms_events %>%
   filter(!start_time %in% c(mont_cross$start_time.y)) %>%
@@ -3649,7 +3656,7 @@ mont_mrms_noflow <- mont_mrms_events %>%
          source='mrms')
 
 write.csv(mont_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mont_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mont_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mont_tb_noflow, mont_mrms_noflow)
 
@@ -3708,10 +3715,10 @@ mtcamp_cross <- mtcamp_stage_summ %>%
             by = 'date') %>%
   left_join(., mtcamp_mrms_events,
             by = 'date') %>%
-  slice(-c(6,7,8))
+  slice(-c(5,7,8,9,12))
 # 
 write.csv(mtcamp_cross,
-          './data/final/stage_YN_response/cross/mtcamp_cross_max.csv')
+          './data/final/stage_YN_response/cross/mtcamp_cross_wmean.csv')
 
 # mtcamp_cross <- read_csv('./data/final/stage_YN_response/cross/mtcamp_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3725,7 +3732,7 @@ mtcamp_tb_noflow <- mtc_tb_events %>%
          source='tb')
 
 write.csv(mtcamp_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mtcamp_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mtcamp_tb_noflow_wmean.csv')
 
 mtcamp_mrms_noflow <- mtcamp_mrms_events %>%
   filter(!start_time %in% c(mtcamp_cross$start_time.y)) %>%
@@ -3733,7 +3740,7 @@ mtcamp_mrms_noflow <- mtcamp_mrms_events %>%
          source='mrms')
 
 write.csv(mtcamp_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mtcamp_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mtcamp_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mtcamp_tb_noflow, mtcamp_mrms_noflow)
 
@@ -3766,23 +3773,23 @@ washout_cross <- washout_stage_summ %>%
             by = 'date') %>%
   left_join(., washout_mrms_events,
             by = 'date') %>%
-  slice(-c(3,4,5)) #%>%
-   # mutate(start_time.y = if_else(event_id == 9, 
-   #                              NA, start_time.y),
-   #       end_time.y = if_else(event_id == 9, 
-   #                              NA, end_time.y),
-   #       duration_hr.y = if_else(event_id == 9,
-   #                               0, duration_hr.y),
-   #       event_sum_mm.y = if_else(event_id == 9,
-   #                               0, event_sum_mm.y),
-   #       MI60_mmhr.y =  if_else(event_id == 9,
-   #                               0, MI60_mmhr.y),
-   #       MI30_mmhr.y =  if_else(event_id == 9,
-   #                               0, MI30_mmhr.y))
+  slice(-c(3)) %>%
+   mutate(start_time.y = if_else(event_id == 9,
+                                NA, start_time.y),
+         end_time.y = if_else(event_id == 9,
+                                NA, end_time.y),
+         duration_hr.y = if_else(event_id == 9,
+                                 0, duration_hr.y),
+         event_sum_mm.y = if_else(event_id == 9,
+                                 0, event_sum_mm.y),
+         MI60_mmhr.y =  if_else(event_id == 9,
+                                 0, MI60_mmhr.y),
+         MI30_mmhr.y =  if_else(event_id == 9,
+                                 0, MI30_mmhr.y))
   
 
 write.csv(washout_cross,
-          './data/final/stage_YN_response/cross/washout_cross_max.csv')
+          './data/final/stage_YN_response/cross/washout_cross_wmean.csv')
 
 # washout_cross <- read_csv('./data/final/stage_YN_response/cross/washout_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3795,7 +3802,7 @@ washout_tb_noflow <- dry_tb_events %>%
          source='tb')
 
 write.csv(washout_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/washout_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/washout_tb_noflow_wmean.csv')
 
 washout_mrms_noflow <- washout_mrms_events %>%
   filter(!start_time %in% c(washout_cross$start_time.y)) %>%
@@ -3803,7 +3810,7 @@ washout_mrms_noflow <- washout_mrms_events %>%
          source='mrms')
 
 write.csv(washout_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/washout_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/washout_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, washout_tb_noflow, washout_mrms_noflow)
 
@@ -3860,7 +3867,7 @@ me_cross <- me_stage_summ %>%
 
 # 
 write.csv(me_cross,
-          './data/final/stage_YN_response/cross/me_cross_max.csv')
+          './data/final/stage_YN_response/cross/me_cross_wmean.csv')
 
 # me_cross <- read_csv('./data/final/stage_YN_response/cross/me_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3873,7 +3880,7 @@ me_tb_noflow <- me_tb_events %>%
          source='tb')
 
 write.csv(me_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/me_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/me_tb_noflow_wmean.csv')
 
 me_mrms_noflow <- me_mrms_events %>%
   filter(!start_time %in% c(me_cross$start_time.y)) %>%
@@ -3881,7 +3888,7 @@ me_mrms_noflow <- me_mrms_events %>%
          source='mrms')
 
 write.csv(me_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/me_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/me_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, me_tb_noflow, me_mrms_noflow)
 
@@ -3937,7 +3944,7 @@ mm_cross <- mm_stage_summ %>%
   slice(-2)
 # 
 write.csv(mm_cross,
-          './data/final/stage_YN_response/cross/mm_cross_max.csv')
+          './data/final/stage_YN_response/cross/mm_cross_wmean.csv')
 
 # mm_cross <- read_csv('./data/final/stage_YN_response/cross/mm_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -3950,7 +3957,7 @@ mm_tb_noflow <- mm_tb_events %>%
          source='tb')
 
 write.csv(mm_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mm_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mm_tb_noflow_wmean.csv')
 
 mm_mrms_noflow <- mm_mrms_events %>%
   filter(!start_time %in% c(mm_cross$start_time.y)) %>%
@@ -3958,7 +3965,7 @@ mm_mrms_noflow <- mm_mrms_events %>%
          source='mrms')
 
 write.csv(mm_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mm_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mm_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mm_tb_noflow, mm_mrms_noflow)
 
@@ -4014,7 +4021,7 @@ mw_cross <- mw_stage_summ %>%
   slice(-2)
 # 
 write.csv(mw_cross,
-          './data/final/stage_YN_response/cross/mw_cross_max.csv')
+          './data/final/stage_YN_response/cross/mw_cross_wmean.csv')
 
 # mw_cross <- read_csv('./data/final/stage_YN_response/cross/mw_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -4027,7 +4034,7 @@ mw_tb_noflow <- mw_tb_events %>%
          source='tb')
 
 write.csv(mw_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mw_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mw_tb_noflow_wmean.csv')
 
 mw_mrms_noflow <- mw_mrms_events %>%
   filter(!start_time %in% c(mw_cross$start_time.y)) %>%
@@ -4035,7 +4042,7 @@ mw_mrms_noflow <- mw_mrms_events %>%
          source='mrms')
 
 write.csv(mw_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/mw_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/mw_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, mw_tb_noflow, mw_mrms_noflow)
 
@@ -4090,7 +4097,7 @@ ue_cross <- ue_stage_summ %>%
             by = 'date')
 # 
 write.csv(ue_cross,
-          './data/final/stage_YN_response/cross/ue_cross_max.csv')
+          './data/final/stage_YN_response/cross/ue_cross_wmean.csv')
 
 # ue_cross <- read_csv('./data/final/stage_YN_response/cross/ue_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -4103,7 +4110,7 @@ ue_tb_noflow <- ue_tb_events %>%
          source='tb')
 
 write.csv(ue_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/ue_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/ue_tb_noflow_wmean.csv')
 
 ue_mrms_noflow <- ue_mrms_events %>%
   filter(!start_time %in% c(ue_cross$start_time.y)) %>%
@@ -4111,7 +4118,7 @@ ue_mrms_noflow <- ue_mrms_events %>%
          source='mrms')
 
 write.csv(ue_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/ue_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/ue_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, ue_tb_noflow, ue_mrms_noflow)
 
@@ -4166,7 +4173,7 @@ um_cross <- um_stage_summ %>%
             by = 'date')
 # 
 write.csv(um_cross,
-          './data/final/stage_YN_response/cross/um_cross_max.csv')
+          './data/final/stage_YN_response/cross/um_cross_wmean.csv')
 
 # um_cross <- read_csv('./data/final/stage_YN_response/cross/um_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -4179,7 +4186,7 @@ um_tb_noflow <- uw_tb_events %>%
          source='tb')
 
 write.csv(um_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/um_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/um_tb_noflow_wmean.csv')
 
 um_mrms_noflow <- um_mrms_events %>%
   filter(!start_time %in% c(um_cross$start_time.y)) %>%
@@ -4187,7 +4194,7 @@ um_mrms_noflow <- um_mrms_events %>%
          source='mrms')
 
 write.csv(um_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/um_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/um_mrms_noflow_wmean.csv')
 
 #rain_noflow <- bind_rows(rain_noflow, um_tb_noflow, um_mrms_noflow)
 
@@ -4218,11 +4225,11 @@ uw_cross <- uw_stage_summ %>%
   left_join(., uw_mrms_events,
             by = 'date') %>%
     mutate(across(event_sum_mm.y:duration_hr.y,
-              ~ if_else(is.na(.), 0, .))) %>%
-  slice(-2)
+              ~ if_else(is.na(.), 0, .))) #%>%
+  # slice(-2)
 # 
 write.csv(uw_cross,
-          './data/final/stage_YN_response/cross/uw_cross_max.csv')
+          './data/final/stage_YN_response/cross/uw_cross_wmean.csv')
 
 # uw_cross <- read_csv('./data/final/stage_YN_response/cross/uw_cross.csv') %>%
 #   mutate(start_time.x = mdy_hm(start_time.x),
@@ -4235,7 +4242,7 @@ uw_tb_noflow <- uw_tb_events %>%
          source='tb')
 
 write.csv(uw_tb_noflow, 
-          './data/final/stage_YN_response/noflow_rain/uw_tb_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/uw_tb_noflow_wmean.csv')
 
 uw_mrms_noflow <- uw_mrms_events %>%
   filter(!start_time %in% c(uw_cross$start_time.y)) %>%
@@ -4243,7 +4250,7 @@ uw_mrms_noflow <- uw_mrms_events %>%
          source='mrms')
 
 write.csv(uw_mrms_noflow, 
-          './data/final/stage_YN_response/noflow_rain/uw_mrms_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/uw_mrms_noflow_wmean.csv')
 
 ```
 
@@ -4260,7 +4267,7 @@ folder_path <- "./data/final/stage_YN_response/noflow_rain"
 #                         full.names = TRUE)
 
 file_list <- list.files(folder_path, 
-                        pattern = "max\\.csv$", 
+                        pattern = "wmean\\.csv$", 
                         full.names = TRUE)
 
 # Read and combine all files
@@ -4335,7 +4342,7 @@ rain_noflow1 <- rain_noflow %>%
 #######
 # write all sites no flow rain csv
 write.csv(rain_noflow1,
-          './data/final/stage_YN_response/noflow_rain/all_noflow_max.csv')
+          './data/final/stage_YN_response/noflow_rain/all_noflow_wmean.csv')
 
 ```
 
@@ -4349,7 +4356,7 @@ folder_path <- "./data/final/stage_YN_response/cross"
 # # List all CSV files with 'cross2' in the name
 # file_list <- list.files(folder_path, pattern = "cross2.*\\.csv$", full.names = TRUE)
 
-file_list <- list.files(folder_path, pattern = "max\\.csv$", full.names = TRUE)
+file_list <- list.files(folder_path, pattern = "wmean\\.csv$", full.names = TRUE)
 
 
 # Function to read and add site name
@@ -4475,10 +4482,11 @@ flow1 <- flow %>%
   filter(condition == 'keep') %>%
   filter(!(site == 'mich' & date > ymd('2022-05-31')))
 
-write.csv(flow1, './data/final/stage_YN_response/cross/all_cross_max.csv')
+write.csv(flow1, './data/final/stage_YN_response/cross/all_cross_wmean.csv')
 # manully fixed mont event 90 and fixed some NA mrms that should havce been 0
 # also added fire column
-# mt camp event 8/1-8/3/23 for mrms needs to be manually added
+# mt camp event 8/1-8/3/23 for mrms needs to be manually added -- only for max dataset
+# double check all missing events for tb and mrms
 
 flow1 <- read_csv('./data/final/stage_YN_response/cross/all_cross_max.csv')
 
@@ -4488,11 +4496,19 @@ flow1 <- read_csv('./data/final/stage_YN_response/cross/all_cross_max.csv')
 
 etf_tb, etf_mrms, cpf_tb, cpf_mrms were manually copied from all cross csv and rain_no flow csv
 
+```{r}
+
+# metric we are looking at
+metric <- 'event_sum_mm'
+
+```
+
+
 ## ETF TB
 
 ```{r}
 
-etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_max.csv') %>%
+etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
   drop_na(MI60_mmhr) %>%
   mutate(date = mdy(date)) %>%
   mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>%
@@ -4538,7 +4554,7 @@ etf_tb <- left_join(etf_tb,
 site_kappa_values <- etf_tb %>%
   group_by(site) %>%
   #filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
-  mutate(predicted_prob = predict(glm(flow ~ MI60_mmhr + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
                                       data = pick(everything()), 
                                       family = 'binomial'), 
                                   type = 'response')) %>%
@@ -4562,7 +4578,7 @@ etf_tb_count <- etf_tb %>%
 
 ```{r}
 
-etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_max.csv') %>%
+etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_wmean.csv') %>%
   mutate(date = mdy(date),
          start_time = mdy_hm(start_time)) %>%
   filter(date > ymd('2022-06-20')) %>%
@@ -4633,7 +4649,7 @@ etf_mrms <- left_join(etf_mrms,
 site_kappa_values <- etf_mrms %>%
   group_by(site) %>%
   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ MI60_mmhr
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
                                       + lag_pwd,
                                       data = pick(everything()), 
                                       family = 'binomial'), 
@@ -4662,7 +4678,7 @@ etf_mrms_count <- etf_mrms %>%
 
 ```{r}
 
-cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_max.csv') %>%
+cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
   drop_na(MI60_mmhr) %>%
   mutate(date = mdy(date)) %>%
   filter(!site %in% c('michigan', 'mich')) %>%
@@ -4714,7 +4730,7 @@ cpf_tb <- left_join(cpf_tb,
 site_kappa_values <- cpf_tb %>%
   group_by(site) %>%
   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ MI60_mmhr
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
                                       + lag_pwd,
                                       data = pick(everything()), 
                                       family = 'binomial'), 
@@ -4742,7 +4758,7 @@ cpf_tb_count <- cpf_tb %>%
 
 ```{r}
 
-cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_max.csv') %>%
+cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_wmean.csv') %>%
   filter(!site %in% c('michigan', 'mich')) %>%
   mutate(site = if_else(site == 'mont',
                         'montgomery',
@@ -4855,7 +4871,7 @@ cpf_mrms <- left_join(cpf_mrms,
 site_kappa_values <- cpf_mrms %>%
   group_by(site) %>%
   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ MI60_mmhr + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
                                       data = pick(everything()), 
                                       family = 'binomial'), 
                                   type = 'response')) %>%
@@ -4891,7 +4907,10 @@ kappa <- bind_rows(et_tb_kappa,
   mutate(source = toupper(source))
 
 # write the joined kappa to csv so don't need to run above anymore
-write.csv(kappa, './data/final/stage_YN_response/kappa_mi60_max.csv')
+write.csv(kappa, './data/final/stage_YN_response/kappa_eventsum_wmean.csv')
+
+##########################################################################
+kappa <- read_csv('./data/final/stage_YN_response/kappa_eventsum_wmean.csv')
 
 new_facet_titles <- c(
   "cpf" = "Cameron Peak",
@@ -4927,12 +4946,12 @@ p1<-ggplot(kappa, aes(x = source, y = kappa_value, fill = source)) +
     strip.text = element_text(color = "black")) +
   scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
   facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI30 kappa values', x = NULL)
+  labs(y = 'Event P kappa values', x = NULL)
 ##
 
 p1
 
-ggsave('./figures/mi30_max_kappa_boxplots.png', dpi=600)
+ggsave('./figures/eventsum_wmean_kappa_boxplots.png', dpi=600)
 
 kappa_burn <- left_join(kappa, burn, by = 'site') %>%
   mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned'))
@@ -4949,7 +4968,7 @@ p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) +
                      label.x = 1.4,
                      size = 15) +  # Adjust label position
   theme(
-    legend.position = c(.32, 1.00),
+    legend.position = c(.29, 1.01),
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),         # Adjust legend text size
     legend.title = element_blank(), 
@@ -4963,19 +4982,19 @@ p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) +
   ) +
   scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
   facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI30 kappa values',
+  labs(y = 'Event P kappa values',
        x=NULL)
 
 p2
 
-ggsave('./figures/mi30_max_kappa_burn_boxplots.png', dpi=600)
+ggsave('./figures/eventsum_wmean_kappa_burn_boxplots.png', dpi=600)
 
 library(cowplot)
 
 combined_plot <- plot_grid(p1, p2, ncol = 1)
 combined_plot
 
-ggsave('./figures/mi30_max_kappa_boxplots_combine.png', 
+ggsave('./figures/eventsum_wmean_kappa_boxplots_combine.png', 
        combined_plot,
        dpi=600)
 
