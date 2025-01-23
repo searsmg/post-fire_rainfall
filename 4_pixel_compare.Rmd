@@ -25,6 +25,7 @@ library(dataRetrieval)
 library(plotly)
 library(raster)
 library(mapview)
+library(ggExtra)
 
 # load the functions to process TB & mrms events
 load('./R/rain_metrics.Rdata')
@@ -1082,6 +1083,9 @@ write_csv(corrs_all, './data/final/mrms/pixel_compare/compare/corr_bysite2.csv')
 
 ```{r}
 
+comp_all <- read_csv('./data/final/mrms/pixel_compare/compare/comp_cpf_etf2.csv')
+
+
 library(viridis)
 library(RColorBrewer)
 
@@ -1091,47 +1095,18 @@ comp_all <- comp_all %>%
                           labels = c("0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"), 
                           include.lowest = TRUE))
 
-color_palette <- brewer.pal(n = 8, name = "Dark2")[1:5]
+color_palette <- c(
+  "0-0.2" = "#66A61E",
+  "0.2-0.4" = "#1B9E77",
+  "0.4-0.6" = "#D95F02",
+  "0.6-0.8" = "#7570B3",
+  "0.8-1.0" = "#E7298A"
+)
 
 new_facet_titles <- c(
   "CPF" = "Cameron Peak",
   "ETF" = "East Troublesome"
 )
-
-# # Plot using rqi_bucket
-# plot1<-ggplot(comp_all %>% arrange(desc(rqi)),  # Ensure higher rqi values are plotted first
-#        aes(y = MI60_mmhr.y, 
-#            x = MI60_mmhr.x, 
-#            color = rqi_bucket)) +  # Use the categorical variable
-#   geom_point(alpha = 0.6,
-#              size = 4,
-#              stroke=1) +
-# scale_color_brewer(palette='Dark2') +
-#   geom_abline(intercept = 0, 
-#               slope = 1, 
-#               linetype = "dashed", 
-#               color = "black") +
-#   #geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-#   labs(x = 'MRMS', y = 'TB',
-#        color='RQI') +
-#     theme_bw(base_size = 20) +
-#     theme(
-#     panel.grid = element_blank(),
-#     panel.background = element_rect(fill = "white"),
-#     strip.background = element_blank(),
-#     text = element_text(color = "black"),
-#     axis.title = element_text(color = "black"),
-#     axis.text = element_text(color = "black"),
-#     legend.position = c(.52, 1.01),
-#     legend.justification = c(0, 1.1), 
-#     legend.text = element_text(size = 16),         # Adjust legend text size
-#     legend.title = element_text(size = 16), ) +
-#   facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) 
-# 
-# plot1
-# 
-# ggsave('./figures/pixel_tb_scatter.png', dpi=600)
-
 
 spearman_corrs_mi30 <- comp_all %>%
   group_by(fire) %>%
@@ -1146,20 +1121,24 @@ spearman_corrs_eventsum <- comp_all %>%
   summarize(spearman_corr = cor(event_sum_mm.y, event_sum_mm.x, method = "spearman"))
 
 
-plot1 <- ggplot(comp_all %>% arrange(desc(rqi)), 
-                aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi_bucket)) +
+# Cameron Peak
+cp1 <- comp_all %>%
+  filter(fire == 'CPF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi_bucket)) +
   geom_point(alpha = 0.6, size = 4, stroke = 1) +
-  scale_color_brewer(palette = 'Dark2') +
+  scale_color_manual(values = color_palette) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
    stat_cor(method = "spearman", 
-           color = "black",    # Set the correlation label color to black
-           label.x = 50, 
-           label.y = 45, 
-           size = 4,            # Adjust label size
-           hjust = 0.5,         # Center the label horizontally
+           color = "black",
+           label.x = 48, 
+           label.y = 72, 
+           size = 4,
+           hjust = 0.5,
            vjust = -1) +
   labs(x = 'MRMS event rainfall (mm)', y = 'TB event rainfall (mm)', color = 'RQI') +
-  theme_bw(base_size = 20) +
+  theme_bw(base_size = 18) +
   theme(
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
@@ -1167,32 +1146,70 @@ plot1 <- ggplot(comp_all %>% arrange(desc(rqi)),
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
-    legend.position = c(.52, 1.01),
+    legend.position = 'none',
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16))
+
+cp1
+
+cp_marg <- ggMarginal(cp1,
+           groupColour = T,
+           groupFill = T,
+           type='density')
+
+cp_marg
+
+ggsave('./figures/pixel_tb_cpmarg_eventsum.png',
+       plot = cp_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
+
+# East Troublesome
+et1 <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi_bucket)) +
+  geom_point(alpha = 0.6, size = 4, stroke = 1) +
+  scale_color_manual(values = color_palette) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+   stat_cor(method = "spearman", 
+           color = "black",    # Set the correlation label color to black
+           label.x = 20, 
+           label.y = 25, 
+           size = 4,            # Adjust label size
+           hjust = 0.5,         # Center the label horizontally
+           vjust = -1) +
+  labs(x = 'MRMS event rainfall (mm)', y = 'TB event rainfall (mm)', color = 'RQI') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = 'none',
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
     legend.title = element_text(size = 16)
-  ) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) 
+  )
 
-plot1
+et1
 
-ggsave('./figures/pixel_tb_scatter_eventsum.png', dpi=600)
+et_marg <- ggMarginal(et1,
+           groupColour = T,
+           groupFill = T)
 
-plot2 <- ggplot(comp_all, 
-                aes(MI60_mmhr.y)) +
-  geom_density(alpha=0.8) +
-  #scale_fill_brewer(palette = 'Dark2') +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) 
+et_marg
 
-plot2
-
-plot2 <- ggplot(comp_all, 
-                aes(x = MI60_mmhr.y)) + 
-  geom_density(alpha = 1, aes(fill = "MI60_mmhr.y")) +  # First density plot
-  geom_density(data = comp_all, aes(x = MI60_mmhr.x, fill = "MI60_mmhr.x"), alpha = 0.8) +  # Second density plot
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) 
-
-plot2
+ggsave('./figures/pixel_tb_ETmarg_eventsum.png',
+       plot = et_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
 
 ```
 
@@ -1550,99 +1567,102 @@ ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) +
 ## Larimer TB
 
 ```{r}
+# Don't need to run anymore
 
-lar_tb <- read_csv('./data/TB_raw/larimerco_precip.csv') %>%
-  rename(numid = site) %>%
-  mutate(datetime = with_tz(DT_mst, 'MST'))
-  
-lar_meta <- read_csv('./data/GIS/larimer_tb_meta.csv') %>%
-  dplyr::select(numid, site = name)
-
-# make it so the larimer tb data has site name
-tb <- left_join(lar_tb, lar_meta, by = 'numid')
-
-lar_names <- unique(lar_meta$site)
-site_name <- lar_names
-  
-pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel_events/pixel10_events_ours2.csv') %>%
-  mutate(start_time = with_tz(start_time, 'MST'),
-         end_time = with_tz(end_time, 'MST')) %>%
-  filter(site %in% lar_names)
-
-tb_filter <- map_df(site_name, filter_tb) %>% 
-  arrange(datetime) # filter tb based on pixel events
-
-###
-# get events for tb_filter
-tb_fil10 <- tb_filter %>%
-  mutate(timestamps_10min = ceiling_date(datetime, "10 mins"),
-         p_mm = p_in*25.4) %>%
-  group_by(site, timestamps_10min) %>%
-  summarize(rain_mm = sum(p_mm),
-            event_mrms = mean(event_mrms)) %>%
-  rename(datetime = timestamps_10min) 
-
-sites <- unique(tb_fil10$site)
-
-# get events for all sites
-tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10, .)) %>%
-  bind_rows()
-
-tbfil_intens <- map(sites, ~ get_mrms_intensities(tbfil_events, .)) %>%
-  bind_rows()
-
-pixel_intens <- pixel10_intens %>%
-  #filter(site == site_name) %>% # update later
-  rename(event_mrms = event)
-
-comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'))
-
-##########
-
-filter <- comp_intens %>%
-  mutate(condition = case_when(
-      site == 'Fort Collins - Gateway Park' &
-        start_time.x > ymd_hms('2021-10-01 01:00:00', tz = 'MST') ~ 'remove',
-      site == 'Fort Collins - Rustic' &
-        start_time.x > ymd_hms('2023-09-13 13:38:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Crown Gulch Headwaters' &
-        start_time.x < ymd_hms('2023-06-27 08:59:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Turner Hill Weather' &
-        start_time.x < ymd_hms('2023-06-27 16:59:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Tunnel Creek at Hwy 14' &
-        start_time.x < ymd_hms('2022-05-31 23:59:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Chambers Resevoir' &
-        start_time.x < ymd_hms('2022-06-27 10:42:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Joe Wright Resevoir' &
-        start_time.x < ymd_hms('2022-06-14 12:59:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Roaring Creek at Hwy 14' &
-        start_time.x < ymd_hms('2021-08-11 10:59:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Long Draw Resevoir' &
-        start_time.x < ymd_hms('2022-06-24 09:13:00', tz = 'MST') ~ 'remove',
-      site == 'Larimer - Long Draw Resevoir' &
-        start_time.x > ymd_hms('2023-06-01 00:00:00', tz = 'MST') &
-        start_time.x < ymd_hms('2023-07-10 22:59:00', tz = 'MST') ~ 'remove',
-      TRUE ~ 'keep'
-  ) 
-  ) %>%
-  filter(condition == 'keep') %>%
-  filter(!site == 'Larimer - North Fork Big Thompson at Storm Mountain Road') %>% 
-  mutate(duration_hr.x = as.numeric(duration_hr.x),
-         duration_hr.y = as.numeric(duration_hr.y)) %>%
-  mutate_at(
-    c(
-      'MI60_mmhr.y',
-      'MI30_mmhr.y',
-      'MI20_mmhr.y',
-      'MI10_mmhr.y',
-      'event_sum_mm.y',
-      'duration_hr.y'),
-    ~ replace_na(., 0)) %>%
-  arrange(start_time.x)
-
-write_csv(filter, './data/final/mrms/pixel_compare/compare/larimer_tbpixel_compare2.csv')
+# lar_tb <- read_csv('./data/TB_raw/larimerco_precip.csv') %>%
+#   rename(numid = site) %>%
+#   mutate(datetime = with_tz(DT_mst, 'MST'))
+#   
+# lar_meta <- read_csv('./data/GIS/larimer_tb_meta.csv') %>%
+#   dplyr::select(numid, site = name)
+# 
+# # make it so the larimer tb data has site name
+# tb <- left_join(lar_tb, lar_meta, by = 'numid')
+# 
+# lar_names <- unique(lar_meta$site)
+# site_name <- lar_names
+#   
+# pixel10_intens <- read_csv('./data/final/mrms/pixel_compare/pixel_events/pixel10_events_ours2.csv') %>%
+#   mutate(start_time = with_tz(start_time, 'MST'),
+#          end_time = with_tz(end_time, 'MST')) %>%
+#   filter(site %in% lar_names)
+# 
+# tb_filter <- map_df(site_name, filter_tb) %>% 
+#   arrange(datetime) # filter tb based on pixel events
+# 
+# ###
+# # get events for tb_filter
+# tb_fil10 <- tb_filter %>%
+#   mutate(timestamps_10min = ceiling_date(datetime, "10 mins"),
+#          p_mm = p_in*25.4) %>%
+#   group_by(site, timestamps_10min) %>%
+#   summarize(rain_mm = sum(p_mm),
+#             event_mrms = mean(event_mrms)) %>%
+#   rename(datetime = timestamps_10min) 
+# 
+# sites <- unique(tb_fil10$site)
+# 
+# # get events for all sites
+# tbfil_events <- map(sites, ~ get_mrms_all_events(tb_fil10, .)) %>%
+#   bind_rows()
+# 
+# tbfil_intens <- map(sites, ~ get_mrms_intensities(tbfil_events, .)) %>%
+#   bind_rows()
+# 
+# pixel_intens <- pixel10_intens %>%
+#   #filter(site == site_name) %>% # update later
+#   rename(event_mrms = event)
+# 
+# comp_intens <- left_join(pixel_intens, tbfil_intens, by = c('site', 'event_mrms'))
+# 
+# ##########
+# 
+# filter <- comp_intens %>%
+#   mutate(condition = case_when(
+#       site == 'Fort Collins - Gateway Park' &
+#         start_time.x > ymd_hms('2021-10-01 01:00:00', tz = 'MST') ~ 'remove',
+#       site == 'Fort Collins - Rustic' &
+#         start_time.x > ymd_hms('2023-09-13 13:38:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Crown Gulch Headwaters' &
+#         start_time.x < ymd_hms('2023-06-27 08:59:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Turner Hill Weather' &
+#         start_time.x < ymd_hms('2023-06-27 16:59:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Tunnel Creek at Hwy 14' &
+#         start_time.x < ymd_hms('2022-05-31 23:59:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Chambers Resevoir' &
+#         start_time.x < ymd_hms('2022-06-27 10:42:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Joe Wright Resevoir' &
+#         start_time.x < ymd_hms('2022-06-14 12:59:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Roaring Creek at Hwy 14' &
+#         start_time.x < ymd_hms('2021-08-11 10:59:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Long Draw Resevoir' &
+#         start_time.x < ymd_hms('2022-06-24 09:13:00', tz = 'MST') ~ 'remove',
+#       site == 'Larimer - Long Draw Resevoir' &
+#         start_time.x > ymd_hms('2023-06-01 00:00:00', tz = 'MST') &
+#         start_time.x < ymd_hms('2023-07-10 22:59:00', tz = 'MST') ~ 'remove',
+#       TRUE ~ 'keep'
+#   ) 
+#   ) %>%
+#   filter(condition == 'keep') %>%
+#   filter(!site == 'Larimer - North Fork Big Thompson at Storm Mountain Road') %>% 
+#   mutate(duration_hr.x = as.numeric(duration_hr.x),
+#          duration_hr.y = as.numeric(duration_hr.y)) %>%
+#   mutate_at(
+#     c(
+#       'MI60_mmhr.y',
+#       'MI30_mmhr.y',
+#       'MI20_mmhr.y',
+#       'MI10_mmhr.y',
+#       'event_sum_mm.y',
+#       'duration_hr.y'),
+#     ~ replace_na(., 0)) %>%
+#   arrange(start_time.x)
+# 
+# write_csv(filter, './data/final/mrms/pixel_compare/compare/larimer_tbpixel_compare2.csv')
 
 ##############################################################################
+
+filter <- read_csv('./data/final/mrms/pixel_compare/compare/larimer_tbpixel_compare2.csv')
 
 spearman_corrs_mi30 <- filter %>%
   summarize(spearman_corr = cor(MI30_mmhr.y, MI30_mmhr.x, method = "spearman"))
@@ -1659,22 +1679,20 @@ filter <- filter %>%
                           labels = c("0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"), 
                           include.lowest = TRUE))
 
-color_palette <- brewer.pal(n = 8, name = "Dark2")[1:5]
-
 plot_lar <- ggplot(filter %>% arrange(desc(rqi)), 
-                aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi_bucket)) +
+                aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = rqi_bucket)) +
   geom_point(alpha = 0.6, size = 4, stroke = 1) +
-  scale_color_brewer(palette = 'Dark2') +
+  scale_color_manual(values = color_palette) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
    stat_cor(method = "spearman", 
            color = "black",    # Set the correlation label color to black
-           label.x = 50, 
-           label.y = 45, 
+           label.x = 75, 
+           label.y = 92, 
            size = 4,            # Adjust label size
            hjust = 0.5,         # Center the label horizontally
            vjust = -1) +
-  labs(x = 'MRMS event rainfall (mm)', y = 'TB event rainfall (mm)', color = 'RQI') +
-  theme_bw(base_size = 20) +
+  labs(x = 'MRMS MI30 (mm/hr)', y = 'TB MI30 (mm/hr)', color = 'RQI') +
+  theme_bw(base_size = 18) +
   theme(
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
@@ -1682,7 +1700,7 @@ plot_lar <- ggplot(filter %>% arrange(desc(rqi)),
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
-    legend.position = c(.52, 1.01),
+    legend.position = 'none',
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
     legend.title = element_text(size = 16)
@@ -1690,46 +1708,17 @@ plot_lar <- ggplot(filter %>% arrange(desc(rqi)),
 
 plot_lar
 
+lar_marg <- ggMarginal(plot_lar,
+           groupColour = T,
+           groupFill = T)
 
-# cor_coeff <- cor(filter$MI60_mmhr.y, filter$MI60_mmhr.x)
-# 
-# ggplot(filter, aes(y = MI60_mmhr.y, x = MI60_mmhr.x)) + 
-#   geom_point(aes(color = rqi > 0.4)) +
-#   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-#   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-#   ggtitle(paste('Larimer MI60:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
-#   labs(x = 'MRMS', y = 'TB')
-# 
-# cor_coeff <- cor(filter$MI10_mmhr.y, filter$MI10_mmhr.x)
-# 
-# ggplot(filter, aes(y = MI10_mmhr.y, x = MI10_mmhr.x)) + 
-#   geom_point(aes(color = rqi > 0.4)) +
-#   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-#   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-#   ggtitle(paste('Larimer MI10:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
-#   labs(x = 'MRMS', y = 'TB')
-# 
-# cor_coeff <- cor(filter$event_sum_mm.y, filter$event_sum_mm.x)
-# 
-# ggplot(filter, aes(y = event_sum_mm.y, x = event_sum_mm.x)) + 
-#   geom_point(aes(color = rqi > 0.4)) +
-#   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-#   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-#   ggtitle(paste('Larimer event sum:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
-#   labs(x = 'MRMS', y = 'TB')
-# 
-# cor_coeff <- cor(filter$MI30_mmhr.y, filter$MI30_mmhr.x)
-# 
-# ggplot(filter, aes(y = MI30_mmhr.y, x = MI30_mmhr.x)) + 
-#   geom_point(aes(color = rqi > 0.4)) +
-#   scale_color_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
-#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-#   geom_text(x = 12, y = 13, label = "1:1", hjust = 0, vjust = 0, color = "black") +
-#   ggtitle(paste('Larimer MI30:', paste("Correlation =", round(cor_coeff, digits = 2)))) +
-#   labs(x = 'MRMS', y = 'TB')
+lar_marg
+
+ggsave('./figures/pixel_tb_LARmarg_MI30.png',
+       plot = lar_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
 
 # Corr by site
 comp_r2 <- filter %>%
