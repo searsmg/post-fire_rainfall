@@ -4910,7 +4910,7 @@ kappa <- bind_rows(et_tb_kappa,
 write.csv(kappa, './data/final/stage_YN_response/kappa_eventsum_wmean.csv')
 
 ##########################################################################
-kappa <- read_csv('./data/final/stage_YN_response/kappa_eventsum_wmean.csv')
+kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean.csv')
 
 new_facet_titles <- c(
   "cpf" = "Cameron Peak",
@@ -5003,6 +5003,7 @@ ggsave('./figures/eventsum_wmean_kappa_boxplots_combine.png',
 
 # make kappa 1:1 plots
 kappa_flip <- kappa %>%
+  select(-1) %>%
   pivot_wider(names_from = 'source',
               values_from = 'kappa_value')
   
@@ -5013,7 +5014,9 @@ ggplot(kappa_flip) +
               linetype = "dashed", 
               color = "black")
 
-
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
 
 ```
 
@@ -5033,15 +5036,14 @@ mean_elev <- dem %>%
                         site)) %>%
   mutate(site = tolower(site)) %>%
   rename(mean_elev_m = 2) %>%
-  select(-1)
+  dplyr::select(-1)
 
 kappa_elev <- left_join(kappa_flip,
                         mean_elev,
                         by = 'site')
 
-
 ggplot(kappa_elev) +
-  geom_point(aes(TB, MRMS, 
+  geom_point(aes(MRMS, TB, 
                  shape = fire,
                  color=mean_elev_m),
                  size=5) +
@@ -5050,10 +5052,70 @@ ggplot(kappa_elev) +
               linetype = "dashed", 
               color = "black") +
    scale_color_gradientn(colours = terrain.colors(15)) +
-    geom_text(aes(x = TB, y = MRMS, label = site),  # Add site label
-            size = 3, vjust = -1, hjust = -0.1,  # Adjust positioning as needed
-            color = "black") 
+    geom_text(aes(x = MRMS, y = TB, label = site),
+            size = 5, vjust = -1, hjust = -0.1,
+            color = "black") +
+  labs(x='MRMS MI60',
+       y='TB MI60') +
+  theme_bw(base_size=20)
 
+ggsave('./figures/kappa_tb_mrms_elevmi60.png',
+       dpi=600)
+
+
+# by dnbr
+kappa_flip <- left_join(kappa_flip, burn, by = 'site')
+
+ggplot(kappa_flip) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 color=mean_dnbr),
+                 size=5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black") +
+   scale_color_continuous(type = "viridis") +
+    geom_text(aes(x = MRMS, y = TB, label = site),
+            size = 5, vjust = -1, hjust = -0.1,
+            color = "black") +
+  labs(x='MRMS MI60',
+       y='TB MI60') +
+  theme_bw(base_size=20)
+
+ggsave('./figures/kappa_tb_mrms_BURNmi60.png',
+       dpi=600)
+
+# by area
+area <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, area_km2) %>% 
+  mutate(site = tolower(site))
+
+kappa_flip <- left_join(kappa_flip, area, by = 'site')
+
+area_plot <- kappa_flip %>%
+  filter(!site == 'mtcampus') %>%
+ggplot(.) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 color=area_km2),
+                 size=5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black") +
+   scale_color_continuous(type = "viridis") +
+    geom_text(aes(x = MRMS, y = TB, label = site),
+            size = 5, vjust = -1, hjust = -0.1,
+            color = "black") +
+  labs(x='MRMS MI60',
+       y='TB MI60') +
+  theme_bw(base_size=20)
+
+area_plot
+
+ggsave('./figures/kappa_tb_mrms_AREAmi60.png',
+       dpi=600)
 
 ```
 
