@@ -23,98 +23,126 @@ library(tmap)
 library(sf)
 library(mapview)
 library(leaflet)
+library(R.utils)
 
 ```
 
+# Unzip the grib2 files
+
 ```{r}
-# #Crop and save as tif
-# # need bbox
-# bbox <- vect('/Users/megansears/Documents/MRMS/bbox_2fires/bbox_2fires.shp')%>%
-#   terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
-# 
-# # Bounding box based on rain sensors to crop MRMS data
-# bbox <- as(bbox, 'Spatial')
-# 
-# mapview(bbox) 
-# 
-# #######################
-# 
-# # Path to 2 min data
-# folder_path <- '/Users/megansears/Documents/MRMS/RQI/2023'
-# folder_path2 <- '/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires'
-# 
-# # Get the list of GRIB2 files in the folder
-# files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
-# 
-# # Set the number of cores to use (adjust according to your system)
-# num_cores <- 8
-# 
-# # Initialize parallel processing
-# cl <- makeCluster(num_cores)
-# registerDoParallel(cl)
-# 
-# # Define a function to process a single GRIB2 file
-# process_file <- function(file) {
-#   
-#   # Read the GRIB2 file as a raster
-#   r <- raster(file)
-#   
-#   crs(r) <- "+proj=longlat +datum=WGS84 +no_defs"
-#   
-#   # Crop the raster
-#   r <- raster::crop(r, bbox)
-#   
-#   # Save the raster as .tif
-#   new_file_name <- paste0(tools::file_path_sans_ext(basename(file)), "_processed.tif")
-#   new_file_path <- file.path(folder_path2, new_file_name)
-#   writeRaster(r, filename = new_file_path, overwrite = TRUE)
-#   
-#   # Remove unnecessary objects
-#   rm(r)
-# }
-# 
-# # Use parallel processing with foreach
-# foreach(file = files, .packages = c("raster")) %dopar% {
-#   tryCatch({
-#     process_file(file)
-#   }, error = function(e) {
-#     message(paste("Error processing file:", file))
-#     message("Error message:", e)
-#   })
-# }
-# 
-# # Stop parallel processing
-# stopCluster(cl)
-# 
-# beep(sound=8)
+
+# Get rid of gz - unzip the grib2
+setwd("/Users/megansears/Documents/MRMS/RQI/2021")
+
+# Unzip all files
+unzip <- list.files(path = '/Users/megansears/Documents/MRMS/RQI/2021', pattern = '.gz',
+                  full.names = T)
+
+unzip_all <- lapply(unzip, gunzip)
 
 ```
 
-```{r}
-# #Stack RQIs
-# # List all the files in the directory
-# filenames <- list.files("/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires", pattern = ".tif", full.names = TRUE)
-# 
-# datetime <- list.files("/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires", pattern = ".tif", full.names = F)
-# 
-# timestamps <- substr(datetime, 25, 39)
-# datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60)
-# 
-# # Read all raster files and stack them together
-# stack <- read_stars(filenames, along = 3)
-# 
-# # Set the datetime dimension of the stack
-# stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
-# 
-# # Filter the stack_date object by datetime
-# stack_rqi2023 <- stack_date %>%
-#   setNames('rqi') %>%
-#   filter(datetime > ymd_hms('2023-05-31 23:58:00'),
-#          datetime < ymd_hms('2023-09-30 23:58:00'))
-# 
-# rm(stack, stack_date)
+# Crop RQI and save as tif
 
-# save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2023.RData")
+```{r}
+
+# bound box across CPF and ETF
+bbox <- vect('/Users/megansears/Documents/MRMS/bbox_2fires/bbox_2fires.shp') %>%
+  terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+
+# Bounding box based on rain sensors to crop MRMS data
+bbox <- as(bbox, 'Spatial')
+
+mapview(bbox) # take a look
+
+#######################
+
+# Path to 2 min data
+folder_path <- '/Users/megansears/Documents/MRMS/RQI/2023' # location of uncropped RQI data
+
+# Path to where you want cropped tifs to be saved
+folder_path2 <- '/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires'
+
+# Get the list of GRIB2 files in the folder
+files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
+
+# Set the number of cores to use (adjust according to your system)
+num_cores <- 8
+
+# parallel processing
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+
+# function to crop and save as tif
+# using
+process_file <- function(file) {
+
+  # Read the GRIB2 file as a raster
+  r <- raster(file)
+  
+  # Set the crs
+  crs(r) <- "+proj=longlat +datum=WGS84 +no_defs"
+
+  # Crop the raster
+  r <- raster::crop(r, bbox)
+
+  # Save the raster as .tif
+  new_file_name <- paste0(tools::file_path_sans_ext(basename(file)), "_processed.tif")
+  new_file_path <- file.path(folder_path2, new_file_name)
+  writeRaster(r, filename = new_file_path, overwrite = TRUE)
+
+  # Remove rasters after being processed b/c memory
+  rm(r)
+}
+
+# Use parallel processing with foreach (apply the function above)
+foreach(file = files, .packages = c("raster")) %dopar% {
+  tryCatch({
+    process_file(file)
+  }, error = function(e) {
+    message(paste("Error processing file:", file))
+    message("Error message:", e)
+  })
+}
+
+# Stop parallel processing
+stopCluster(cl)
+
+# this is so your code beeps when it's done
+beep(sound=8)
+
+```
+
+# Get files into raster stack
+
+```{r}
+
+# List all the files in the directory
+filenames <- list.files("/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires", pattern = ".tif", full.names = TRUE)
+
+# pull the datetime from filename
+datetime <- list.files("/Users/megansears/Documents/MRMS/RQI/2023/RQI_crop_bbox2fires", pattern = ".tif", full.names = F)
+
+# create timestamps
+timestamps <- substr(datetime, 25, 39)
+datetime_seq <- ymd_hms(timestamps) - (7 * 60 * 60) # the mrms data are in UTC
+
+# Read all raster files and stack them together
+stack <- read_stars(filenames, along = 3)
+
+# Set the datetime dimension of the stack
+stack_date <- st_set_dimensions(stack, 3, values = datetime_seq, names = "datetime")
+
+# Filter the stack_date object by datetime
+stack_rqi2023 <- stack_date %>%
+  setNames('rqi') %>%
+  filter(datetime > ymd_hms('2023-05-31 23:58:00'),
+         datetime < ymd_hms('2023-09-30 23:58:00'))
+
+rm(stack, stack_date)
+
+# save as RData file
+save.image("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2023.RData")
 
 ```
 
@@ -123,40 +151,40 @@ library(leaflet)
 ## 2023
 
 ```{r}
-# 2023 RQI mean
+# load Rdata from above
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2023.RData")
 
+# pull in catchments
 catchments <- st_read('/Users/megansears/Documents/Repos/post-fire_rainfall/data/GIS/catchments_all_lidar.shp')
-#mapview(catchments)
 
+# get the mean value
 rqi_mean_2023 <- st_apply(
   stack_rqi2023,
   MARGIN = c("x", "y"),
   FUN = mean
 )
 
-
-
-
 my_palette <- c("red", "darkgreen")
 
 # Define breaks
 breaks <- c(0, .40, 1)
 
-# Create mapview object with custom colors
+# Create mapview with red/green for 0.4 cutoff
 mapview(rqi_mean_2023,
         col.regions = my_palette, 
         at = breaks) +
   mapview(catchments)
 
-
+# remove
 rm(stack_rqi2023)
 
 ```
 
-## 2022 
+## 2022
+same code as above
 
 ```{r}
+
 # 2022 RQI mean
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2022.RData")
 
@@ -173,9 +201,11 @@ mapview(rqi_mean_2022,
 
 
 rm(stack_rqi2022)
+
 ```
 
 ## 2021
+same code as above
 
 ```{r}
 # 2021 RQI mean
@@ -195,13 +225,14 @@ mapview(rqi_mean_2021,
 
 ```
 
-# Count the # pixels <40 in a stack
+# Count the # pixels <.4 in a stack
 
 Out of ~87,770 timesteps
 
 ## 2023
 
 ```{r}
+
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2023.RData")
 
 count_function <- function(x) {
@@ -222,8 +253,10 @@ mapview(count23) +
 ```
 
 ## 2022
+same code as above
 
 ```{r}
+
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2022.RData")
 
 count22 <- st_apply(
@@ -233,9 +266,11 @@ count22 <- st_apply(
 )
 
 mapview(count22) + mapview(catchments)
+
 ```
 
 ## 2021
+same code as above
 
 ```{r}
 load("/Users/megansears/Documents/Repos/post-fire_rainfall/bbox_2fires/stack_RQI_2021.RData")
@@ -249,9 +284,4 @@ count21 <- st_apply(
 mapview(count21) + mapview(catchments)
 
 ```
-
-
-
-
-
 
