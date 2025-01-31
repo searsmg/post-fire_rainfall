@@ -26,6 +26,9 @@ library(plotly)
 library(raster)
 library(mapview)
 library(ggExtra)
+library(viridis)
+library(RColorBrewer)
+library(ggpubr)
 
 # load the functions to process TB & mrms events
 load('./R/rain_metrics.Rdata')
@@ -1085,10 +1088,6 @@ write_csv(corrs_all, './data/final/mrms/pixel_compare/compare/corr_bysite2.csv')
 
 comp_all <- read_csv('./data/final/mrms/pixel_compare/compare/comp_cpf_etf2.csv')
 
-
-library(viridis)
-library(RColorBrewer)
-
 comp_all <- comp_all %>%
   mutate(rqi_bucket = cut(rqi, 
                           breaks = c(0, .20, .40, .60, .80, 1),
@@ -1490,7 +1489,76 @@ plots
 
 ```
 
+# Combine cpf and larimer figs
+
+```{r}
+
+filter <- filter %>%
+  mutate(fire = 'cpf')
+
+all <- bind_rows(comp_all, filter) %>%
+  mutate(side = if_else(fire == 'etf', 'West', 'East'))
+
+color_palette <- c(
+  "0-0.2" = "#66A61E",
+  "0.2-0.4" = "#1B9E77",
+  "0.4-0.6" = "#D95F02",
+  "0.6-0.8" = "#7570B3",
+  "0.8-1.0" = "#E7298A"
+)
+
+# Cameron Peak
+cp1 <- all %>%
+  filter(side == 'East') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi_bucket)) +
+  geom_point(alpha = 0.6, size = 4, stroke = 1) +
+  scale_color_manual(values = color_palette) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+   stat_cor(method = "spearman", 
+           color = "black",
+           label.x = 40, 
+           label.y = 60, 
+           size = 4,
+           hjust = 0.5,
+           vjust = -1) +
+  labs(x = 'MRMS MI60 (mm/hr)', y = 'TB MI60 (mm/hr)', color = 'RQI') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = 'none',
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16))
+
+cp1
+
+cp_marg <- ggMarginal(cp1,
+           groupColour = T,
+           groupFill = T,
+           type='density')
+
+cp_marg
+
+ggsave('./figures/pixel_tb_eastmarg_mi60.png',
+       plot = cp_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
+
+
+```
+
+
+
 ## Figs by elev
+Not going to use
 
 ```{r}
 
