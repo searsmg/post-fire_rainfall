@@ -15,16 +15,15 @@ knitr::opts_chunk$set(
 # load packages
 library(here)
 library(tidyverse)
-library(lubridate)
 library(zoo)
 library(terra)
 library(stars)
 library(tmap)
 library(sf)
 library(mapview)
-library(zoo)
 library(ggspatial)
 library(beepr)
+library(scales)
 
 ```
 
@@ -276,9 +275,9 @@ Includes calculations and pt of manuscript fig 2
 
 year <- 23 # **UPDATE HERE**
 
-sum_all21 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2021_fil01.tif')
-sum_all22 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2022_fil01.tif')
-sum_all23 <- read_stars('./data/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
+sum_all21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2021_fil01.tif')
+sum_all22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2022_fil01.tif')
+sum_all23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
 
 # make df for ggplot
@@ -303,9 +302,13 @@ p_df <- bind_rows(p_df21, p_df22, p_df23)
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
 
-huc <- st_read('./data/GIS/WBDHU2.shp')
+huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+  filter(!huc8 == 10180001) %>%
+  filter(states %in% c('CO', 'CO,WY'))
+  
+huc8 <- st_union(huc)
 
-library(scales)
+mapview(fires) + mapview(huc8)
 
 # Get raster extent
 x_min <- min(p_df$x)
@@ -323,9 +326,9 @@ ptot_plot <- ggplot() +
   facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'grey29',
+          color = 'grey40',
           lwd = 1) +
-  geom_sf(data = huc,
+  geom_sf(data = huc8,
           fill = NA,
           color='white',
           lwd = 1.2,
@@ -406,7 +409,7 @@ Includes calculations and pt of manuscript fig 2
 
 ```{r}
 
-gridmet21 <- read_stars('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
+gridmet21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
@@ -415,41 +418,41 @@ gridmet21 <- read_stars('./data/mrms_data/bbox_2fires/2021_gridmet_summerp.tif')
   
 #mapview(gridmet21) + mapview(sum_all21)
 
-gridmet22 <- read_stars('./data/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+gridmet22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
   mutate(year = 2022,
          source = 'Gridmet')
 
-prism23 <- read_stars('./data/mrms_data/bbox_2fires/prism23.ppt.tif') %>%
-  st_warp(., sum_all23) %>%
-    as.data.frame(., xy = TRUE) %>%
-  rename(sum = 3) %>%
-  mutate(year = 2023,
-         source = 'Gridmet')
+# prism23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/prism23.ppt.tif') %>%
+#   st_warp(., sum_all23) %>%
+#     as.data.frame(., xy = TRUE) %>%
+#   rename(sum = 3) %>%
+#   mutate(year = 2023,
+#          source = 'Gridmet')
+# 
+# mapview(prism23) + mapview(gridmet23)
+# 
+# test_diff <- prism23-gridmet23
+# mapview(test_diff)
+# 
+# plot(test_diff)
+# 
+# # Convert raster to a data frame
+# test_diff_df <- as.data.frame(test_diff,xy=T)
+# 
+# # Rename the value column (adjust as needed)
+# names(test_diff_df)[3] <- "diff"
+# 
+# # Plot with ggplot2
+# ggplot(test_diff_df, aes(x = x, y = y, fill = diff)) +
+#   geom_raster() +
+#   scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0) +
+#   coord_fixed() +
+#   labs(fill = "Difference")
 
-mapview(prism23) + mapview(gridmet23)
-
-test_diff <- prism23-gridmet23
-mapview(test_diff)
-
-plot(test_diff)
-
-# Convert raster to a data frame
-test_diff_df <- as.data.frame(test_diff,xy=T)
-
-# Rename the value column (adjust as needed)
-names(test_diff_df)[3] <- "diff"
-
-# Plot with ggplot2
-ggplot(test_diff_df, aes(x = x, y = y, fill = diff)) +
-  geom_raster() +
-  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = 0) +
-  coord_fixed() +
-  labs(fill = "Difference")
-
-gridmet23 <- read_stars('./data/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
+gridmet23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
   st_warp(., sum_all23) %>%
   as.data.frame(., xy = TRUE) %>%
   rename(sum = 3) %>%
@@ -477,10 +480,10 @@ gridmet_all_plot <- ggplot() +
   facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'grey29',
+          color = 'grey40',
           lwd = 1) +
     theme_bw(base_size = 23) +
-      geom_sf(data = huc,
+      geom_sf(data = huc8,
           fill = NA,
           color='white',
           lwd = 1.2,
@@ -523,7 +526,7 @@ Includes calculations and pt of manuscript fig 2
 ```{r}
 
 # 2023 RQI mean
-load("./data/mrms_data/bbox_2fires/stack_RQI_2023.RData")
+load("/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/stack_RQI_2023.RData")
 
 rqi_mean_2023 <- st_apply(
   stack_rqi2023,
@@ -536,7 +539,7 @@ rqi23 <- as.data.frame(rqi_mean_2023, xy = TRUE) %>%
          source = 'RQI')
 
 # 2022 RQI mean
-load("./data/mrms_data/bbox_2fires/stack_RQI_2022.RData")
+load("/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/stack_RQI_2022.RData")
 
 rqi_mean_2022 <- st_apply(
   stack_rqi2022,
@@ -550,7 +553,7 @@ rqi22 <- as.data.frame(rqi_mean_2022, xy = TRUE) %>%
 
 
 # 2021 RQI mean
-load("./data/mrms_data/bbox_2fires/stack_RQI_2021.RData")
+load("/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/stack_RQI_2021.RData")
 
 rqi_mean_2021 <- st_apply(
   stack_rqi2021,
@@ -579,9 +582,9 @@ rqi_all <- ggplot() +
   facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'grey29',
+          color = 'grey20',
           lwd = 1) +
-        geom_sf(data = huc,
+        geom_sf(data = huc8,
           fill = NA,
           color='white',
           lwd = 1.2,
@@ -668,81 +671,80 @@ ggsave('./figures/rqi_legend.png', dpi=600, width=15, height = 20)
 Includes calculation and pt of figure 2 in manuscript
 
 ```{r}
-year <- 23
-pover <- 10
+# year <- 23
+# pover <- 10
+# 
+# stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+#   group_by(x,y) %>%
+#   # mutate(id = cur_group_id()) %>%
+#   # filter(id == 6621) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# mi60_p_23 <- bind_rows(stack10left, stack10right) %>%
+#   mutate(year = 2023,
+#          metric = 'MI60') 
+# 
+# year <- 22
+# 
+# stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# mi60_p_22 <- bind_rows(stack10left, stack10right) %>%
+#   mutate(year = 2022,
+#          metric = 'MI60')
+# 
+# year <- 21
+# 
+# stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
+#   group_by(x,y) %>%
+#   arrange(datetime_round) %>% 
+#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+#   #mutate(sum_mm = p_mm*6) %>% 
+#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
+#   summarize(p_over = sum(over))
+# 
+# mi60_p_21 <- bind_rows(stack10left, stack10right) %>%
+#   mutate(year = 2021,
+#          metric = 'MI60')
+# 
+# mi60_p <- bind_rows(mi60_p_23, mi60_p_22, mi60_p_21)
+# 
+# write_csv(mi60_p, './data/mrms_data/bbox_2fires/mi60_pover10.csv')
 
-stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
-  group_by(x,y) %>%
-  # mutate(id = cur_group_id()) %>%
-  # filter(id == 6621) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-mi60_p_23 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2023,
-         metric = 'MI60') 
-
-year <- 22
-
-stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-mi60_p_22 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2022,
-         metric = 'MI60')
-
-year <- 21
-
-stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
-  group_by(x,y) %>%
-  arrange(datetime_round) %>% 
-  mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-  #mutate(sum_mm = p_mm*6) %>% 
-  mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-  summarize(p_over = sum(over))
-
-mi60_p_21 <- bind_rows(stack10left, stack10right) %>%
-  mutate(year = 2021,
-         metric = 'MI60')
-
-mi60_p <- bind_rows(mi60_p_23, mi60_p_22, mi60_p_21)
-
-write_csv(mi60_p, './data/mrms_data/bbox_2fires/mi60_pover10.csv')
-
-huc <- st_read('./data/GIS/WBDHU2.shp')
-mapview(huc) + mapview(fires)
+mi60_p <- read_csv('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mi60_pover10.csv')
 
 # Get raster extent
 x_min <- min(mi60_p$x)
@@ -760,9 +762,9 @@ mi60_over <- ggplot() +
   facet_wrap(~as.character(year), nrow = 1) +
   geom_sf(data = fires,
           fill = NA,
-          color = 'grey48',
+          color = 'grey40',
           lwd = 1) +
-  geom_sf(data = huc,
+  geom_sf(data = huc8,
           fill = NA,
           color='white',
           lwd = 1.2,
