@@ -32,13 +32,13 @@ library(scales)
 ```{r}
 # read in fire boundaries
 et <- st_read('./data/GIS/etf_updatedboundary/etf_boundary.shp') %>%
-  select(geometry)
+  dplyr::select(geometry)
 
 # this is OLD ETF boundary - DO NOT USE
 #et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
 
 cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp') %>%
-  select(geometry)
+  dplyr::select(geometry)
 
 # make the et crs same as cp
 et <- st_transform(et, st_crs(cp))
@@ -897,6 +897,12 @@ dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
 dem_cp <- extract(dem_resam, 
                   cp,
                   xy=T)
+
+huc8 <- st_transform(huc8, crs = 4326)
+
+dem_right <- extract(dem_resam,
+                     huc8,
+                     xy=T)
 
 pover10_mi60_cp <- extract(mi60_p10_23_rast, 
                   cp,
