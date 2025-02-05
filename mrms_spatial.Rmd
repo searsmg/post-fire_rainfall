@@ -855,141 +855,185 @@ ggsave('./figures/mi60_over_legend.png', dpi=600, width=15, height = 20)
 Includes calculations and figure 3 in manuscript
 
 ```{r}
+# read in huc, filter for co and wy
+# remove one line follows the divide
+# looking at the mtn range instead
+huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+  filter(!huc8 == 10180001) %>%
+  filter(states %in% c('CO', 'CO,WY'))
 
-# cpf 2023
-# year <- 23
-# pover <- 10
-# 
-# stack10left <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_left.csv')) %>% 
-#   group_by(x,y) %>%
-#   arrange(datetime_round) %>% 
-#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-#   summarize(p_over = sum(over))
-# 
-# stack10right <- read_csv(paste0('./data/mrms_data/bbox_2fires/mrms20', year, '_10min_right.csv')) %>% 
-#   group_by(x,y) %>%
-#   arrange(datetime_round) %>% 
-#   mutate(sum_mm = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
-#   mutate(over = if_else(sum_mm > pover, p_mm, 0)) %>%
-#   summarize(p_over = sum(over))
-# 
-# mi60_p10_23 <- bind_rows(stack10left, stack10right)
-# 
-# mi60_p10_23_rast <- rast(mi60_p10_23, type = "xyz")
-# crs(mi60_p10_23_rast) <- "EPSG:4326" 
-# 
-# mi60_p10_23_rast <- project(mi60_p10_23_rast, crs(dem1))
-# writeRaster(mi60_p10_23_rast, './data/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+# make as 1 polygon  
+huc8 <- st_union(huc) %>%
+  st_sf()
 
-####
+# need to expand the dem (cut off at the bottom)
+dem_add1 <- read_stars('./data/GIS/USGS_13_n40w107_20220216.tif')
+dem_add2 <- read_stars('./data/GIS/USGS_13_n40w106_20230602 (1).tif')
 
-dem <- rast('./data/GIS/dem_10m.tif')
+# original dem
+dem <- read_stars('./data/GIS/dem_10m.tif')
 
-dem1km <- aggregate(dem, fact = 1000, fun = "mean")
+# mosaic in the bottom dems
+dem_mosaic <- st_mosaic(dem, dem_add1, dem_add2)
 
-mi60_p10_23_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+# 2023 mi60 over 10
+mi60_p10_23_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
 
-# need to resample DEM to match MRMS
-dem_resam <- resample(dem1km, mi60_p10_23_rast, method = "bilinear")
+# dem's way bigger than needed, crop to mi60_p10 rast
+dem_crop <- st_crop(dem_mosaic, mi60_p10_23_rast)
 
-# cameron peak 23
-dem_cp <- extract(dem_resam, 
-                  cp,
-                  xy=T)
+# rename to dem
+dem <- dem_crop
 
-huc8 <- st_transform(huc8, crs = 4326)
+# haven't exported yet, takes a really long time
+#write_stars(dem_crop,'./data/GIS/dem_10m.tif')
 
-dem_right <- extract(dem_resam,
-                     huc8,
-                     xy=T)
+# need to resample DEM (10m) to match MRMS (1km)
+dem_resam <- st_warp(dem, mi60_p10_23_rast, 
+                     method = "bilinear",
+                     use_gdal = T)
 
-pover10_mi60_cp <- extract(mi60_p10_23_rast, 
-                  cp,
-                  xy=T)
+# set 0 values to NA if they exist (on border)
+dem_resam[dem_resam == 0] <- NA
 
-dem_p10_mi60_cp23 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
-  mutate(fire = 'cp',
+# crop right side of dem and create df
+# only need to do this once
+dem_right <- st_crop(dem_resam,
+                     huc8) %>%
+  as.data.frame() %>%
+  rename(elev_m = 3) %>%
+  drop_na(elev_m)
+
+# right 23
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_23_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_right23 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
          year = '2023',
          source = 'mrms')
 
-# cp 22
-mi60_p10_22_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
+# right 22
+mi60_p10_22_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
 
-pover10_mi60_cp <- extract(mi60_p10_22_rast, 
-                  cp,
-                  xy=T)
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_22_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
 
-dem_p10_mi60_cp22 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
-  mutate(fire = 'cp',
+# join the 2 dfs
+dem_p10_mi60_right22 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
          year = '2022',
          source = 'mrms')
 
-# cp 21
-mi60_p10_21_rast <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
+# right 21
+mi60_p10_21_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
 
-pover10_mi60_cp <- extract(mi60_p10_21_rast, 
-                  cp,
-                  xy=T)
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_21_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
 
-dem_p10_mi60_cp21 <- left_join(dem_cp, pover10_mi60_cp, by = c("x", "y")) %>%
-  mutate(fire = 'cp',
+# join the 2 dfs
+dem_p10_mi60_right21 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
          year = '2021',
          source = 'mrms')
 
-# et 23
-dem_et <- extract(dem_resam, 
-                  et,
-                  xy=T)
+## LEFT SIDE ##
+# crop left side of dem
+# this needs to be done since we are cropping area that is outside of huc8
+# rasterize huc8 based on demresam, set the huc8 values to 1
+# drop huc8 values (1) since we are on the left
+huc8_mask <- st_rasterize(huc8, dem_resam, values = 1) %>%
+  as.data.frame() %>%
+  filter(!ID == 1)
 
-pover10_mi60_et <- extract(mi60_p10_23_rast, 
-                  et,
-                  xy=T)
+# put back to stars
+huc8_mask <- st_as_stars(huc8_mask, 
+                                  dimensions = c("x", "y")) 
 
-dem_p10_mi60_et23 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
-  mutate(fire = 'et',
+# set same crs as dem_resam
+st_crs(huc8_mask) <- st_crs(dem_resam)
+
+# crop the dem_resam to the huc8_mask
+dem_left <- st_crop(dem_resam,
+                     huc8_mask) %>%
+  as.data.frame() %>%
+  rename(elev_m = 3) %>%
+  drop_na(elev_m)
+
+# left 23
+# extract p over 10 mi60 for right side of mtns
+# crop by huc8mask
+pover10_mi60_left <- st_crop(mi60_p10_23_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_left23 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
          year = '2023',
          source = 'mrms')
 
-# et 22
-pover10_mi60_et <- extract(mi60_p10_22_rast, 
-                  et,
-                  xy=T)
+# left 22
+# extract p over 10 mi60 for left side of mtns
+pover10_mi60_left <- st_crop(mi60_p10_22_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
 
-dem_p10_mi60_et22 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
-  mutate(fire = 'et',
+# join the 2 dfs
+dem_p10_mi60_left22 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
          year = '2022',
          source = 'mrms')
 
-# et 21
-pover10_mi60_et <- extract(mi60_p10_21_rast, 
-                  et,
-                  xy=T)
+# left 21
+# extract p over 10 mi60 for left side of mtns
+pover10_mi60_left <- st_crop(mi60_p10_21_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
 
-dem_p10_mi60_et21 <- left_join(dem_et, pover10_mi60_et, by = c("x", "y")) %>%
-  mutate(fire = 'et',
+# join the 2 dfs
+dem_p10_mi60_left21 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
          year = '2021',
          source = 'mrms')
 
-
-dem_p10over <- bind_rows(dem_p10_mi60_cp21,
-                         dem_p10_mi60_cp22,
-                         dem_p10_mi60_cp23,
-                         dem_p10_mi60_et21,
-                         dem_p10_mi60_et22,
-                         dem_p10_mi60_et23)
+# combine all years and sides together
+dem_p10over <- bind_rows(dem_p10_mi60_right21,
+                         dem_p10_mi60_right22,
+                         dem_p10_mi60_right23,
+                         dem_p10_mi60_left21,
+                         dem_p10_mi60_left22,
+                         dem_p10_mi60_left23)
 
 dem_p10over <- dem_p10over %>%
-  rename(elev_m = USGS_13_n41w106_20230314) %>%
   mutate(
     elevation_bin = cut(
       elev_m,
-      breaks = seq(1700, 4000, by = 150), # Set breaks to 150-meter intervals
+      breaks = seq(1500, 4150, by = 150), # Set breaks to 150-meter intervals
       include.lowest = TRUE,
       labels = paste0(
-        seq(1700, 3850, by = 150), # Start and end adjusted for 150-meter bins
+        seq(1500, 3850, by = 150), # Start and end adjusted for 150-meter bins
         "–",
-        seq(1850, 4000, by = 150)
+        seq(1650, 4150, by = 150)
       )
     ),
     year = as.factor(year)
@@ -997,112 +1041,21 @@ dem_p10over <- dem_p10over %>%
   separate(elevation_bin, into = c("bin_start", "bin_end"), sep = "–", convert = TRUE) %>%
   mutate(median_elev = (bin_start + bin_end) / 2)
 
-
-ggplot(dem_p10over %>% filter(fire == "cp"),
-       aes(x = as.character(median_elev), y = p_over)) +
-  geom_violin(scale = 'width', fill = 'steelblue',
-              alpha=0.5) +
-  stat_summary(
-    fun = median,                             # Calculate median
-    geom = "point",                           # Plot as points
-    size = 2,                                 # Adjust point size
-    color = "black",                          # Point color
-    position = position_dodge(width = 0.9)    # Align within violins
-  ) +
-  labs(x = 'Elevation (m)', 
-       y = 'P total (mm) over MI60 10 mm/hr', 
-       fill = 'Fire') +
-  theme_bw(base_size = 20) +
-  theme(
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    #strip.text = element_blank(),
-    text = element_text(color = "black"),
-    axis.title.x = element_blank(),
-    axis.text = element_text(color = "black"),
-    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
-  ) +
-  facet_wrap(~year)
-
-ggsave('./figures/elev_vs_pixel_mrms_cpf_test.png', dpi=600)
-
-ggplot(dem_p10over %>% filter(fire == "et"),
-       aes(x = as.character(median_elev), y = p_over)) +
-  geom_violin(scale = 'width', fill = 'steelblue',
-              alpha=0.5) +
-  stat_summary(
-    fun = median,                             # Calculate median
-    geom = "point",                           # Plot as points
-    size = 2,                                 # Adjust point size
-    color = "black",                          # Point color
-    position = position_dodge(width = 0.9)    # Align within violins
-  ) +
-  labs(x = 'Elevation (m)', 
-       y = 'P total (mm) over MI60 10 mm/hr', 
-       fill = 'Fire') +
-  theme_bw(base_size = 20) +
-  theme(
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    strip.text = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
-  ) +
-  facet_grid(~year)
-
-ggsave('./figures/elev_vs_pixel_mrms_etf.png', dpi=600)
-
-dem_p10over <- dem_p10over %>%
-  mutate(fire = recode(fire,
-                       "cp" = "Cameron Peak",
-                       "et" = "East Troublesome"))
-
-ggplot(dem_p10over,
-       aes(x = as.character(median_elev), y = p_over)) +
-  geom_violin(scale = 'width', fill = 'steelblue',
-              alpha=0.5) +
-  stat_summary(
-    fun = median,                             # Calculate median
-    geom = "point",                           # Plot as points
-    size = 2,                                 # Adjust point size
-    color = "black",                          # Point color
-    position = position_dodge(width = 0.9)    # Align within violins
-  ) +
-  labs(x = 'Elevation (m)', 
-       y = 'P total (mm) over MI60 10 mm/hr', 
-       fill = 'Fire') +
-  theme_bw(base_size = 20) +
-  theme(
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    #strip.text = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels by 45 degrees
-  ) +
-  facet_grid(fire ~ year, scales = "free")
-
-ggsave('./figures/elev_vs_pixel_combine.png', dpi=600)
-
-
 # scatter plots of medians for each elevation bin
+# get median by median_elev that represents the bin, year, side
 p10over_median <- dem_p10over %>%
-  group_by(median_elev, year, fire) %>%
-  summarize(median_p10 = median(p_over))
-  
+  group_by(median_elev, year, side) %>%
+  summarize(median_p10 = median(mi60_p10)) %>%
+  mutate(side = if_else(side == 'left', 'West',
+                        'East'))
   
 ggplot(p10over_median, aes(as.numeric(median_elev),
                 median_p10,
-                shape=fire)) +
-  # geom_point(size=3,
-  #            alpha=0.8) +
-  geom_jitter(size=3, alpha =0.8) +
+                shape=side, color=side)) +
+  geom_point(size=3,
+             alpha=0.8) +
+  scale_color_manual(values = c('steelblue', 'black')) +
+  #geom_jitter(size=3, alpha =0.8) +
   facet_wrap(~year) +
   theme_bw(base_size = 20) +
   theme(
@@ -1122,7 +1075,9 @@ ggplot(p10over_median, aes(as.numeric(median_elev),
   labs(x='Elevation (m)',
        y='Median rainfall (mm) > MI60 10 mm/hr')
 
-ggsave('./figures/elev_vs_pixel_scatter.png', dpi=600)
+ggsave('./figures/elev_vs_pixel_scatter.png', dpi=800,
+       height = 6,
+       width=10)
 
 ```
 
