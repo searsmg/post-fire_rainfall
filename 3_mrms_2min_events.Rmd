@@ -101,7 +101,25 @@ get_mrms_events <- function(df, datetime) {
 
 all <- read_csv('./data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv') %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST'))
-  
+
+# temp for usgs gauges
+# usgs <- read_csv('./data/TB_raw/et_usgs_rain.csv') %>%
+#   mutate(datetime = mdy_hm(datetime)) %>%
+#   drop_na(datetime) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+#   rename(ID = site) %>%
+#   mutate(year = year(datetime),
+#          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+#   group_by(ID, timestamps_10min) %>%
+#   summarize(rain_mm = sum(p_mm)) %>%
+#   rename(datetime = timestamps_10min) 
+
+
+summ <- usgs %>%
+  mutate(year = year(datetime)) %>%
+  group_by(ID, year) %>%
+  mutate(cumsum = cumsum(rain_mm))
+
 ```
 
 # Events
