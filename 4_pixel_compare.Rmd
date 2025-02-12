@@ -498,30 +498,116 @@ tb <- bind_rows(cpf_tb, etf_tb, ben_tb, usgs) %>%
 
 load('./R/rain_metrics.RData')
 
-dadd_tb <- read_csv('./data/cpf_TB_rain.csv') %>%
-  filter(site == 'dadd') %>%
+aspen_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
+  filter(site == 'aspen') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
   arrange(datetime) %>%
   mutate(P_mm = 0.254)
 
-dadd_tb <- get_setup(dadd_tb, dadd_tb$datetime)
+aspen_tb <- get_setup(aspen_tb, aspen_tb$datetime)
 
-dadd_events <- get_events(dadd_tb, dadd_tb$P_mm, dadd_tb$datenumeric,
-                          dadd_tb$end, dadd_tb$rain_start)
+aspen_events <- get_events(aspen_tb, aspen_tb$P_mm, aspen_tb$datenumeric,
+                          aspen_tb$end, aspen_tb$rain_start)
 
-dadd_events <- get_intensities(dadd_events, dadd_events$event, dadd_tb)
+aspen_events <- get_intensities(aspen_events, aspen_events$event, aspen_tb)
 
-#me 
-# me_rain <- get_setup(me_rain, me_rain$datetime)
-# me_events <- get_events(me_rain, me_rain$P_mm, me_rain$datenumeric,
-#                         me_rain$end, me$rain_start)
-# me_events <- get_intensities(me_events, me_events$event, me_rain)
+write.csv(aspen_events, './data/final/tb_events/aspen_tb_events.csv')
 
-dadd_events <- dadd_events %>%
-  mutate(starttime = as.character(starttime),
-         endtime = as.character(endtime))
+# read in dry events
+dry_events <- read_csv('./data/TB_raw/events_from_qm/dry_precip_events.csv') %>% 
+  rename(MI60 = MI60_mmhr,
+         P = event_sum_mm,
+         starttime = start_time) %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  dplyr::select(MI60, P, starttime) %>%
+  mutate(site = 'Dry')
 
-write_csv(dadd_events, './data/final/mrms/pixel_compare/dadd_obs_events.csv')
+bighorn_events <- read_csv('./data/TB_raw/events_from_qm/bighorn_precip_events.csv') %>% 
+  rename(MI60 = MI60_mmhr,
+         P = event_sum_mm,
+         starttime = start_time) %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  dplyr::select(MI60, P, starttime) %>%
+  mutate(site = 'Bighorn')
+
+## combine mub and mont events (read in csvs)
+mub_events <- mub_events %>%
+  mutate(site = 'MUB')
+
+lpm_events <- lpm_events %>%
+  mutate(site = 'LPM')
+
+montgomery_events <-  montgomery_events %>%
+  mutate(site = 'Montgomery')
+
+aspen_events <- aspen_events %>%
+  mutate(site = 'Aspen')
+
+# lpm doesnt have enough data recorded to compare - lets try usgs gauges
+# usgs_events <- read_csv('./data/final/tb_events/usgs_tb_intens.csv') #%>%
+#   dplyr::select(starttime=start_time, 
+#                 MI60=MI60_mmhr, 
+#                 P=event_sum_mm,
+#                 site = ID)
+
+events <- bind_rows(mub_events, bighorn_events)
+
+events <- events %>%
+  mutate(year = year(starttime)) %>%
+  filter(!year == 2021)
+
+
+ggplot(events, aes(x=site, y=P)) + geom_boxplot()
+
+library(ggridges)
+mi60 <- ggplot(events, aes(x = MI60, y = site)) + 
+  geom_density_ridges(
+    alpha = 0.7, scale = 0.55,  # Increase scale for taller ridges
+    jittered_points = TRUE, position = "points_jitter"
+  ) +
+  labs(x = "MI60 (mm/hr)", y = element_blank()) + 
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")
+  )
+
+mi60
+
+p <- ggplot(events, aes(x = P, y = site)) + 
+  geom_density_ridges(
+    alpha = 0.7, scale = 0.55,  # Increase scale for taller ridges
+    jittered_points = TRUE, position="points_jitter"
+  ) +
+  labs(x = "Event rainfall (mm)", y = element_blank()) + 
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+     axis.text.y = element_blank(),  # Remove y-axis text
+    axis.ticks.y = element_blank()  # Remove y-axis ticks
+  )
+p
+
+library(cowplot)
+
+# Combine the two plots
+combined_plot <- plot_grid(mi60, p, ncol = 2)
+combined_plot
+
+ggsave('./figures/tb_only_eg_option2.png',
+       plot = combined_plot,
+       width = 10,
+       height = 5,
+       dpi=600)
 
 ```
 
