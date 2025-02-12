@@ -20,6 +20,7 @@ library(stars)
 library(tmap)
 library(sf)
 library(mapview)
+library(viridis)
 
 ```
 
@@ -29,49 +30,17 @@ library(mapview)
 
 ```{r}
 
-load("./data/mrms_data/bbox_2fires/stack_2022_fil01.RData")
-
-stack_raw <- stack2022_fil.1 %>%
-  filter(datetime > ymd_hms('2022-07-06 13:10:00'),
-         datetime < ymd_hms('2022-07-06 14:50:00'))
-
-st_crs(stack_raw) <- st_crs("+proj=longlat +datum=WGS84")
-dry_p10 <- st_crop(stack_raw, dry1, as_points=F)
-
-dry_p10 <- as.data.frame(dry_p10) %>%
-  drop_na()
-
-
-p <- ggplot() +
-  geom_raster(data = dry_p10, aes(x = x, y = y, fill = filter_function)) +
-  geom_sf(data = dry, fill = NA, color = 'black', lwd = 1) +
-  #geom_sf(data = point_sf, color = 'red', size = 3) +
-  scale_fill_viridis(option = "turbo", na.value = "white") +
-  labs(
-    title = "Precipitation Heatmap",
-    x = "Longitude",
-    y = "Latitude",
-    fill = "Precipitation (mm)"
-  ) +
-  theme_minimal() +
-  facet_wrap(~datetime)
-
-p
-
-#above is old and used for testing
-
-#######
 dry <- st_read('./data/GIS/catchments_all_lidar.shp') %>%
-  filter(site == 'bl4')
+  filter(site == 'dry')
 
 # filter date 
 mrrms_10min_22 <- read_csv('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2022_10min_left.csv')
-mrrms_10min_21 <- read_csv('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_10min_left.csv')
+mrrms_10min_21 <- read_csv('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_10min_right.csv')
 
 filter_mrms <- mrrms_10min_21 %>%
   mutate(datetime_round = force_tz(datetime_round, tzone = 'MST')) %>% 
-  filter(datetime_round < ymd_hms('2021-07-30 14:10:00', tz = 'MST')) %>%
-  filter(datetime_round > ymd_hms('2021-07-30 13:00:00', tz = 'MST'))
+  filter(datetime_round < ymd_hms('2021-07-20 17:20:00', tz = 'MST')) %>%
+  filter(datetime_round > ymd_hms('2021-07-20 15:50:00', tz = 'MST'))
 
 stack_p10 <- st_as_stars(filter_mrms, dims = c("x", "y", "datetime_round"))
 st_crs(stack_p10) <- st_crs("+proj=longlat +datum=WGS84")
@@ -108,17 +77,17 @@ dry_p10 <- as.data.frame(dry_p10) %>%
 #   y = 40.54368283
 # )
 
-# dry
-# point_data <- data.frame(
-#   x = -105.6393929,
-#   y = 40.70672394
-# )
+#dry
+point_data <- data.frame(
+  x = -105.6393929,
+  y = 40.70672394
+)
 # 
 # # bl4
-point_data <- data.frame(
-  x = -105.8610908,
-  y = 40.59079764
-)
+# point_data <- data.frame(
+#   x = -105.8610908,
+#   y = 40.59079764
+# )
 # # Convert to a spatial object
 point_sf <- st_as_sf(point_data, coords = c("x", "y"), crs = 4326)
 
@@ -139,22 +108,24 @@ p
 
 
 p <- ggplot() +
-  geom_raster(data = dry_p10, aes(x = x, y = y, fill = cut(p_mm * 6, breaks = seq(0, 50, by = 5), right = FALSE))) +
+  geom_raster(data = dry_p10, aes(x = x, y = y, fill = cut(p_mm*6, breaks = seq(0, 50, by = 5), right = FALSE))) +
   geom_sf(data = dry, fill = NA, color = 'black', lwd = 1) +
   geom_sf(data = point_sf, color = 'red', size = 5) +
   scale_fill_viridis(option = "mako", na.value = "white", discrete = TRUE, direction = -1) +
-  
-  # Customize x-axis labels to add degree and W
   scale_x_continuous(
-    labels = function(x) paste0(format(x, nsmall = 3), "°W"),
-    breaks = seq(min(dry_p10$x), max(dry_p10$x), by = 0.015)
+    #labels = function(x) paste0(format(x, nsmall = 2), "°W"),
+    labels = function(x) sprintf("%.2f°W", x),
+    breaks = seq(min(dry_p10$x), max(dry_p10$x), by = 0.025)
   ) +
-  
+    scale_y_continuous(
+    labels = function(x) sprintf("%.2f°N", x),
+    breaks = seq(min(dry_p10$y), max(dry_p10$y), by = 0.01)
+  ) +
   labs(
     fill = "Rain (mm/hr)"
   ) +
   theme_bw() +
-  facet_wrap(~datetime_round) +
+  facet_wrap(~datetime_round, ncol=4) +
   theme_bw(base_size = 20) +
   theme(
     axis.title.x = element_blank(),
@@ -170,18 +141,17 @@ p <- ggplot() +
 
 p
 
-ggsave('./figures/mrms_tb_eg2.png', dpi=600, width=15, height = 10)
+ggsave('./figures/mrms_tb_dry_eg.png', dpi=600, width=15, height = 10)
 
 ```
 
-
-# mrms raw
+# Read in raw MRMS
 
 ```{r}
 
-mrms <- read_csv('./data/final/mrms/mrms_catchments_raw/all_combined.csv') %>%
-  filter(ID == 'bl4') %>%
-  mutate(datetime = with_tz(datetime, tzone = 'MST')) %>% 
+mrms <- read_csv('./data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv') %>%
+  filter(ID == 'dry') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>% 
   mutate(year = year(datetime)) %>%
   filter(year == 2021) %>%
   mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
@@ -189,19 +159,21 @@ mrms <- read_csv('./data/final/mrms/mrms_catchments_raw/all_combined.csv') %>%
   group_by(timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
   rename(datetime = timestamps_10min) %>%
-  filter(datetime < ymd_hms('2021-07-30 18:30:00', tz ='MST'),
-         datetime > ymd_hms('2021-07-30 12:50:00', tz='MST'))
+  filter(datetime > ymd_hms('2021-07-20 15:40:00', tz ='MST'),
+         datetime < ymd_hms('2021-07-20 18:20:00', tz='MST'))
+
+mrms <- mrms %>%
+  mutate(type = 'MRMS')
 
 ```
 
-
-# TB
+# Stage, TB, MRMS combo fig
 
 BL4 7/30/21
 
 ```{r}
 
-tb <- read_csv('./figures/bl4_tb_event.csv') %>%
+tb <- read_csv('./figures/dry_tb_event.csv') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST')) %>% 
   mutate(p_mm = tip * 0.254,
@@ -209,51 +181,30 @@ tb <- read_csv('./figures/bl4_tb_event.csv') %>%
   group_by(datetime_10min) %>%
   summarize(p10_mm = sum(p_mm))
 
-stage <- read_csv('./figures/bl4_stage_event.csv') %>%
+tb <- tb %>%
+  mutate(type='TB') %>%
+  rename(datetime = 1,
+         rain_mm = 2)
+
+both <- bind_rows(tb, mrms) %>%
+  mutate(rain_mmhr = rain_mm*6)
+
+stage <- read_csv('./figures/dry_stage_event.csv') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
   mutate(datetime = force_tz(datetime, tzone = 'MST')) 
 
-
-ggplot(stage, aes(x = datetime)) +
-  geom_line(aes(y = Stage_mm, color = "Stage"), size = 1) +  # Line plot with color legend
-  geom_col(data = mrms, aes(x = datetime, y = rain_mm*6, fill = "MRMS"), width = 500) +  # Bar plot with fill legend
-  geom_col(data = tb, aes(y = p10_mm*6, x = datetime_10min, fill = "TB"), width =500) +  # Bar plot with fill legend
-  labs(y = "Rain (mm/hr)") +
-  scale_y_continuous(sec.axis = sec_axis(~ ., name = "Stage (mm)")) +
-  scale_color_manual(values = c("Stage" = "darkred")) +
-  scale_fill_manual(values = c("MRMS" = "#00AFBB", "TB" = "#E7B800")) +
-  theme_bw(base_size = 20) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  theme(
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    axis.title.x = element_blank(),
-    
-    legend.position = c(0.94, 0.85),  # Adjusts legend position inside the plot
-    legend.background = element_rect(fill = alpha("white", 0.8)),  # Transparent background for legend
-    legend.title = element_blank(),  # Removes the legend title
-    legend.text = element_text(size = 18),  # Adjusts legend text size
-    legend.spacing.y = unit(0.0000000000000000000001, "mm")  # Reduces vertical spacing between legend items
-  ) +
-  guides(fill = guide_legend(byrow = TRUE))  # Forces legend items to align closely by row
-
-ggsave('./figures/mrms_tb_stage.png', dpi=600, width=15, height = 6)
-
 ggplot(stage, aes(x = datetime)) +
   # Add shaded box for specific time range
-  geom_rect(aes(xmin = ymd_hms("2021-07-30 13:05:00", tz='MST'), 
-                xmax = ymd_hms("2021-07-30 14:05:00", tz='MST'), 
+  geom_rect(aes(xmin = ymd_hms("2021-07-20 15:56:00", tz='MST'), 
+                xmax = ymd_hms("2021-07-20 17:14:00", tz='MST'), 
                 ymin = -Inf, ymax = Inf), 
             fill = "gray84", alpha = 0.8) +  # Gray box with transparency
-  
-  geom_line(aes(y = Stage_mm, color = "Stage"), size = 1) +  # Line plot with color legend
-  geom_col(data = mrms, aes(x = datetime, y = rain_mm*6, fill = "MRMS"), width = 500) +  # Bar plot with fill legend
-  geom_col(data = tb, aes(y = p10_mm*6, x = datetime_10min, fill = "TB"), width = 500) +  # Bar plot with fill legend
+  geom_col(data = both, aes(y = rain_mmhr, x =datetime, fill = type), width = 500,
+           position = 'dodge') +
+  #geom_col(data = mrms, aes(x = datetime, y = rain_mm*6, fill = "MRMS"), width = 500) + 
+  geom_line(aes(y = Stage_cm, color = "Stage"), size = 1) +
   labs(y = "Rain (mm/hr)") +
-  scale_y_continuous(sec.axis = sec_axis(~ ., name = "Stage (mm)")) +
+  scale_y_continuous(sec.axis = sec_axis(~ ., name = "Stage (cm)")) +
   scale_color_manual(values = c("Stage" = "darkred")) +
   scale_fill_manual(values = c("MRMS" = "#00AFBB", "TB" = "#E7B800")) +
   theme_bw(base_size = 20) +
@@ -266,14 +217,15 @@ ggplot(stage, aes(x = datetime)) +
     axis.text = element_text(color = "black"),
     axis.title.x = element_blank(),
     
-    legend.position = c(0.94, 0.85),  # Adjusts legend position inside the plot
-    legend.background = element_rect(fill = alpha("white", 0.8)),  # Transparent background for legend
-    legend.title = element_blank(),  # Removes the legend title
-    legend.text = element_text(size = 18),  # Adjusts legend text size
-    legend.spacing.y = unit(0.0000000000000000000001, "mm")  # Reduces vertical spacing between legend items
+    legend.position = c(0.94, 0.85),  
+    legend.background = element_rect(fill = alpha("white", 0.8)), 
+    legend.title = element_blank(), 
+    legend.text = element_text(size = 18),  #
+    legend.spacing.y = unit(0.0000000000000000000001, "mm")  
   ) +
   guides(fill = guide_legend(byrow = TRUE))  # Forces legend items to align closely by row
 
-ggsave('./figures/mrms_tb_stage.png', dpi=600, width=15, height = 6)
+ggsave('./figures/mrms_tb_drystage.png', dpi=600, width=15, height = 6)
+
 ```
 
