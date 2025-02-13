@@ -306,7 +306,8 @@ huc <- st_read('./data/GIS/WBDHU8.shp') %>%
   filter(!huc8 == 10180001) %>%
   filter(states %in% c('CO', 'CO,WY'))
   
-huc8 <- st_union(huc)
+huc8 <- st_union(huc) %>%
+  st_sf()
 
 mapview(fires) + mapview(huc8)
 
@@ -1135,6 +1136,67 @@ mapview(veg_et)
 
 
 ```
+
+# * Spatial stats for paper
+
+```{r}
+
+sum_all21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2021_fil01.tif')
+sum_all22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2022_fil01.tif')
+sum_all23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
+
+# put in same crs
+fires <- st_transform(fires, crs = 4326)
+
+huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+  filter(!huc8 == 10180001) %>%
+  filter(states %in% c('CO', 'CO,WY'))
+  
+huc8 <- st_union(huc) %>%
+  st_sf()
+
+huc8 <- huc8 %>% st_transform(., 4326)
+
+sum_all21_right <- st_crop(sum_all21, huc8)
+sum_all22_right <- st_crop(sum_all22, huc8)
+sum_all23_right <- st_crop(sum_all23, huc8)
+
+# left side
+huc8_mask <- st_rasterize(huc8, sum_all21, values = 1) %>%
+  as.data.frame() %>%
+  filter(!ID == 1)
+
+# put back to stars
+huc8_mask <- st_as_stars(huc8_mask, 
+                                  dimensions = c("x", "y")) 
+
+# set same crs as dem_resam
+st_crs(huc8_mask) <- st_crs(sum_all21)
+
+sum_all21_left <- st_crop(sum_all21, huc8_mask)
+sum_all22_left <- st_crop(sum_all22, huc8_mask)
+sum_all23_left <- st_crop(sum_all23, huc8_mask)
+
+# lets do the same for gridmet
+gridmet21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2021_gridmet_summerp.tif') %>%
+  st_warp(., sum_all21) 
+
+gridmet22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2022_gridmet_summerp.tif') %>%
+  st_warp(., sum_all22) 
+
+gridmet23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/2023_gridmet_summerp.tif') %>%
+  st_warp(., sum_all23) 
+
+grid_all21_right <- st_crop(gridmet21, huc8)
+grid_all22_right <- st_crop(gridmet22, huc8)
+grid_all23_right <- st_crop(gridmet23, huc8)
+
+grid_all21_left <- st_crop(gridmet21, huc8_mask)
+grid_all22_left <- st_crop(gridmet22, huc8_mask)
+grid_all23_left <- st_crop(gridmet23, huc8_mask)
+
+```
+
 
 # Archive
 
