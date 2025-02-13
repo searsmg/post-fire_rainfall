@@ -1078,7 +1078,7 @@ ggplot(p10over_median, aes(as.numeric(median_elev),
 
 ggsave('./figures/elev_vs_pixel_scatter.png', dpi=800,
        height = 6,
-       width=10)
+       width=14)
 
 ```
 
