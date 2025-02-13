@@ -24,7 +24,7 @@ library(viridis)
 
 ```
 
-# BL4
+# Dry
 
 7/30/21
 
@@ -154,7 +154,7 @@ mrms <- read_csv('./data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2m
   mutate(datetime = force_tz(datetime, tzone = 'MST')) %>% 
   mutate(year = year(datetime)) %>%
   filter(year == 2021) %>%
-  mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
+  mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) #%>% # mrms precision is 0.1
   mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
   group_by(timestamps_10min) %>%
   summarize(rain_mm = sum(p_mm)) %>%
