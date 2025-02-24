@@ -498,20 +498,23 @@ tb <- bind_rows(cpf_tb, etf_tb, ben_tb, usgs) %>%
 
 load('./R/rain_metrics.RData')
 
-aspen_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
-  filter(site == 'aspen') %>%
+dadd_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
+  filter(site == 'dadd') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
   arrange(datetime) %>%
   mutate(P_mm = 0.254)
 
-aspen_tb <- get_setup(aspen_tb, aspen_tb$datetime)
+dadd_tb <- get_setup(dadd_tb, dadd_tb$datetime)
 
-aspen_events <- get_events(aspen_tb, aspen_tb$P_mm, aspen_tb$datenumeric,
-                          aspen_tb$end, aspen_tb$rain_start)
+dadd_events <- get_events(dadd_tb, dadd_tb$P_mm, dadd_tb$datenumeric,
+                          dadd_tb$end, dadd_tb$rain_start)
 
-aspen_events <- get_intensities(aspen_events, aspen_events$event, aspen_tb)
+dadd_events <- get_intensities(dadd_events, dadd_events$event, dadd_tb)
 
-write.csv(aspen_events, './data/final/tb_events/aspen_tb_events.csv')
+dadd_events <- dadd_events %>%
+  mutate(site = 'dadd')
+
+write.csv(dadd_events, './data/final/tb_events/dadd_tb_events.csv')
 
 # read in dry events
 dry_events <- read_csv('./data/TB_raw/events_from_qm/dry_precip_events.csv') %>% 
@@ -1640,8 +1643,6 @@ ggsave('./figures/pixel_tb_eastmarg_mi60.png',
 
 
 ```
-
-
 
 ## Figs by elev
 Not going to use
