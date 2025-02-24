@@ -50,13 +50,28 @@ Already extracted:
 
 ```{r}
 
-all_sites <- vect('./data/GIS/catchments_all_lidar.shp') %>%
-  mutate(site = ifelse(site == "mm", "mm_et", site))
+all_sites <- vect('./data/GIS/catchments_all_lidar.shp')
+all_sites$site[all_sites$site == "mm"] <- "mm_et"
 
 # view the sites
 plot(all_sites)
 
 clipped_lidar <- rast('./data/GIS/clipped_lidar.tif')
+
+# get elevation range
+elev <- clipped_lidar %>% 
+  terra::extract(all_sites, fun=min, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, elev = .) %>%
+  rename(min_elev = 3) 
+
+elev_max <- clipped_lidar %>% 
+  terra::extract(all_sites, fun=max, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, elev = .) %>%
+  rename(max_elev = 3) 
+
+elev_join <- left_join(elev, elev_max, by = 'site')
+
+write_csv(elev_join, './data/final_model_inputs/elev_range.csv')
 
 ```
 
