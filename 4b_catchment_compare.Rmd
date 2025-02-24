@@ -2556,6 +2556,11 @@ hum_tb_events <- hum_tb_events %>%
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
 
+hum_export <- hum_tb_events %>%
+  mutate(site = 'hum')
+
+write_csv(hum_export, './data/final/tb_events/hum_tb_events.csv')
+
 # hum mrms
 hum_mrms_events <- mrms_catch_avg %>%
   filter(ID == 'hum') %>%
@@ -2636,13 +2641,18 @@ p1_tb_events <- get_intensities(p1_tb_events, p1_tb_events$event, p1_tb)
 p1_tb_events <- p1_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+p1_export <- p1_tb_events %>%
+  mutate(site = 'p1')
+
+write_csv(p1_export, './data/final/tb_events/p1_tb_events.csv')
 
 # p1 mrms
 p1_mrms_events <- mrms_catch_avg %>%
@@ -3375,13 +3385,18 @@ bl4_tb_events <- get_intensities(bl4_tb_events, bl4_tb_events$event, bl4_tb)
 bl4_tb_events <- bl4_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+bl4_export <- bl4_tb_events %>%
+  mutate(site = 'bl4')
+
+write_csv(bl4_export, './data/final/tb_events/bl4_tb_events.csv')
 
 # bl4 mrms
 bl4_mrms_events <- mrms_catch_avg %>%
@@ -3443,7 +3458,7 @@ dry_tb_events <- dry_tb_events %>%
          end_time = mdy_hm(end_time)) %>% 
   mutate(start_time = force_tz(start_time),
          end_time = force_tz(end_time)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr, 
          MI60_mmhr,
          start_time, 
@@ -3521,13 +3536,18 @@ mich_tb_events <- get_intensities(mich_tb_events, mich_tb_events$event, mich_tb)
 mich_tb_events <- mich_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+michigan_export <- mich_tb_events %>%
+  mutate(site = 'michigan')
+
+write_csv(michigan_export, './data/final/tb_events/michigan_tb_events.csv')
 
 # mich mrms
 mich_mrms_events <- mrms_catch_avg %>%
@@ -3691,13 +3711,18 @@ mtc_tb_events <- get_mrms_all_events(mtc_tb, 'mtcampus')
 mtc_tb_events <- get_mrms_intensities(mtc_tb_events, 'mtcampus')
 
 mtc_tb_events <- mtc_tb_events %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr, 
          MI60_mmhr,
          start_time, 
          end_time, 
          event_sum_mm) %>%
   mutate(date = date(start_time))
+
+mtcampus_export <- mtc_tb_events %>%
+  mutate(site = 'mtcampus')
+
+write_csv(mtcampus_export, './data/final/tb_events/mtcampus_tb_events.csv')
 
 # mtcampus mrms
 mtcamp_mrms_events <- mrms_catch_avg %>%
@@ -3840,13 +3865,18 @@ me_tb_events <- get_intensities(me_tb_events, me_tb_events$event, me_tb)
 me_tb_events <- me_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+me_export <- me_tb_events %>%
+  mutate(site = 'me')
+
+write_csv(me_export, './data/final/tb_events/me_tb_events.csv')
 
 # me mrms
 me_mrms_events <- mrms_catch_avg %>%
@@ -3918,13 +3948,18 @@ mm_tb_events <- get_intensities(mm_tb_events, mm_tb_events$event, mm_tb)
 mm_tb_events <- mm_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+mm_export <- mm_tb_events %>%
+  mutate(site = 'mm')
+
+write_csv(mm_export, './data/final/tb_events/mm_tb_events.csv')
 
 # mm mrms
 mm_mrms_events <- mrms_catch_avg %>%
@@ -3995,13 +4030,18 @@ mw_tb_events <- get_intensities(mw_tb_events, mw_tb_events$event, mw_tb)
 mw_tb_events <- mw_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+mw_export <- mw_tb_events %>%
+  mutate(site = 'mw')
+
+write_csv(mw_export, './data/final/tb_events/mw_tb_events.csv')
 
 # mw mrms
 mw_mrms_events <- mrms_catch_avg %>%
@@ -4072,13 +4112,18 @@ ue_tb_events <- get_intensities(ue_tb_events, ue_tb_events$event, ue_tb)
 ue_tb_events <- ue_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+ue_export <- ue_tb_events %>%
+  mutate(site = 'ue')
+
+write_csv(ue_export, './data/final/tb_events/ue_tb_events.csv')
 
 # ue mrms
 ue_mrms_events <- mrms_catch_avg %>%
@@ -4148,13 +4193,18 @@ uw_tb_events <- get_intensities(uw_tb_events, uw_tb_events$event, uw_tb)
 uw_tb_events <- uw_tb_events %>%
     mutate(starttime = force_tz(starttime),
          endtime = force_tz(endtime)) %>%
-  select(duration_hr, 
+  dplyr::select(duration_hr, 
          MI30_mmhr = MI30, 
          MI60_mmhr = MI60,
          start_time = starttime, 
          end_time = endtime, 
          event_sum_mm = P) %>%
   mutate(date = date(start_time))
+
+uw_export <- uw_tb_events %>%
+  mutate(site = 'uw')
+
+write_csv(uw_export, './data/final/tb_events/uw_tb_events.csv')
 
 # um mrms
 um_mrms_events <- mrms_catch_avg %>%
