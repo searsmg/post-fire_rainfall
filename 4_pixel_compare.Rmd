@@ -29,6 +29,7 @@ library(ggExtra)
 library(viridis)
 library(RColorBrewer)
 library(ggpubr)
+library(hydroGOF)
 
 # load the functions to process TB & mrms events
 load('./R/rain_metrics.Rdata')
@@ -498,23 +499,23 @@ tb <- bind_rows(cpf_tb, etf_tb, ben_tb, usgs) %>%
 
 load('./R/rain_metrics.RData')
 
-dadd_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
-  filter(site == 'dadd') %>%
+bl4_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
+  filter(site == 'bl4') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
   arrange(datetime) %>%
   mutate(P_mm = 0.254)
 
-dadd_tb <- get_setup(dadd_tb, dadd_tb$datetime)
+bl4_tb <- get_setup(bl4_tb, bl4_tb$datetime)
 
-dadd_events <- get_events(dadd_tb, dadd_tb$P_mm, dadd_tb$datenumeric,
-                          dadd_tb$end, dadd_tb$rain_start)
+bl4_events <- get_events(bl4_tb, bl4_tb$P_mm, bl4_tb$datenumeric,
+                          bl4_tb$end, bl4_tb$rain_start)
 
-dadd_events <- get_intensities(dadd_events, dadd_events$event, dadd_tb)
+bl4_events <- get_intensities(bl4_events, bl4_events$event, bl4_tb)
 
-dadd_events <- dadd_events %>%
-  mutate(site = 'dadd')
+bl4_events <- bl4_events %>%
+  mutate(site = 'bl4')
 
-write.csv(dadd_events, './data/final/tb_events/dadd_tb_events.csv')
+write.csv(bl4_events, './data/final/tb_events/bl4_tb_events.csv')
 
 # read in dry events
 dry_events <- read_csv('./data/TB_raw/events_from_qm/dry_precip_events.csv') %>% 
@@ -1254,23 +1255,41 @@ ggsave('./figures/pixel_tb_cpmarg_eventsum.png',
        height = 5,
        dpi=600)
 
+et_rmse_mi60 <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  summarize(rmse = rmse(MI60_mmhr.x,
+                        MI60_mmhr.y)) %>%
+  mutate(R_spearman = 0.49) # previously calculated in stat_cor
+
+et_rmse_sum <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  summarize(rmse = rmse(event_sum_mm.x,
+                        event_sum_mm.y)) %>%
+  mutate(R_spearman = 0.58) # previously calculated in stat_cor
+
+et_rmse_mi30 <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  summarize(rmse = rmse(MI30_mmhr.x,
+                        MI30_mmhr.y)) %>%
+  mutate(R_spearman = 0.41) # previously calculated in stat_cor
+
 # East Troublesome
 et1 <- comp_all %>%
   filter(fire == 'ETF') %>% 
   arrange(desc(rqi)) %>%
   ggplot(., 
-         aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi_bucket)) +
+         aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = rqi_bucket)) +
   geom_point(alpha = 0.6, size = 4, stroke = 1) +
   scale_color_manual(values = color_palette) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-   stat_cor(method = "spearman", 
-           color = "black",    # Set the correlation label color to black
-           label.x = 20, 
-           label.y = 25, 
-           size = 4,            # Adjust label size
-           hjust = 0.5,         # Center the label horizontally
-           vjust = -1) +
-  labs(x = 'MRMS event rainfall (mm)', y = 'TB event rainfall (mm)', color = 'RQI') +
+   # stat_cor(method = "spearman",
+   #         color = "black",    # Set the correlation label color to black
+   #         label.x = 20,
+   #         label.y = 25,
+   #         size = 4,            # Adjust label size
+   #         hjust = 0.5,         # Center the label horizontally
+   #         vjust = -1) +
+  labs(x = 'MRMS MI30 (mm/hr)', y = 'TB MI30 (mm/hr)', color = 'RQI') +
   theme_bw(base_size = 18) +
   theme(
     panel.grid = element_blank(),
@@ -1283,7 +1302,9 @@ et1 <- comp_all %>%
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
     legend.title = element_text(size = 16)
-  )
+  ) +
+    annotate("text", x = 15, y = 32, label = "R = 0.41, RMSE = 6.5", 
+          color = "black", size = 4)
 
 et1
 
@@ -1293,7 +1314,7 @@ et_marg <- ggMarginal(et1,
 
 et_marg
 
-ggsave('./figures/pixel_tb_ETmarg_eventsum.png',
+ggsave('./figures/pixel_tb_ETmarg_mi30.png',
        plot = et_marg,
        width = 7,
        height = 5,
@@ -1596,23 +1617,42 @@ color_palette <- c(
   "0.8-1.0" = "#E7298A"
 )
 
+
+cp_rmse_mi60 <- all %>%
+  filter(side == 'East') %>% 
+  summarize(rmse = rmse(MI60_mmhr.x,
+                        MI60_mmhr.y)) %>%
+  mutate(R_spearman = 0.50) # previously calculated in stat_cor
+
+cp_rmse_sum <- all %>%
+  filter(side == 'East') %>% 
+  summarize(rmse = rmse(event_sum_mm.x,
+                        event_sum_mm.y)) %>%
+  mutate(R_spearman = 0.55) # previously calculated in stat_cor
+
+cp_rmse_mi30 <- all %>%
+  filter(side == 'East') %>% 
+  summarize(rmse = rmse(MI30_mmhr.x,
+                        MI30_mmhr.y)) %>%
+  mutate(R_spearman = 0.48) # previously calculated in stat_cor
+
 # Cameron Peak
 cp1 <- all %>%
   filter(side == 'East') %>% 
   arrange(desc(rqi)) %>%
   ggplot(., 
-         aes(y = MI60_mmhr.y, x = MI60_mmhr.x, color = rqi_bucket)) +
+         aes(y = MI30_mmhr.y, x = MI30_mmhr.x, color = rqi_bucket)) +
   geom_point(alpha = 0.6, size = 4, stroke = 1) +
   scale_color_manual(values = color_palette) +
   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
-   stat_cor(method = "spearman", 
-           color = "black",
-           label.x = 40, 
-           label.y = 60, 
-           size = 4,
-           hjust = 0.5,
-           vjust = -1) +
-  labs(x = 'MRMS MI60 (mm/hr)', y = 'TB MI60 (mm/hr)', color = 'RQI') +
+   # stat_cor(method = "spearman",
+   #         color = "black",
+   #         label.x = 40,
+   #         label.y = 60,
+   #         size = 4,
+   #         hjust = 0.5,
+   #         vjust = -1) +
+  labs(x = 'MRMS MI30 (mm/hr)', y = 'TB MI30 (mm/hr)', color = 'RQI') +
   theme_bw(base_size = 18) +
   theme(
     panel.grid = element_blank(),
@@ -1624,7 +1664,9 @@ cp1 <- all %>%
     legend.position = 'none',
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
-    legend.title = element_text(size = 16))
+     legend.title = element_text(size = 16)) +
+  annotate("text", x = 80, y = 102, label = "R = 0.48, RMSE = 8.8",
+           color = "black", size = 4)
 
 cp1
 
@@ -1635,11 +1677,59 @@ cp_marg <- ggMarginal(cp1,
 
 cp_marg
 
-ggsave('./figures/pixel_tb_eastmarg_mi60.png',
+ggsave('./figures/pixel_tb_eastmarg_mi30.png',
        plot = cp_marg,
        width = 7,
        height = 5,
        dpi=600)
+
+## event sum
+cp1 <- all %>%
+  filter(side == 'East') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = event_sum_mm.y, x = event_sum_mm.x, color = rqi_bucket)) +
+  geom_point(alpha = 0.6, size = 4, stroke = 1) +
+  scale_color_manual(values = color_palette) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black") +
+   # stat_cor(method = "spearman", 
+   #         color = "black",
+   #         label.x = 40, 
+   #         label.y = 60, 
+   #         size = 4,
+   #         hjust = 0.5,
+   #         vjust = -1) +
+  labs(x = 'MRMS event rainfall (mm)', y = 'TB event rainfall (mm)', color = 'RQI') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = 'none',
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16)) +
+  annotate("text", x = 75, y = 110, label = "R = 0.55, RMSE = 7.2", 
+           color = "black", size = 4)
+
+cp1
+
+cp_marg <- ggMarginal(cp1,
+           groupColour = T,
+           groupFill = T,
+           type='density')
+
+cp_marg
+
+ggsave('./figures/pixel_tb_eastmarg_eventsum.png',
+       plot = cp_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
+
 
 
 ```
@@ -1850,6 +1940,198 @@ plot_ly(
   type = "scatter",
   mode = "markers"
 )
+
+
+```
+
+# TB only by elev
+
+```{r}
+
+# start 1 by 1 since they all have diff formats
+aspen <- read_csv('./data/final/tb_events/aspen_tb_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+bighorn <- read_csv('./data/final/tb_events/bighorn_precip_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+bl4 <- read_csv('./data/final/tb_events/bl4_tb_events.csv') %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+dadd <- read_csv('./data/final/tb_events/dadd_tb_events.csv') %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+dry <- read_csv('./data/final/tb_events/dry_precip_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+hum <- read_csv('./data/final/tb_events/hum_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+lpm <- read_csv('./data/final/tb_events/lpm_tb_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+me <- read_csv('./data/final/tb_events/me_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+michigan <- read_csv('./data/final/tb_events/michigan_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+mm <- read_csv('./data/final/tb_events/mm_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+montgomery <- read_csv('./data/final/tb_events/montgomery_tb_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+mtcampus <- read_csv('./data/final/tb_events/mtcampus_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+mub <- read_csv('./data/final/tb_events/mub_tb_events.csv') %>%
+  mutate(starttime = mdy_hm(starttime)) %>%
+  mutate(year = year(starttime),
+         month = month(starttime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60)
+
+mw <- read_csv('./data/final/tb_events/mw_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+p1 <- read_csv('./data/final/tb_events/p1_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+ue <- read_csv('./data/final/tb_events/ue_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+uw <- read_csv('./data/final/tb_events/uw_tb_events.csv') %>%
+  mutate(year = year(start_time),
+         month = month(start_time)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
+  dplyr::select(site, MI60 = MI60_mmhr)
+
+tb_events <- bind_rows(aspen,
+                       bighorn,
+                       bl4,
+                       dadd,
+                       dry,
+                       hum,
+                       lpm,
+                       me,
+                       michigan,
+                       mm,
+                       montgomery,
+                       mtcampus,
+                       mub,
+                       mw,
+                       p1,
+                       ue,
+                       uw)
+
+# ran tb_xy from code above
+tb_xy <- tb_xy %>%
+  rename(elev_m = 2) %>%
+  mutate(site = if_else(site == 'hum2',
+                        'hum',
+                        site)) %>%
+  dplyr::select(site, elev_m)
+
+tbMI60 <- left_join(tb_events,
+                    tb_xy,
+                    by='site') %>%
+  mutate(elev_type = if_else(elev_m < 2700,
+                             'Low',
+                             'High')) %>%
+  mutate(fire = if_else(site %in% c('hum',
+                                    'lpm',
+                                    'mub',
+                                    'p1'),
+                        'East Troublesome', 'Cameron Peak'))
+
+ggplot(tbMI60, aes(x=elev_type, y=MI60)) + geom_boxplot() +
+  facet_wrap(~fire) +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    #strip.text = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    #axis.text.x = element_text(angle = 45, hjust = 1)
+    legend.position = c(.01, 0.98),
+   legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 13),         # Adjust legend text size
+    legend.title = element_blank()
+  ) +
+  labs(x='Elevation',
+       y='MI60 (mm/hr)')
+
 
 
 ```
