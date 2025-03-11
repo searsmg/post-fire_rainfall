@@ -1,0 +1,75 @@
+---
+title: "download_NLDAS"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(furrr)
+library(purrr)
+library(httr)
+library(readr)
+
+# a earthdata login is needed
+# you must create a .netrc for authentication
+
+```
+
+```{r}
+
+# Read the URLs from the text file
+url_file <- "/Users/megansears/Documents/NLDAS/subset_NLDAS_MOS0125_H_2.0_20250311_154000_.txt"
+urls <- read_lines(url_file)
+urls <- urls[urls != ""]  # Clean up any empty lines
+
+# Create a directory to download the files if it doesn't exist
+download_dir <- "/Users/megansears/Documents/NLDAS/"
+
+download_file <- function(url) {
+  # Ensure the URL is properly encoded (just in case)
+  url <- URLencode(url)
+  
+  # Extract the filename from the 'LABEL' query parameter
+  label_param <- sub(".*[&?]LABEL=([^&]+).*", "\\1", url)
+  
+  # Decode the filename to make it readable
+  filename <- URLdecode(label_param)
+  
+  # Destination file path
+  dest_file <- file.path(download_dir, filename)
+  
+  # Check if the file already exists, and if so, skip download
+  if (file.exists(dest_file)) {
+    message(sprintf("⚠️ Skipping: %s (File already exists)", filename))
+    return()
+  }
+  
+  # Attempt to download the file with authentication
+  response <- GET(
+    url,
+    write_disk(dest_file, overwrite = FALSE),
+    progress(),
+    config(netrc = TRUE)  # Use the .netrc file for authentication
+  )
+  
+  # Check if the file was downloaded successfully
+  if (response$status_code == 200) {
+    message(sprintf("✅ Downloaded: %s", filename))
+  } else {
+    warning(sprintf("❌ Failed to download: %s (Status: %d)", filename, response$status_code))
+  }
+}
+
+
+# Set up parallel processing
+plan(multisession, workers = 10)
+
+# Use future_map to apply the download function in parallel
+future_walk(urls, download_file)
+
+
+```
+
