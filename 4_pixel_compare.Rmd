@@ -2112,9 +2112,12 @@ tbMI60 <- left_join(tb_events,
                                     'p1'),
                         'East Troublesome', 'Cameron Peak'))
 
+
 ggplot(tbMI60, aes(x=elev_type, y=MI60)) + geom_boxplot() +
   facet_wrap(~fire) +
   theme_bw(base_size = 20) +
+  labs(x='Elevation',
+       y='')
   theme(
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
@@ -2128,9 +2131,7 @@ ggplot(tbMI60, aes(x=elev_type, y=MI60)) + geom_boxplot() +
    legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 13),         # Adjust legend text size
     legend.title = element_blank()
-  ) +
-  labs(x='Elevation',
-       y='MI60 (mm/hr)')
+  ) 
 
 
 
