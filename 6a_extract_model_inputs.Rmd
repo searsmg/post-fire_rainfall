@@ -102,6 +102,21 @@ mean_dnbr_etf <- dnbr_etf %>%
 
 mean_dnbr_all <- bind_rows(mean_dnbr_cpf, mean_dnbr_etf)
 
+#####
+
+burn_cat <- read_stars('./data/GIS/burn_boundaries/cpf_burnsev_cat.tif')
+test[[1]][test[[1]] > 5] <- NA
+
+sites <- st_read('./data/GIS/catchments_all_lidar.shp')
+sites$site[sites$site == "mm"] <- "mm_et"
+
+burn_cat <- st_transform(burn_cat, st_crs(sites))
+
+extracted <- st_extract(burn_cat, sites)
+
+
+mapview(sites)
+
 ```
 
 # Catchment area
