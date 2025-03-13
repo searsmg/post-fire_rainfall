@@ -92,13 +92,22 @@ ggplot(lag2p, aes(x=site, y=as.numeric(lag2peak))) +
   theme_bw(base_size=20)
 
 all <- all %>%
-  mutate(sp_cat = if_else(SP_mean > 65,
+  mutate(sp_cat = if_else(SP_mean > 60,
                           'high',
                           'low'))
 
 ggplot(all, aes(x=sp_cat, y=stage_rise_cm, fill=fire)) +
   geom_boxplot() +
   #scale_y_log10() +
+  theme_bw(base_size=20)
+
+lag2p_join <- lag2p %>%
+  dplyr::select(site, lag2peak)
+
+all <- left_join(all, lag2p_join, by = 'site')
+
+ggplot(all, aes(x=sp_cat, y=as.numeric(lag2peak), fill=fire)) +
+  geom_boxplot() +
   theme_bw(base_size=20)
 
 
