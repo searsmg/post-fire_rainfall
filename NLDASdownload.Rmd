@@ -13,37 +13,39 @@ library(purrr)
 library(httr)
 library(readr)
 
-# a earthdata login is needed
+# earthdata login is needed
+# on your earthdata apps, add GES DISC
 # you must create a .netrc for authentication
+# you must have created a subset of the data needed from NASA GES DISC (saved in a .txt)
 
 ```
 
 ```{r}
 
 # Read the URLs from the text file
-url_file <- "/Users/megansears/Documents/NLDAS/subset_NLDAS_MOS0125_H_2.0_20250311_154000_.txt"
+url_file <- "/Users/megansears/Documents/NLDAS/NLDAS_2022/subset_NLDAS_MOS0125_H_2.0_20250311_193058_.txt"
 urls <- read_lines(url_file)
-urls <- urls[urls != ""]  # Clean up any empty lines
 
-# Create a directory to download the files if it doesn't exist
-download_dir <- "/Users/megansears/Documents/NLDAS/"
+# download location
+download_dir <- "/Users/megansears/Documents/NLDAS/NLDAS_2022/"
 
 download_file <- function(url) {
-  # Ensure the URL is properly encoded (just in case)
+  
+  # encode URL
   url <- URLencode(url)
   
-  # Extract the filename from the 'LABEL' query parameter
+  # use LABEL as file name
   label_param <- sub(".*[&?]LABEL=([^&]+).*", "\\1", url)
   
-  # Decode the filename to make it readable
+  # Decode the filename
   filename <- URLdecode(label_param)
   
-  # Destination file path
+  # destination
   dest_file <- file.path(download_dir, filename)
   
-  # Check if the file already exists, and if so, skip download
+  # if the file exists, then skip (in case it needs to be run more than once)
   if (file.exists(dest_file)) {
-    message(sprintf("⚠️ Skipping: %s (File already exists)", filename))
+    message(sprintf("Skipping: %s (File already exists)", filename))
     return()
   }
   
@@ -55,21 +57,105 @@ download_file <- function(url) {
     config(netrc = TRUE)  # Use the .netrc file for authentication
   )
   
-  # Check if the file was downloaded successfully
+  # check
   if (response$status_code == 200) {
-    message(sprintf("✅ Downloaded: %s", filename))
+    message(sprintf("Downloaded: %s", filename))
   } else {
-    warning(sprintf("❌ Failed to download: %s (Status: %d)", filename, response$status_code))
+    warning(sprintf("Failed to download: %s (Status: %d)", filename, response$status_code))
   }
 }
 
-
-# Set up parallel processing
+# parallel processing (selected 10 workers, if you go higher, often time you get 503 error)
 plan(multisession, workers = 10)
 
-# Use future_map to apply the download function in parallel
+# apply function w/ PP
 future_walk(urls, download_file)
 
+```
+
+# Stack and get mean daily rasters
+
+```{r}
+
+filenames <- list.files("/Users/megansears/Documents/NLDAS/NLDAS_2021", 
+                        pattern = ".tif", full.names = TRUE)
+
+datetime <- list.files("/Users/megansears/Documents/NLDAS/NLDAS_2021", 
+                       pattern = ".tif", full.names = F)
+
+timestamps <- substr(datetime, 18, 30)
+datetime_seq <- ymd_hm(timestamps) - (7 * 60 * 60) # THIS IS IN UTC by adding -7 (for summer) it's in MST
+
+# Read all raster files and stack them together
+stack_21 <- read_stars(filenames, along = 3)
+
+# Set the datetime dimension of the stack
+stack_21 <- st_set_dimensions(stack_21, 3, 
+                              values = datetime_seq, 
+                              names = "datetime")
+
+all_sites <- st_read('./data/GIS/catchments_all_lidar.shp')
+all_sites$site[all_sites$site == "mm"] <- "mm_et"
+
+all_sites <- st_transform(all_sites, st_crs(stack_21))
+site_valid <- st_make_valid(all_sites)
+
+# get daily
+stack_daily <- aggregate(stack_21, by = '1 day', FUN = mean)
+
+```
+
+# Calculate mean daily by site
+
+```{r}
+
+time_values <- st_get_dimension_values(stack_daily, "time")
+
+stack_terra <- rast(stack_daily)
+sites_terra <- vect(site_valid)
+extract <- extract(stack_terra, sites_terra, fun = mean)
+
+
+# Rename the columns of the extracted values to match the time values
+colnames(extract)[2:ncol(extract)] <- time_values
+
+extract_long <- extract %>%
+  pivot_longer(!ID, names_to='date', values_to='sm')
+
+site_names <- sites %>%
+  as.data.frame() %>%
+  select(site, ID)
+
+extract_long <- left_join(extract_long, site_names, by='ID')
+
+daily_mean_sm <- extract_long %>%
+  mutate(date = as.POSIXct(as.numeric(date), origin = "1970-01-01", tz = "UTC")) %>%
+  mutate(date = as.Date(date))
+
+sm_2021 <- daily_mean_sm %>%
+  select(-ID)
+
+```
+
+# Bind 2021:2023
+
+```{r}
+
+sm_all <- bind_rows(sm_2021, sm_2022, sm_2023)
+
+sm_all <- sm_all %>%
+  mutate(site = tolower(site)) %>%
+  mutate(site = if_else(site == 'mtcampus',
+                        'mtcamp',
+                        site))
+
+pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
+  mutate(date = mdy(Date)) %>%
+  dplyr::select(-Date)
+
+join <- left_join(pwd, sm_all, by = c('site', 'date')) 
+
+write_csv(join, './data/final_model_inputs/pwd_soilmoisture.csv')
 
 ```
 
