@@ -105,17 +105,52 @@ mean_dnbr_all <- bind_rows(mean_dnbr_cpf, mean_dnbr_etf)
 #####
 
 burn_cat <- read_stars('./data/GIS/burn_boundaries/cpf_burnsev_cat.tif')
-test[[1]][test[[1]] > 5] <- NA
+burn_cat[[1]][burn_cat[[1]] > 5] <- NA
 
 sites <- st_read('./data/GIS/catchments_all_lidar.shp')
 sites$site[sites$site == "mm"] <- "mm_et"
 
+# need to add area to sites (only some sites have it calculated)
+sites$area_m2 <- st_area(sites)
+  
+sites <- sites %>%  
+  mutate(area_km2 = as.numeric(area_m2) / 1e6) 
+
 burn_cat <- st_transform(burn_cat, st_crs(sites))
 
-extracted <- st_extract(burn_cat, sites)
+burn_cat_poly <- st_as_sf(burn_cat, as_points = F, merge=F)
+
+mapview(burn_cat_poly)
+
+intersect <- st_intersection(burn_cat_poly, sites)
+
+mapview(intersect)
+
+intersect$area_m2 <- st_area(intersect)
+
+intersect_summ <- intersect %>%
+  group_by(site,cpf_burnsev_cat.tif) %>%
+  summarize(sum_area = sum(area_m2)) %>%
+  mutate(area_km2 = as.numeric(sum_area) / 1e6) %>%
+  as.data.frame() %>% 
+  dplyr::select(-geometry)
+
+area_tot <- intersect %>%
+  dplyr::select(site, area_km2) %>%
+  as.data.frame() %>%
+  dplyr::select(-geometry) %>%
+  distinct(site, .keep_all = T)
+
+intersect_summ <- left_join(intersect_summ, area_tot, by='site') %>%
+  rename(area_tot = area_km2.y) %>%
+  mutate(percent = area_km2.x / area_tot)
 
 
-mapview(sites)
+intersect_summ <- intersect_summ %>%
+  mutate(actual_percent = percent*100) %>%
+  dplyr::select(-percent)
+
+write_csv(intersect_summ, './data/final_model_inputs/cpf_burncat_percent.csv')
 
 ```
 
