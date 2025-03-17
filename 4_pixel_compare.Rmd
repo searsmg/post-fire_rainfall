@@ -1273,6 +1273,14 @@ et_rmse_mi30 <- comp_all %>%
                         MI30_mmhr.y)) %>%
   mutate(R_spearman = 0.41) # previously calculated in stat_cor
 
+et_pbias <- comp_all %>%
+  filter(fire == 'ETF')  %>%
+  summarize(pbias = pbias(MI60_mmhr.x, MI60_mmhr.y))
+
+cp_pbias <- comp_all %>%
+  filter(fire == 'CPF')  %>%
+  summarize(pbias = pbias(MI60_mmhr.x, MI60_mmhr.y))
+
 # East Troublesome
 et1 <- comp_all %>%
   filter(fire == 'ETF') %>% 
@@ -1635,6 +1643,11 @@ cp_rmse_mi30 <- all %>%
   summarize(rmse = rmse(MI30_mmhr.x,
                         MI30_mmhr.y)) %>%
   mutate(R_spearman = 0.48) # previously calculated in stat_cor
+
+cp_pbias <- all %>%
+  filter(side == 'East')  %>%
+  summarize(pbias = pbias(MI60_mmhr.x, MI60_mmhr.y))
+
 
 # Cameron Peak
 cp1 <- all %>%
@@ -2103,7 +2116,7 @@ tb_xy <- tb_xy %>%
 tbMI60 <- left_join(tb_events,
                     tb_xy,
                     by='site') %>%
-  mutate(elev_type = if_else(elev_m < 2700,
+  mutate(elev_type = if_else(elev_m < 2600,
                              'Low',
                              'High')) %>%
   mutate(fire = if_else(site %in% c('hum',
@@ -2112,26 +2125,109 @@ tbMI60 <- left_join(tb_events,
                                     'p1'),
                         'East Troublesome', 'Cameron Peak'))
 
-
-ggplot(tbMI60, aes(x=elev_type, y=MI60)) + geom_boxplot() +
+ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
+  #geom_violin(color = "black", trim = FALSE) +  # violin layer
+  geom_boxplot(color='gray23') +               # boxplot inside violin
   facet_wrap(~fire) +
+  #scale_y_log10() +
+  #scale_fill_manual(values = c('steelblue', 'black')) +
   theme_bw(base_size = 20) +
-  labs(x='Elevation',
-       y='')
+  labs(
+    x = 'Elevation',
+    y = 'MI60 (mm/hr)'
+  ) +
   theme(
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
     strip.background = element_blank(),
-    #strip.text = element_blank(),
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
-    #axis.text.x = element_text(angle = 45, hjust = 1)
     legend.position = c(.01, 0.98),
-   legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 13),         # Adjust legend text size
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 13),
     legend.title = element_blank()
-  ) 
+  )
+
+summary <- tbMI60 %>%
+  group_by(fire, elev_type) %>%
+  summarize(mean = mean(MI60))
+
+# library(ggridges)
+# 
+# tbMI60 <- tbMI60 %>%
+#   mutate(fire_elev = paste(fire, elev_type, sep = " - "))
+# 
+# # Plot with the combined group on the y-axis
+# mi60 <- ggplot(tbMI60, aes(x = MI60, y = fire_elev)) + 
+#   geom_density_ridges(
+#     alpha = 0.7, scale = 0.55,
+#     jittered_points = TRUE, position = "points_jitter"
+#   ) +
+#   labs(
+#     x = "MI60 (mm/hr)", 
+#     y = NULL
+#   ) +
+#   theme_bw(base_size = 18) +
+#   theme(
+#     panel.grid = element_blank(),
+#     panel.background = element_rect(fill = "white"),
+#     strip.background = element_blank(),
+#     text = element_text(color = "black"),
+#     axis.title = element_text(color = "black"),
+#     axis.text = element_text(color = "black")
+#   )
+# 
+# mi60
+
+library(ggplot2)
+
+
+  ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
+  
+  # Boxplot with bold outlines and minimal fill
+  geom_boxplot(
+    fill = "white",           
+    color = "black",          
+    size = 0.8,                 
+    width = 0.4,                
+    outlier.shape = NA         
+  ) +
+  
+  # Points, but de-emphasized
+  geom_jitter(
+    aes(color = elev_type),
+    width = 0.1,             
+    height = 0,              
+    size = 1.2,               
+    alpha = 0.3                 
+  ) +
+  
+  facet_wrap(~fire) +
+  
+  # Color scales (optional)
+  scale_color_manual(values = c('#7570B3', "#D95F02")) +
+  
+  theme_bw(base_size = 20) +
+  labs(
+    x = 'Elevation',
+    y = 'MI60 (mm/hr)'
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = "none"
+  )
+
+  
+ggsave('./figures/tb_mi60_elev.png',
+       width = 8,
+       height = 5,
+       dpi=600)
 
 
 
