@@ -25,6 +25,7 @@ library(ggplot2); theme_set(theme_bw(base_size = 20,
                                      base_family = "Arial"))
 library(broom)
 library(multcompView)
+library(ggcorrplot)
 
 ```
 
@@ -222,8 +223,6 @@ corr_prep <- inputs %>%
   select(where(is.numeric))
 
 corr_matrix <- cor(corr_prep, use = "complete.obs")
-
-library(ggcorrplot)
 
 ggcorrplot(corr_matrix, method = "square", 
            hc.order = TRUE, # Hierarchical clustering order for better visualization
