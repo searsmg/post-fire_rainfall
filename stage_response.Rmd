@@ -223,21 +223,11 @@ corr_prep <- inputs %>%
 
 corr_matrix <- cor(corr_prep, use = "complete.obs")
 
-# Step 3: Plot the correlation matrix using corrplot
-library(corrplot)
-corrplot(corr_matrix, method = "circle")
-
-corrplot(corr_matrix, method = "square", type = "full", 
-         addCoef.col = "black", # Color of the correlation values
-         tl.col = "black", # Color of the variable names
-         tl.srt = 45, # Rotate variable names if needed
-         diag = FALSE) # Optionally remove the diagonal (set to TRUE to show)
-
 library(ggcorrplot)
 
 ggcorrplot(corr_matrix, method = "square", 
            hc.order = TRUE, # Hierarchical clustering order for better visualization
-           type = "full", 
+           type = "lower", 
            lab = TRUE, # Show correlation values in the squares
            lab_col = "black", # Color of the text labels
            lab_size = 3, # Size of the correlation values
