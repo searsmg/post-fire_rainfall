@@ -4540,7 +4540,7 @@ write.csv(flow1, './data/final/stage_YN_response/cross/all_cross_wmean.csv')
 # mt camp event 8/1-8/3/23 for mrms needs to be manually added -- only for max dataset
 # double check all missing events for tb and mrms
 
-flow1 <- read_csv('./data/final/stage_YN_response/cross/all_cross_max.csv')
+#flow1 <- read_csv('./data/final/stage_YN_response/cross/all_cross_max.csv')
 
 ```
 
