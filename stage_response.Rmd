@@ -80,10 +80,11 @@ inputs <- read_csv('./data/final_model_inputs/inputs_combine.csv')
 
 ```
 
-# Inputs by fire & SP
+# Histograms and boxplots
 
 ```{r}
 
+# create snow persistence categories
 inputs <- inputs %>% 
   mutate(sp_cat = if_else(SP_mean > 60,
                           'high',
@@ -92,7 +93,7 @@ inputs <- inputs %>%
 # Get names of variables
 numeric_cols <- names(inputs)[2:35]
 
-# histogrms
+# histograms
 plots <- map(numeric_cols, ~{
   ggplot(inputs, aes(x = .data[[.x]], fill=sp_cat)) +
     geom_density(alpha = 0.6) +
@@ -103,25 +104,7 @@ plots <- map(numeric_cols, ~{
 
 plots
 
-shapiro_results <- inputs %>%
-  select(-c(`%treated`, geology.x, geo_general.x)) %>%
-  group_by(fire, sp_cat) %>%
-  summarise(
-    across(hypso25:SP_mean, ~ shapiro.test(.x)$p.value))
-
-ggplot(param_sens, aes(x = value, fill = input_data)) +
-  geom_density(alpha = 0.6) +
-  facet_wrap(~param, scales = "free") +
-  theme_bw(base_size = 20) +
-  scale_fill_manual(values = c("#0047AB", "orange")) +
-  theme(
-    strip.background = element_blank(),
-    panel.grid = element_blank(),
-    legend.position = "bottom"
-  )
-
-
-# boxplots for all variables
+# boxplots 
 plots <- map(numeric_cols, ~{
   ggplot(inputs, aes(x = fire, y = .data[[.x]], fill=sp_cat)) +
     geom_boxplot() +
@@ -129,27 +112,76 @@ plots <- map(numeric_cols, ~{
     labs(title = paste(.x))
 })
 
-# Print all plots
 plots
+
+```
+
+# Correlations
+
+```{r}
+
+corr_prep <- inputs %>%
+  select(where(is.numeric))
+
+corr_matrix <- cor(corr_prep, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
 
 ```
 
 # ANOVA 
 
+Two-way anova and Tukey!
+
 ```{r}
-inputs_long <- inputs %>%
+
+# remove the unburned sites from inputs for dnbr and ndvi
+inputs_edit <- inputs %>%
+  mutate(mean_dnbr = if_else(site %in% c('bighorn',
+                                         'michigan',
+                                         'p1'),
+                             NA,
+                             mean_dnbr),
+         NDVI_2021.x = if_else(site %in% c('bighorn',
+                                           'michigan',
+                                           'p1'),
+                               NA,
+                               NDVI_2021.x),
+         NDVI_2022.x = if_else(site %in% c('bighorn',
+                                           'michigan',
+                                           'p1'),
+                               NA,
+                               NDVI_2022.x),
+         NDVI_2023.x = if_else(site %in% c('bighorn',
+                                           'michigan',
+                                           'p1'),
+                               NA,
+                               NDVI_2023.x))
+
+# make df long & remove the categorical geology
+inputs_long <- inputs_edit %>%
   select(-c(site, geo_general.x, geology.x)) %>%
   pivot_longer(!c(fire, sp_cat), 
                names_to = 'vars',
                values_to = 'vals')
 
-
+# function to run two-way anova and Tukey letters
 tukey_results <- inputs_long %>%
   mutate(fire = as.factor(fire),
          sp_cat = as.factor(sp_cat)) %>%
   group_split(vars) %>%
   map(function(df) {
-    # 2 way anova
+    # two-way ANOVA
     model <- aov(vals ~ fire * sp_cat, data = df)
     
     # Tukey HSD
@@ -172,8 +204,7 @@ tukey_df <- tibble(
   var = map_chr(tukey_results, "var"),
   model = map(tukey_results, "model"),
   tukey = map(tukey_results, "tukey"),
-  letters = map(tukey_results, "letters")
-)
+  letters = map(tukey_results, "letters"))
 
 # extract letters 
 letters_all_vars <- tukey_df %>%
@@ -201,7 +232,7 @@ inputs_tukey <- inputs_tukey %>%
   mutate(y_text = max(vals, na.rm = TRUE) * 1.01) %>%  # Slightly above max value
   ungroup()
 
-
+# basic fig, no formatting
 ggplot(inputs_tukey, aes(x=fire, 
                          y=vals, 
                          fill=sp_cat)) + 
@@ -213,36 +244,103 @@ ggplot(inputs_tukey, aes(x=fire,
   facet_wrap(~var, scales='free_y', ncol=3) +
    scale_y_continuous(expand = expansion(mult = c(0.1, 0.15)))
 
-ggsave('/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/vars_boxplot.png',
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/vars_boxplot.png',
        dpi=600,
        width=12,
        height=20)
 
-##
-corr_prep <- inputs %>%
-  select(where(is.numeric))
+# for actual figure - select soils & geo, shape, burn & veg
+vars <- inputs_tukey %>%
+  filter(var %in% c('AVG_CLAY',
+                     'AVG_KSAT',
+                     'aws0150wta',
+                     'ELONGATION.x',
+                     'flow_length_m',
+                     'frac_valley',
+                     'hypso75',
+                     'slope30_frac',
+                     'mean_dnbr',
+                     'NDVI_2021.x',
+                     'NDVI_2022.x',
+                     'NDVI_2023.x')) %>% # vars that are sig diff
+    mutate(var = case_match(var,
+    "AVG_CLAY" ~ "Clay",
+    "AVG_KSAT" ~ "Ksat",
+    "aws0150wta" ~ "Available water storage",
+    "ELONGATION.x" ~ "Elongation",
+    "flow_length_m" ~ "Max flow length",
+    "frac_valley" ~ "Valley and hollows fraction",
+    "hypso75" ~ "Hypsometric 75",
+    "slope30_frac" ~ "Slope > 30 fraction",
+    "mean_dnbr" ~ "Mean dNBR",
+    "NDVI_2021.x" ~ "NDVI 2021",
+    "NDVI_2022.x" ~ "NDVI 2022",
+    "NDVI_2023.x" ~ "NDVI 2023"))
+  
+# basic fig, no formatting
+ggplot(vars, aes(x=fire, 
+                         y=vals, 
+                         fill=sp_cat)) + 
+  geom_boxplot() +
+  geom_text(aes(label = letter, y = y_text), 
+            position = position_dodge(width = 0.75),
+            size = 6, 
+            vjust = 0) + 
+  scale_fill_manual(values = c('#5D74A5FF',
+                               '#A8554EFF')) +
+  facet_wrap(~var, scales='free_y', ncol=3) +
+   scale_y_continuous(expand = expansion(mult = c(0.1, 0.15))) +
+  theme_bw(base_size=20)
 
-corr_matrix <- cor(corr_prep, use = "complete.obs")
-
-ggcorrplot(corr_matrix, method = "square", 
-           hc.order = TRUE, # Hierarchical clustering order for better visualization
-           type = "lower", 
-           lab = TRUE, # Show correlation values in the squares
-           lab_col = "black", # Color of the text labels
-           lab_size = 3, # Size of the correlation values
-           colors = c("blue", "white", "red")) +
-  theme(
-    plot.margin = margin(1, 1,1,1), # Adjust margins (top, right, bottom, left)
-    axis.text.x = element_text(angle = 45, hjust = 1), # Rotate x-axis labels for better fit
-    axis.text.y = element_text(hjust = 1) # Adjust y-axis label position
-  )
-
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/vars_boxplot_less.png',
+       dpi=600,
+       width=12,
+       height=12)
 
 ```
 
 
+# Temporal variables
+
+Rain metrics and PWD
+First, see what rain metrics are most correlated with stage rise
+
 ```{r}
-# Time varying inputs
+
+# this is only for events > 5 cm
+response <- read_csv('./data/final/stage_mrms_response.csv') %>%
+  mutate(across(c(datetime_peak, datetime_min, start_time.y, end_time.y), mdy_hm)) %>%
+  mutate(date = mdy(date)) %>%
+  mutate(site = if_else(site == 'mont',
+                        'montgomery',
+                        site)) %>%
+  mutate(site = if_else(site == 'mich',
+                        'michigan',
+                        site))
+
+response_corr <- response %>%
+  select(stage_rise_cm, MI60_mmhr.y, MI30_mmhr.y, event_sum_mm.y, duration_hr.y)
+
+corr_matrix <- cor(response_corr, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+
+
+```
+
 
 ```{r}
 
@@ -292,6 +390,7 @@ ggplot(rain, aes(x=fire, fill=sp_cat, y=duration)) + geom_boxplot() + theme_bw()
 
 ```
 
+# Stage rise
 
 ```{r}
 # # Stage rise
