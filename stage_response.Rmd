@@ -26,6 +26,7 @@ library(ggplot2); theme_set(theme_bw(base_size = 20,
 library(broom)
 library(multcompView)
 library(ggcorrplot)
+library(cowplot)
 
 ```
 
@@ -321,7 +322,11 @@ response <- read_csv('./data/final/stage_mrms_response.csv') %>%
                         site))
 
 response_corr <- response %>%
-  select(stage_rise_cm, MI60_mmhr.y, MI30_mmhr.y, event_sum_mm.y, duration_hr.y)
+  select(stage_rise_cm, 
+         MI60_mmhr.y, 
+         MI30_mmhr.y, 
+         event_sum_mm.y, 
+         duration_hr.y)
 
 corr_matrix <- cor(response_corr, use = "complete.obs")
 
@@ -337,6 +342,115 @@ ggcorrplot(corr_matrix, method = "square",
     axis.text.x = element_text(angle = 45, hjust = 1),
     axis.text.y = element_text(hjust = 1))
 
+# test what it looks like when dropping missing mrms
+response_corr_no0 <- response_corr %>%
+  filter(!event_sum_mm.y == 0)
+
+corr_matrix <- cor(response_corr_no0, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+# lets look at cpf with no 0 mrms
+response_cpf <- response %>%
+  filter(fire == 'cpf',
+         !event_sum_mm.y == 0) %>%
+  select(stage_rise_cm, 
+         MI60_mmhr.y, 
+         MI30_mmhr.y, 
+         event_sum_mm.y,
+         duration_hr.y)
+
+corr_matrix <- cor(response_cpf, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+# response etf
+response_etf <- response %>%
+  filter(fire == 'etf',
+         !event_sum_mm.y == 0) %>%
+  select(stage_rise_cm, 
+         MI60_mmhr.y, 
+         MI30_mmhr.y, 
+         event_sum_mm.y,
+         duration_hr.y)
+
+corr_matrix <- cor(response_etf, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+# need to look by site
+response_site <- response %>%
+  filter(!event_sum_mm.y == 0,
+         !site %in%  c('michigan',
+                       'p1'))
+
+corr_bysite <- function(siteID){
+  
+  corr_site <- response_site %>% 
+  filter(site == siteID) %>%
+  select(stage_rise_cm, 
+         MI60_mmhr.y, 
+         MI30_mmhr.y, 
+         event_sum_mm.y,
+         duration_hr.y)
+  
+  corr_matrix <- cor(corr_site, use = "complete.obs")
+  
+  ggcorrplot(corr_matrix, method = "square", 
+           hc.order = TRUE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme_bw(base_size=12) +
+    ggtitle(label = siteID) +
+    theme(
+      plot.margin = margin(-1, -1, -1, -1))
+  
+}
+
+siteID <- unique(response_site$site)
+
+corr_plots <- map(siteID, corr_bysite)
+corr_plots
+
+library(patchwork)
+
+# Combine the plots using patchwork, arranging them in a grid
+combined_plot <- wrap_plots(corr_plots, ncol = 4)
+
+ggsave("./figures/SR_response/combined_corr.png", combined_plot, width = 40, height = 30, dpi = 300)
 
 
 ```
