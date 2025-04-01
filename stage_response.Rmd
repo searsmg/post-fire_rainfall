@@ -92,7 +92,7 @@ inputs <- inputs %>%
                           'low'))
 
 # Get names of variables
-numeric_cols <- names(inputs)[2:35]
+numeric_cols <- names(inputs)[2:37]
 
 # histograms
 plots <- map(numeric_cols, ~{
@@ -288,8 +288,8 @@ ggplot(vars, aes(x=fire,
             position = position_dodge(width = 0.75),
             size = 6, 
             vjust = 0) + 
-  scale_fill_manual(values = c('#5D74A5FF',
-                               '#A8554EFF')) +
+  scale_fill_manual(values = c("#9970ABFF", 
+                               "#5AAE61FF")) +
   facet_wrap(~var, scales='free_y', ncol=3) +
    scale_y_continuous(expand = expansion(mult = c(0.1, 0.15))) +
   theme_bw(base_size=20)
@@ -302,10 +302,11 @@ ggsave(
 
 ```
 
-
 # Temporal variables
 
 Rain metrics and PWD
+
+## Corr: stage rise and rain metrics
 First, see what rain metrics are most correlated with stage rise
 
 ```{r}
@@ -455,14 +456,10 @@ ggsave("./figures/SR_response/combined_corr.png", combined_plot, width = 40, hei
 
 ```
 
+# Join dataframes
+Join model inputs, PWD, response/rain
 
 ```{r}
-
-sp <- read_csv('./data/final_model_inputs/sp_2000_2019_avg_catchments.csv') %>%
-    mutate(sp_cat = if_else(SP_mean > 60,
-                          'high',
-                          'low')) %>%
-  select(site, sp_cat)
   
 pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
   mutate(date = mdy(Date)) %>%
@@ -470,11 +467,16 @@ pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
   dplyr::select(date, lag_pwd, site)
 
 fire <- inputs %>%
-  select(site, fire)
+  select(site, fire, sp_cat)
 
-info <- left_join(sp, fire, by ='site')
+# add SP category and fire to PWD
+pwd <- left_join(pwd, fire, by = 'site')
 
-pwd <- left_join(pwd, info, by = 'site')
+# make a PWD fig that is faceted by fire and snow zone
+ggplot(pwd, aes(x=site,
+                y=lag_pwd)) +
+  geom_boxplot() +
+  facet_wrap(vars(sp_cat,fire), scales='free_x')
 
 ggplot(pwd, aes(x=fire, fill=sp_cat, y=lag_pwd)) + geom_boxplot() + theme_bw()
 
