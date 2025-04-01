@@ -600,6 +600,32 @@ site_name <- all_sites$site
 slope40_frac <- map(site_name, get_slope40_frac) %>%
   bind_rows()
 
+# do slopes >= 23 (that's what usgs uses in debris flow but on only mod or high burned slopes)
+get_slope23_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope23 = if_else(slope >= 23, 1, 0)) %>%
+  summarize(slope23_frac = sum(slope23) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope23_frac <- map(site_name, get_slope23_frac) %>%
+  bind_rows()
+
+# extract slope23 alone since doing it after all other calcs
+write_csv(slope23_frac, './data/final_model_inputs/slope23_frac.csv')
+
 ```
 
 # Geology
