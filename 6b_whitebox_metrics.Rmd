@@ -326,6 +326,12 @@ all_hypso <- map_df(site_name, get_hypso_values) %>%
 # add to metrics df
 metrics <- left_join(metrics, all_hypso, by = 'site')
 
+# get a sample curve
+sample <- wbt_hypsometric_analysis(
+    inputs = './data/GIS/site_lidar/p1_lidar.tif', 
+    output = './data/GIS/site_lidar/p1_hypso_test.html')
+
+
 ```
 
 # Flowpath length
