@@ -1281,6 +1281,18 @@ cp_pbias <- comp_all %>%
   filter(fire == 'CPF')  %>%
   summarize(pbias = pbias(MI60_mmhr.x, MI60_mmhr.y))
 
+# grab pbias for QM's paper
+select_cpf <- comp_all %>%
+    filter(site %in% c('bighorn',
+                     'dry',
+                     'washout',
+                     'montgomery',
+                     'michigan',
+                     'bl4')) %>%
+  select(site, MI60_mmhr.x, MI60_mmhr.y) %>%
+  mutate(MI60_mmhr.y = if_else(is.na(MI60_mmhr.y), 0, MI60_mmhr.y)) %>%
+  summarize(pbias = pbias(MI60_mmhr.x, MI60_mmhr.y))
+
 # East Troublesome
 et1 <- comp_all %>%
   filter(fire == 'ETF') %>% 
