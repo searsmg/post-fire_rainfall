@@ -2192,9 +2192,6 @@ summary <- tbMI60 %>%
 # 
 # mi60
 
-library(ggplot2)
-
-
   ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
   
   # Boxplot with bold outlines and minimal fill
