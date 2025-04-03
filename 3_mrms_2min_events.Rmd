@@ -115,10 +115,10 @@ all <- read_csv('./data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv') %>%
 #   rename(datetime = timestamps_10min) 
 
 
-summ <- usgs %>%
-  mutate(year = year(datetime)) %>%
-  group_by(ID, year) %>%
-  mutate(cumsum = cumsum(rain_mm))
+# summ <- usgs %>%
+#   mutate(year = year(datetime)) %>%
+#   group_by(ID, year) %>%
+#   mutate(cumsum = cumsum(rain_mm))
 
 ```
 
@@ -167,6 +167,7 @@ get_mrms_intensities <- function(all_events, ID_name) {
 
 intens <- all_events %>%
   filter(ID == ID_name) %>%
+  arrange(.,start_time) %>% 
   group_by(event) %>%
   mutate(max10_mm = max(rain_mm),
          sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
@@ -176,13 +177,19 @@ intens <- all_events %>%
          sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
          max60_mm = max(sum60_mm),
          event_sum_mm = sum(rain_mm),
+         half_event_sum_mm = event_sum_mm / 2,
+         cum_rain_mm = cumsum(rain_mm),
+         halfP_datetime = datetime[which.max(cum_rain_mm >= half_event_sum_mm)],
          MI10_mmhr = max10_mm*6,
          MI20_mmhr = max20_mm*3,
          MI30_mmhr = max30_mm*2,
-         MI60_mmhr = max60_mm) %>%
+         MI60_mmhr = max60_mm,
+         MI60_datetime = datetime[which.max(sum60_mm)]) %>%
   dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
             sum20_mm, sum30_mm, sum60_mm, datetime,
-            rain_mm)) %>%
+            rain_mm,
+            half_event_sum_mm,
+            cum_rain_mm)) %>%
   ungroup() %>%
   distinct(start_time, .keep_all = T) %>%
   mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
@@ -205,7 +212,17 @@ all_intens <- all_intens %>%
 ggplot(all_intens, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
 ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
 
-write.csv(all_intens, './data/final/mrms/catchment_mrms_intensities_wmean_exact.csv')
+all_intens <- all_intens %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9))
+
+write.csv(all_intens, './data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv')
 
 ```
+
+
+
+
+
+
 
