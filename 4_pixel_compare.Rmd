@@ -1627,7 +1627,7 @@ filter <- filter %>%
   mutate(fire = 'cpf')
 
 all <- bind_rows(comp_all, filter) %>%
-  mutate(side = if_else(fire == 'etf', 'West', 'East'))
+  mutate(side = if_else(fire == 'ETF', 'West', 'East'))
 
 color_palette <- c(
   "0-0.2" = "#66A61E",
@@ -1637,6 +1637,11 @@ color_palette <- c(
   "0.8-1.0" = "#E7298A"
 )
 
+# get some summary stats
+all_stats <- all %>%
+  group_by(side) %>%
+  summarize(mean = mean(rqi),
+            sd = sd(rqi))
 
 cp_rmse_mi60 <- all %>%
   filter(side == 'East') %>% 
