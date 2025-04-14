@@ -17,6 +17,7 @@ library(plotly)
 library(here)
 library(ggplot2); theme_set(theme_bw(base_size = 20,
                                      base_family = "Arial"))
+library(zoo)
 
 ```
 
@@ -56,15 +57,10 @@ generate_event_ids <- function(event_def) {
 
 ```{r}
 
+# already offset in 5a_stage_offests code
 et_stage <- read_csv('./data/stage/et_stage_corrected.csv') %>%
   dplyr::select(datetime, Stage_fix, site) %>%
   mutate(datetime = with_tz(datetime, tzone = "MST"))
-
-et_stage_plot <- ggplot(et_stage, aes(datetime, Stage_fix,
-                                      color = site)) +
-  geom_line()
-
-ggplotly(et_stage_plot)
 
 ```
 
@@ -75,7 +71,8 @@ ggplotly(et_stage_plot)
 # Stage adjust based on manual measurements
 hum_stage <- et_stage %>%
   filter(site == 'hum') %>% 
-  mutate(month = month(datetime))
+  mutate(month = month(datetime),
+         year = year(datetime))
 
 # Stage plot
 hum_stage_plot <- ggplot(hum_stage, aes(datetime, Stage_fix)) +
@@ -86,7 +83,8 @@ ggplotly(hum_stage_plot)
 ################################################################################
 # filter out unwanted months
 hum_stage <- hum_stage %>%
-  filter(month %in% c(6:9))
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
 
 # find stage events pt 1
 filter_hum_stage_events <- hum_stage %>%
@@ -122,6 +120,15 @@ filtered_hum_stage <- hum_stage %>%
   ) %>%
   ungroup()
 
+# RBI proxy
+rbi <- filtered_hum_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom)%>%
+  select(-c(numFinal, denom))
+
 # pt 3 - summary
 hum_stage_summ <- filtered_hum_stage %>%
   group_by(event_id) %>%
@@ -133,11 +140,15 @@ summarize(max_stage = max(Stage_fix),
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id == 13) # this is from a download spike
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(5,7,9,13,14)) # download spikes or noise
+
+hum_stage_summ <- left_join(hum_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(hum_stage_summ,
-          './data/final/stage_YN_response/hum_stage_events.csv')
+          './data/final/stageResponse_2cm/hum_stage_events.csv')
 
 ```
 
@@ -148,8 +159,10 @@ write_csv(hum_stage_summ,
 # Stage adjust based on manual measurements
 p1_stage <- et_stage %>%
   filter(site == 'p1') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) 
+  mutate(month = month(datetime),
+         year = year(datetime)) %>% 
+  filter(month %in% c(6:9), 
+         year %in% c(2021:2023))
 
 ################################################################################
 # stage plot
@@ -161,7 +174,7 @@ ggplotly(p1_stage_plot)
 ################################################################################
 # stage events pt 1
 filter_p1_stage_events <- p1_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,12) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -171,7 +184,7 @@ filter_p1_stage_events <- p1_stage %>%
   mutate(event_id = generate_event_ids(event_def)) %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
-  mutate(start_time = filter_time - hours(2),
+  mutate(start_time = filter_time - hours(4), # started as 2
          end_time = filter_time + hours(3))
 
 # pt 2
@@ -204,11 +217,23 @@ p1_stage_summ <- filtered_p1_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 4) 
-# used 4 here to include one event that is def a response
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id == c(7,11)) # spikes from downloads
+
+rbi <- filtered_p1_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+p1_stage_summ <- left_join(p1_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(p1_stage_summ,
-          './data/final/stage_YN_response/p1_stage_events.csv')
+          './data/final/stageResponse_2cm/p1_stage_events.csv')
 
 ```
 
@@ -218,7 +243,10 @@ write_csv(p1_stage_summ,
 # Offset stage based on manual measurements
 hm_stage <- et_stage %>%
   filter(site == 'hm') %>% 
-  mutate(month = month(datetime))
+  mutate(month = month(datetime),
+         year = year(datetime)) %>% 
+  filter(month %in% c(6:9), 
+         year %in% c(2021:2023))
 
 ################################################################################
 # stage plot
@@ -228,13 +256,10 @@ hm_stage_plot <- ggplot(hm_stage, aes(datetime, Stage_fix)) +
 ggplotly(hm_stage_plot)
 
 ################################################################################
-# remove unwanted months
-hm_stage <- hm_stage %>%
-  filter(month %in% c(6:9))
 
 # process stage events pt 1
 filter_hm_stage_events <- hm_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 2) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -277,11 +302,23 @@ hm_stage_summ <- filtered_hm_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id == 18) # sensor download spike
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1,2,3,5,23,24)) # snowmelt or downloads
+  
+  rbi <- filtered_hm_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+hm_stage_summ <- left_join(hm_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(hm_stage_summ,
-          './data/final/stage_YN_response/hm_stage_events.csv')
+          './data/final/stageResponse_2cm/hm_stage_events.csv')
 
 ```
 
@@ -292,8 +329,10 @@ write_csv(hm_stage_summ,
 # Stage offset based on manual measurements
 mpm_stage <- et_stage %>%
   filter(site == 'mpm') %>% 
-  mutate(month = month(datetime)) %>%
-  filter(month %in% c(6:9)) 
+  mutate(month = month(datetime),
+         year = year(datetime)) %>% 
+  filter(month %in% c(6:9), 
+         year %in% c(2021:2023)) 
 
 ################################################################################
 # stage plot
@@ -305,7 +344,7 @@ ggplotly(mpm_stage_plot)
 ################################################################################
 # Process stage events pt 1
 filter_mpm_stage_events <- mpm_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -348,11 +387,23 @@ mpm_stage_summ <- filtered_mpm_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(12,17)) # weird stage offsets
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(4,6,18:22,24)) # downloads or snowmelt signal
+  
+rbi <- filtered_mpm_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mpm_stage_summ <- left_join(mpm_stage_summ,
+                            rbi,
+                            by='event_id')
  
 write_csv(mpm_stage_summ,
-          './data/final/stage_YN_response/mpm_stage_events.csv')
+          './data/final/stageResponse_2cm/mpm_stage_events.csv')
 
 ```
 
@@ -363,7 +414,10 @@ write_csv(mpm_stage_summ,
 # Stage offsets based on manual measurements
 mum_stage <- et_stage %>%
   filter(site == 'mum') %>% 
-  mutate(month = month(datetime))
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
 
 ################################################################################
 mum_stage_plot <- ggplot(mum_stage, aes(datetime, Stage_fix)) +
@@ -372,13 +426,10 @@ mum_stage_plot <- ggplot(mum_stage, aes(datetime, Stage_fix)) +
 ggplotly(mum_stage_plot)
 
 ################################################################################
-# remove unwanted months
-mum_stage <- mum_stage %>%
-  filter(month %in% c(6:9))
 
 # Process stage events - pt 1
 filter_mum_stage_events <- mum_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -421,10 +472,22 @@ mum_stage_summ <- filtered_mum_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2)
+  
+  rbi <- filtered_mum_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mum_stage_summ <- left_join(mum_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(mum_stage_summ,
-          './data/final/stage_YN_response/mum_stage_events.csv')
+          './data/final/stageResponse_2cm/mum_stage_events.csv')
 
 ```
 
@@ -435,7 +498,10 @@ write_csv(mum_stage_summ,
 # Stage offsets based on manual measurements
 mub_stage <- et_stage %>%
   filter(site == 'mub') %>% 
-  mutate(month = month(datetime))
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
 
 ################################################################################
 mub_stage_plot <- ggplot(mub_stage, aes(datetime, Stage_fix)) +
@@ -444,13 +510,10 @@ mub_stage_plot <- ggplot(mub_stage, aes(datetime, Stage_fix)) +
 ggplotly(mub_stage_plot)
 
 ################################################################################
-# remove unwanted months
-mub_stage <- mub_stage %>%
-  filter(month %in% c(6:9))
 
 # Process stage events - pt 1
 filter_mub_stage_events <- mub_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,2) > 1.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -493,11 +556,22 @@ mub_stage_summ <- filtered_mub_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id == 8) # this is from 2024
+  filter(stage_rise_cm > 2)
+  
+rbi <- filtered_mub_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mub_stage_summ <- left_join(mub_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(mub_stage_summ,
-          './data/final/stage_YN_response/mub_stage_events.csv')
+          './data/final/stageResponse_2cm/mub_stage_events.csv')
 
 ```
 
@@ -508,7 +582,12 @@ write_csv(mub_stage_summ,
 # Stage offsets based on manual measurements
 p2_stage <- et_stage %>%
   filter(site == 'p2') %>% 
-  mutate(month = month(datetime)) 
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  arrange(datetime)
+
 
 ################################################################################
 p2_stage_plot <- ggplot(p2_stage, aes(datetime, Stage_fix)) +
@@ -517,14 +596,10 @@ p2_stage_plot <- ggplot(p2_stage, aes(datetime, Stage_fix)) +
 ggplotly(p2_stage_plot)
 
 ################################################################################
-# remove unwanted months
-p2_stage <- p2_stage %>%
-  filter(month %in% c(6:9)) %>%
-  arrange(datetime)
 
 # Processing stage events - pt 1
 filter_p2_stage_events <- p2_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 0.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,15) > 1,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -535,7 +610,7 @@ filter_p2_stage_events <- p2_stage %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(4),
-         end_time = filter_time + hours(4))
+         end_time = filter_time + hours(8))
 
 # pt 2
 filtered_p2_stage <- p2_stage %>%
@@ -567,13 +642,23 @@ p2_stage_summ <- filtered_p2_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
-# manually adding 7/13/22 event into the csv
-# 2022-07-13 14:30, 17.9
-# 2022-07-13 16:45, 41.0
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(22:41, 47)) # snowmelt signal and noise
+
+rbi <- filtered_p2_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+p2_stage_summ <- left_join(p2_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(p2_stage_summ,
-          './data/final/stage_YN_response/p2_stage_events.csv')
+          './data/final/stageResponse_2cm/p2_stage_events.csv')
 
 ```
 
@@ -581,36 +666,35 @@ write_csv(p2_stage_summ,
 
 lm, lpm, lum, mm
 
+same code for events > 2 cm (mrms paper), no changes
+
 ```{r}
 
 # lm2 = lm (lm1 is the one that is pointed down the steep hill)
 camera <- read_csv('./data/stage/et_camera_stream_data.csv') %>%
-  dplyr::select(date = Date, 
-                site = Site, 
+  dplyr::select(date = Date,
+                site = Site,
                 datetime_min = Time_first_water,
-                datetime_peak = Time_peak_water, 
+                datetime_peak = Time_peak_water,
                 stage_rise_cm) %>%
-  drop_na(stage_rise_cm) %>% 
-  mutate(datetime_min = mdy_hm(paste(date, datetime_min), 
+  drop_na(stage_rise_cm) %>%
+  mutate(datetime_min = mdy_hm(paste(date, datetime_min),
                                  tz = 'MST'),
-         datetime_peak = mdy_hm(paste(date, datetime_peak), 
+         datetime_peak = mdy_hm(paste(date, datetime_peak),
                                 tz = 'MST')) %>%
-  filter(stage_rise_cm > 5) %>%
+  filter(stage_rise_cm > 2) %>%
   mutate(site = if_else(site == 'mm', 'mm_et', site)) %>%
   mutate(site = if_else(site == 'lm2', 'lm', site)) %>%
-  filter(!site == 'lm1') 
-  
+  filter(!site == 'lm1')
 
-write_csv(camera,
-          './data/final/stage_YN_response/et_camera_events.csv')
+write.csv(camera,
+          './data/final/stageResponse_2cm/et_camera_events.csv')
 
 ```
 
 # CPF
 
 ## Aspen
-
-No events
 
 ```{r}
 # manual stage measurements
@@ -627,8 +711,10 @@ manual <- read_csv('./data/field_notes/cpf_fieldnotes.csv') %>%
 # aspen raw stage data
 aspen <- read_csv('./data/stage/Aspen_stage_composite.CSV') %>%
   mutate(datetime = mdy_hm(datetime)) %>%
-  mutate(year = year(datetime)) %>%
-  filter(year %in% c(2021:2023)) %>%
+  mutate(year = year(datetime),
+         month = month(datetime)) %>%
+  filter(year %in% c(2021:2023),
+         month %in% c(6:9)) %>%
   mutate(Stage_cm = Stage_mm / 10)
 
 # Offset stage data based on manual measurements
@@ -672,7 +758,7 @@ aspen_stage <- aspen_stage %>%
   
 # Process stage events pt 1
 filter_aspen_stage_events <- aspen_stage %>%
-  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 2) > 1.5,
+  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 6) > 1,
                             'increase', 'none')) %>% 
    # mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
    #                          'increase', 'none')) %>%
@@ -685,7 +771,7 @@ filter_aspen_stage_events <- aspen_stage %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(4),
-         end_time = filter_time + hours(3))
+         end_time = filter_time + hours(4))
 
 # pt 2
 filtered_aspen_stage <- aspen_stage %>%
@@ -717,7 +803,24 @@ aspen_stage_summ <- filtered_aspen_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(5,8:12))
+
+rbi <- filtered_aspen_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+aspen_stage_summ <- left_join(aspen_stage_summ,
+                            rbi,
+                            by='event_id')
+
+write_csv(aspen_stage_summ,
+          './data/final/stageResponse_2cm/aspen_stage_events.csv')
+
 
 ```
 
@@ -850,10 +953,23 @@ bighorn_stage_summ <- filtered_bighorn_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(4:14,16,21:23))
+  
+rbi <- filtered_bighorn_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+bighorn_stage_summ <- left_join(bighorn_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(bighorn_stage_summ,
-          './data/final/stage_YN_response/bighorn_stage_events.csv')
+          './data/final/stageResponse_2cm/bighorn_stage_events.csv')
 
 
 ```
@@ -1003,7 +1119,7 @@ bl4_stage <- bl4_stage %>%
 
 ## Processing stage events - pt 1
 filter_bl4_stage_events <- bl4_stage %>%
-  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 4) > 1.5,
+  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 8) > 0.5,
                             'increase', 'none')) %>% 
    # mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1,
    #                          'increase', 'none')) %>% # if it increases by XX amount
@@ -1048,17 +1164,27 @@ bl4_stage_summ <- filtered_bl4_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(1:11,18,30))
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1:11,45:48, 62:75,88)) # mostly early June events (snowmelt) and sensor spike
+
+rbi <- filtered_bl4_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+bl4_stage_summ <- left_join(bl4_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(bl4_stage_summ,
-          './data/final/stage_YN_response/bl4_stage_events.csv')
+          './data/final/stageResponse_2cm/bl4_stage_events.csv')
 
 ```
 
 ## Dadd
-
-no events
 
 ```{r}
 # manual stage measurements
@@ -1117,7 +1243,7 @@ dadd_stage <- dadd_stage %>%
 
 ## Processing stage events - pt 1
 filter_dadd_stage_events <- dadd_stage %>%
-   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,8) > 0.5,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -1128,7 +1254,7 @@ filter_dadd_stage_events <- dadd_stage %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(4),
-         end_time = filter_time + hours(3))
+         end_time = filter_time + hours(8))
 
 # pt 2
 filtered_dadd_stage <- dadd_stage %>%
@@ -1160,7 +1286,23 @@ dadd_stage_summ <- filtered_dadd_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(5,32:48)) # noise
+  
+rbi <- filtered_dadd_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+dadd_stage_summ <- left_join(dadd_stage_summ,
+                            rbi,
+                            by='event_id')
+
+write_csv(dadd_stage_summ,
+          './data/final/stageResponse_2cm/dadd_stage_events.csv')
 
 ```
 
@@ -1498,17 +1640,28 @@ dry_stage_summ <- filtered_dry_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(13,16,34,38,46))
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1,2,4,5,9,12,13,14,17,18,
+                          19,20,22,23,24,25,26,29,30,35,36,39,40))
+  
+rbi <- filtered_dry_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+dry_stage_summ <- left_join(dry_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(dry_stage_summ,
-          './data/final/stage_YN_response/dry_stage_events.csv')
+          './data/final/stageResponse_2cm/dry_stage_events.csv')
 
 ```
 
 ## Michigan
-
-no events
 
 ```{r}
 # from usgs gauge
@@ -1533,7 +1686,7 @@ mich_stage <- mich %>%
 
 # Processing stage events - pt 1
 filter_mich_stage_events <- mich_stage %>%
-   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,12) > 1.0,
                             'increase', 'none')) %>%
   filter(pos_diff == 'increase') %>%
   mutate(time_diff = as.numeric(difftime(datetime, 
@@ -1544,7 +1697,7 @@ filter_mich_stage_events <- mich_stage %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(4),
-         end_time = filter_time + hours(3))
+         end_time = filter_time + hours(10)) # changed this bc it was missing a slow peak when there were two peaks
 
 # pt 2
 filtered_mich_stage <- mich_stage %>%
@@ -1576,14 +1729,25 @@ mich_stage_summ <- filtered_mich_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(2:9, 29:43, 58:61)) 
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1:20, 34:63, 76:108)) # snowmelt signal
+  
+rbi <- filtered_mich_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mich_stage_summ <- left_join(mich_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(mich_stage_summ,
-          './data/final/stage_YN_response/mich_stage_events.csv')
+          './data/final/stageResponse_2cm/michigan_stage_events.csv')
 
 ```
-
 
 ## Montgomery
 
@@ -1744,11 +1908,26 @@ mont_stage_summ <- filtered_mont_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(4:11, 27:42, 60, 68, 80))
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1:11,22,
+                          26:42,48,51,54,59,63,
+                          65:85,87,93,97,98)) # noise, snowmelt signal, and odd spikes
+  
+rbi <- filtered_mont_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mont_stage_summ <- left_join(mont_stage_summ,
+                            rbi,
+                            by='event_id')
+
 
 write_csv(mont_stage_summ,
-          './data/final/stage_YN_response/mont_stage_events.csv')
+          './data/final/stageResponse_2cm/mont_stage_events.csv')
 
 ```
 
@@ -1815,7 +1994,7 @@ filter_mtcamp_stage_events <- mtcamp_stage %>%
   group_by(event_id) %>%
   summarize(filter_time = min(datetime)) %>%
   mutate(start_time = filter_time - hours(4),
-         end_time = filter_time + hours(3))
+         end_time = filter_time + hours(10))
 
 # pt 2
 filtered_mtcamp_stage <- mtcamp_stage %>%
@@ -1846,14 +2025,29 @@ mtcamp_stage_summ <- filtered_mtcamp_stage %>%
                                     < datetime[which.max(Stage_fix)]]),
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(1:27, 32:48, 54:70))
-# manully adding 2022-08-14 event in
-# start 2022-08-14 17:00, 26.7
-# peak 2022-08-15 04:45, 32.7
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1:25, 32:48, 50, 54:70)) # snowmelt signal, 50 is noise
+
+# manully adding 2022-08-15 second event in
+# start 2022-08-15 13:30, 29.12
+# peak 2022-08-15 20:30, 33.19
+# had to manually calculate rbi too
+  
+rbi <- filtered_mtcamp_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mtcamp_stage_summ <- left_join(mtcamp_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(mtcamp_stage_summ,
-          './data/final/stage_YN_response/mtcamp_stage_events.csv')
+          './data/final/stageResponse_2cm/mtcamp_stage_events.csv')
 
 
 ```
@@ -1960,7 +2154,7 @@ ggplotly(washout_stage_plot)
 ################################################################################
 
 # Remove unwanted data
-washout_stage <- washout %>% 
+washout_stage <- wash_stage %>% 
   mutate(month = month(datetime),
          year = year(datetime)) %>%
   filter(month %in% c(6:9),
@@ -2011,10 +2205,23 @@ washout_stage_summ <- filtered_washout_stage %>%
           datetime_min = datetime[which.min(Stage_fix[datetime 
                                                      < datetime[which.max(Stage_fix)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2)
+
+rbi <- filtered_washout_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_fix - lag(Stage_fix)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_fix)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+washout_stage_summ <- left_join(washout_stage_summ,
+                            rbi,
+                            by='event_id')
+
 
 write_csv(washout_stage_summ,
-          './data/final/stage_YN_response/washout_stage_events.csv')
+          './data/final/stageResponse_2cm/washout_stage_events.csv')
 
 ```
 
@@ -2113,11 +2320,24 @@ me_stage_summ <- filtered_me_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(2:3, 17))
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(2:3, 13)) # noise and sensor spike
+
+rbi <- filtered_me_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+me_stage_summ <- left_join(me_stage_summ,
+                            rbi,
+                            by='event_id')
+
 
 write_csv(me_stage_summ,
-          './data/final/stage_YN_response/me_stage_events.csv')
+          './data/final/stageResponse_2cm/me_stage_events.csv')
 
 ```
 
@@ -2183,11 +2403,25 @@ mm_stage_summ <- filtered_mm_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id == 12)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(5,11,12)) # spikes from download
+
+rbi <- filtered_mm_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+
+mm_stage_summ <- left_join(mm_stage_summ,
+                            rbi,
+                            by='event_id')
+
 
 write_csv(mm_stage_summ,
-          './data/final/stage_YN_response/mm_stage_events.csv')
+          './data/final/stageResponse_2cm/mm_stage_events.csv')
 
 ```
 
@@ -2256,11 +2490,24 @@ mw_stage_summ <- filtered_mw_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id == 8)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(1,8)) # download and noise
 
+rbi <- filtered_mw_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+mw_stage_summ <- left_join(mw_stage_summ,
+                            rbi,
+                            by='event_id')
+  
+  
 write_csv(mw_stage_summ,
-          './data/final/stage_YN_response/mw_stage_events.csv')
+          './data/final/stageResponse_2cm/mw_stage_events.csv')
 
 ```
 
@@ -2327,11 +2574,24 @@ ue_stage_summ <- filtered_ue_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id ==1)
+  filter(stage_rise_cm > 2)
+
+rbi <- filtered_ue_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+
+ue_stage_summ <- left_join(ue_stage_summ,
+                            rbi,
+                            by='event_id')
+
 
 write_csv(ue_stage_summ,
-          './data/final/stage_YN_response/ue_stage_events.csv')
+          './data/final/stageResponse_2cm/ue_stage_events.csv')
 
 ```
 
@@ -2396,10 +2656,24 @@ um_stage_summ <- filtered_um_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5)
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id == 4)
+
+rbi <- filtered_um_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+
+um_stage_summ <- left_join(um_stage_summ,
+                            rbi,
+                            by='event_id')
 
 write_csv(um_stage_summ,
-          './data/final/stage_YN_response/um_stage_events.csv')
+          './data/final/stageResponse_2cm/um_stage_events.csv')
 
 ```
 
@@ -2465,10 +2739,48 @@ uw_stage_summ <- filtered_uw_stage %>%
           datetime_min = datetime[which.min(Stage_cm[datetime 
                                                      < datetime[which.max(Stage_cm)]])]) %>%
   mutate(stage_rise_cm = max_stage -  min_stage) %>%
-  filter(stage_rise_cm > 5) %>%
-  filter(!event_id %in% c(13:37, 3))
+  filter(stage_rise_cm > 2) %>%
+  filter(!event_id %in% c(13:37, 1)) # noise
 
+rbi <- filtered_uw_stage %>%
+  group_by(event_id) %>% 
+  mutate(num1 = Stage_cm - lag(Stage_cm)) %>%
+  summarize(numFinal = sum(num1, na.rm=T),
+            denom = sum(Stage_cm)) %>%
+  mutate(rbi = numFinal / denom) %>%
+  select(-c(numFinal, denom))
+
+
+uw_stage_summ <- left_join(uw_stage_summ,
+                            rbi,
+                            by='event_id')
+
+  
 write_csv(uw_stage_summ,
-          './data/final/stage_YN_response/uw_stage_events.csv')
+          './data/final/stageResponse_2cm/uw_stage_events.csv')
 
 ```
+
+# Join all
+
+```{r}
+
+folder <- "./data/final/stageResponse_2cm"
+
+# list csvs
+csv_files <- list.files(path = folder, pattern = "stage_events\\.csv$", full.names = TRUE)
+
+# read and join
+all_stage_events <- map_dfr(csv_files, read_csv)
+
+# all_stage_events1 <- all_stage_events %>%
+#   mutate(datetime_peak = force_tz(datetime_peak, tzone = "MST"),
+#           datetime_min = force_tz(datetime_min, tzone = "MST"))
+
+write.csv(all_stage_events,
+          './data/final/stageResponse_2cm/all_stage_response.csv')
+
+# join camera data manually
+
+```
+
