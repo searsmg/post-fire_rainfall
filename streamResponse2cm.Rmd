@@ -2761,7 +2761,7 @@ write_csv(uw_stage_summ,
 
 ```
 
-# Join all
+# Join all response
 
 ```{r}
 
@@ -2780,7 +2780,7 @@ all_stage_events <- map_dfr(csv_files, read_csv)
 write.csv(all_stage_events,
           './data/final/stageResponse_2cm/all_stage_response.csv')
 
-# join camera data manually
+# join camera data manually to all_stage_response.csv
 
 ```
 
