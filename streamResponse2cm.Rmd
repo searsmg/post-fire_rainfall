@@ -2784,3 +2784,97 @@ write.csv(all_stage_events,
 
 ```
 
+# Join with MRMS events
+
+```{r}
+# add a date column to both (by end_time in mrms and datetime_peak in stage)
+mrms <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv') %>%
+  mutate(start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time)) %>% 
+  mutate(start_time = force_tz(start_time, tzone='MST'),
+         end_time = force_tz(end_time, tzone='MST')) %>%
+  mutate(ID = tolower(ID)) %>%
+  rename(site = ID) %>%
+  mutate(date = as.Date(end_time,
+                        tz='MST'))
+
+stage <- read_csv('./data/final/stageResponse_2cm/all_stage_response.csv') %>%
+  select(-1) %>%
+  mutate(datetime_peak = mdy_hm(datetime_peak),
+         datetime_min = mdy_hm(datetime_min)) %>%
+    mutate(datetime_peak = force_tz(datetime_peak, tzone='MST'),
+           datetime_min = force_tz(datetime_min, tzone='MST')) %>%
+  mutate(date = as.Date(datetime_peak,
+                        tz='MST'))
+
+# make sure site names are consistent
+unique(mrms$site)
+unique(stage$site)
+
+stage_mrms <- left_join(stage,
+                        mrms,
+                        by=c('site',
+                             'date'))
+write.csv(stage_mrms,
+          './data/final/stageResponse_2cm/stage_mrms_temp.csv')
+
+# things that need to be done manually:
+# - check duplicate events
+# - check MRMS NA events and add in from mrms events dataset if missing
+
+```
+
+# Finalizing response df
+
+```{r}
+
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp.csv') %>%
+  mutate(datetime_peak = mdy_hm(datetime_peak),
+         datetime_min = mdy_hm(datetime_min),
+         start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time),
+         halfP_datetime = mdy_hm(halfP_datetime),
+         MI60_datetime = mdy_hm(MI60_datetime)) %>%
+  mutate(lag2peak_halfP = as.numeric((datetime_peak - halfP_datetime)/3600),
+         lag2peak_Pstart = as.numeric((datetime_peak - start_time)/3600)) %>%
+  drop_na(start_time)
+
+# lets look outside of R 
+write.csv(stage_mrms,
+          './data/final/stageResponse_2cm/stage_mrms_temp2.csv')
+
+# looked at when lag2peak_halfP was negative and fixed or deleted those events
+# read back in
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp2.csv') %>%
+    mutate(datetime_peak = mdy_hm(datetime_peak),
+         datetime_min = mdy_hm(datetime_min),
+         start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time),
+         halfP_datetime = mdy_hm(halfP_datetime),
+         MI60_datetime = mdy_hm(MI60_datetime)) %>%
+   mutate(lag2peak_halfP = as.numeric((datetime_peak - halfP_datetime)/3600),
+         lag2peak_Pstart = as.numeric((datetime_peak - start_time)/60)) %>%
+   drop_na(start_time)
+
+# look at high lag to peak outside of R
+write.csv(stage_mrms,
+          './data/final/stageResponse_2cm/stage_mrms_temp3.csv')
+
+# deleted two really long (~24 hr lag to peaks)
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp3.csv') %>%
+      mutate(datetime_peak = mdy_hm(datetime_peak),
+         datetime_min = mdy_hm(datetime_min),
+         start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time),
+         halfP_datetime = mdy_hm(halfP_datetime),
+         MI60_datetime = mdy_hm(MI60_datetime)) %>%
+   mutate(lag2peak_halfP = as.numeric((datetime_peak - halfP_datetime)/3600),
+         lag2peak_Pstart = as.numeric((datetime_peak - start_time)/60)) %>%
+   drop_na(start_time)
+
+# final dataset!
+write.csv(stage_mrms,
+          './data/final/stageResponse_2cm/stage2cm_mrms_final.csv')
+
+```
+
