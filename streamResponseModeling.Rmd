@@ -81,6 +81,10 @@ library(magrittr)
 
 inputs <- read_csv('./data/final_model_inputs/inputs_combine.csv')
 
+response <- read_csv('./data/final/stageResponse_2cm/stage2cm_mrms_final.csv') %>%
+  select(-c(1:3)) %>%
+  mutate(date = mdy(date))
+
 #response <- left_join(response, pwd, by = c('site', 'date'))
 
 #all <- left_join(response, inputs, by = 'site')
@@ -148,9 +152,6 @@ ggcorrplot(corr_matrix, method = "square",
 
 ## Input figures 
 
-Two-way anova and Tukey
-UPDATE CAN'T DO THIS HERE. NEED TO DO A NON PARAMETRIC TEST
-
 This doesn't include temporal inputs (rain metrics and pwd)
 
 ```{r}
@@ -185,80 +186,7 @@ inputs_long <- inputs_edit %>%
                names_to = 'vars',
                values_to = 'vals')
 
-# # function to run two-way anova and Tukey letters
-# tukey_results <- inputs_long %>%
-#   mutate(fire = as.factor(fire),
-#          sp_cat = as.factor(sp_cat)) %>%
-#   group_split(vars) %>%
-#   map(function(df) {
-#     # two-way ANOVA
-#     model <- aov(vals ~ fire * sp_cat, data = df)
-#     
-#     # Tukey HSD
-#     tukey_test <- TukeyHSD(model)
-#     
-#     # Tukey letters based on p val
-#     tukey_letters <- multcompLetters4(model, tukey_test)
-# 
-#     list(
-#       var = unique(df$vars),
-#       model = model,
-#       tukey = tukey_test,
-#       letters = tukey_letters
-#     )
-#   })
-# 
-# 
-# # Convert results into a tibble
-# tukey_df <- tibble(
-#   var = map_chr(tukey_results, "var"),
-#   model = map(tukey_results, "model"),
-#   tukey = map(tukey_results, "tukey"),
-#   letters = map(tukey_results, "letters"))
-# 
-# # extract letters 
-# letters_all_vars <- tukey_df %>%
-#   mutate(
-#     letters_fire_sp_cat = map(letters, ~ {
-#       letters_vec <- .x$`fire:sp_cat`$Letters
-#       enframe(letters_vec, name = "group", value = "letter")})) %>%
-#   select(var, letters_fire_sp_cat) %>%
-#   unnest(letters_fire_sp_cat) %>%
-#   separate_wider_delim(group, ":", names = c('fire', 'sp_cat'))
-# 
-# # bring letters back into main df
-# inputs_tukey <- inputs_long %>%
-#   rename(var = vars) %>% 
-#   left_join(., letters_all_vars, by = c('var', 'fire', 'sp_cat')) %>%
-#   filter(!var %in% c('geo_coded', 
-#                      'geo_general_code', 
-#                      'max_elev', 
-#                      'min_elev', 
-#                      'slope'))
-# 
-# # find the max to place the letters in the plots
-# inputs_tukey <- inputs_tukey %>% 
-#   group_by(var, fire, sp_cat) %>%
-#   mutate(y_text = max(vals, na.rm = TRUE) * 1.01) %>%  # Slightly above max value
-#   ungroup()
-# 
-# # basic fig, no formatting
-# ggplot(inputs_tukey, aes(x=fire, 
-#                          y=vals, 
-#                          fill=sp_cat)) + 
-#   geom_boxplot() +
-#   geom_text(aes(label = letter, y = y_text), 
-#             position = position_dodge(width = 0.75),  # Align with boxplots
-#             size = 6, 
-#             vjust = 0) + 
-#   facet_wrap(~var, scales='free_y', ncol=3) +
-#    scale_y_continuous(expand = expansion(mult = c(0.1, 0.15)))
-# 
-# ggsave(
-#   '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/vars_boxplot.png',
-#        dpi=600,
-#        width=12,
-#        height=20)
+
 
  ggplot(inputs_long, aes(x=fire, 
                          y=vals,
@@ -342,6 +270,59 @@ ggsave(
 # Response
 
 ## Add rain metrics and PWD to response
+
+```{r}
+
+# add lag pwd to the response df
+pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
+  mutate(date = mdy(Date)) %>%
+  dplyr::select(-Date) %>%
+  dplyr::select(date, lag_pwd, site) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site))
+
+response <- left_join(response,
+                      pwd,
+                      by=c('site',
+                           'date'))
+ndvi <- inputs %>%
+  select(site,
+         NDVI_2021 = NDVI_2021.x,
+         NDVI_2022 = NDVI_2022.x,
+         NDVI_2023 = NDVI_2023.x) %>%
+  pivot_longer(!site,
+               names_to = 'year',
+               values_to = 'NDVI') %>%
+  mutate(year = as.numeric(sub("^NDVI_", "", year))) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site))
+
+response <- left_join(response,
+                      ndvi,
+                      by = c('site',
+                             'year'))
+
+inputs_noNDVI <- inputs %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site)) %>%
+  select(-c(NDVI_2021.x,
+            NDVI_2022.x,
+            NDVI_2023.x))
+
+response <- left_join(response,
+                      inputs_noNDVI,
+                      by='site')
+
+# save this dataset (inputs, response events, rain events, and temporal inputs)
+write.csv(response,
+          './data/final_model_inputs/events_inputs.csv')
+
+
+```
+
 don't need to run anymore
 
 ## Rain and PWD figures
@@ -349,69 +330,7 @@ need to move up
 
 ```{r}
 
-# # this is only for events > 5 cm
-# response <- read_csv('./data/final/stage_mrms_response.csv') %>%
-#   mutate(across(c(datetime_peak, datetime_min, start_time.y, end_time.y), mdy_hm)) %>%
-#   mutate(date = mdy(date)) %>%
-#   mutate(site = if_else(site == 'mont',
-#                         'montgomery',
-#                         site)) %>%
-#   mutate(site = if_else(site == 'mich',
-#                         'michigan',
-#                         site))
-# 
-# # need to add new metrics to response dataframe
-# add <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv') %>%
-#   select(site = ID,
-#          start_time.y = start_time,
-#          halfP_datetime,
-#          MI60_datetime) %>%
-#   mutate(site = tolower(site)) %>%
-#   mutate(site = if_else(site == 'mtcampus',
-#                         'mtcamp', site))
-# 
-# # add the new metrics needed for lag to peak
-# response <- left_join(response, 
-#                       add, 
-#                       by = c('site', 'start_time.y'))
-# 
-# # add lag pwd to the response df
-# pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
-#   mutate(date = mdy(Date)) %>%
-#   dplyr::select(-Date) %>%
-#   dplyr::select(date, lag_pwd, site)
-# 
-# response <- left_join(response, 
-#                       pwd, 
-#                       by = c('site', 'date'))
-# 
-# # first lets drop NDVI 3 columns and create it's own
-# ndvi <- inputs %>%
-#   select(site, 
-#          NDVI_2021 = NDVI_2021.x, 
-#          NDVI_2022 = NDVI_2022.x, 
-#          NDVI_2023 = NDVI_2023.x) %>%
-#   pivot_longer(!site, 
-#                names_to = 'year', 
-#                values_to = 'NDVI') %>%
-#   mutate(year = as.numeric(sub("^NDVI_", "", year)))
-#   
-# 
-# # add other inputs (non climate) to response
-# response <- response %>%
-#   mutate(year = year(date))
-# 
-# response <- left_join(response, 
-#                       ndvi, 
-#                       by=c('site', 'year'))
 
-# add frac glacial that was added after response_inputs was created
-# inputs_glac <- inputs %>%
-#   select(site, frac_glacial)
-# 
-# response <- left_join(response, inputs_glac, by = 'site')
- 
-# write.csv(response, './data/final_model_inputs/response_inputs.csv')
 
 ```
 
@@ -429,8 +348,8 @@ need to move up
 
 ```{r}
 
-# need to add lag to peak to this, glacial deposits, and what to do when MRMS is NA
-response <- read_csv('./data/final_model_inputs/response_inputs.csv')
+# need to add stage rise by area and stage rise by channel width
+response <- read_csv('./data/final_model_inputs/events_inputs.csv')
 
 # # divide the area and channel width and area
 # response <- response %>%
@@ -447,15 +366,22 @@ response <- read_csv('./data/final_model_inputs/response_inputs.csv')
 # 
 # stage_rise_plots
 
-# add lag to peak
-response <- response %>%
-  mutate(datetime_peak = mdy_hm(datetime_peak),
-         halfP_datetime = mdy_hm(halfP_datetime),
-         start_time = mdy_hm(start_time)) %>%
-  mutate(lag2peak_halfP = as.numeric((datetime_peak - halfP_datetime)/3600),
-         lag2peak_Pstart = as.numeric((datetime_peak - start_time)/3600)) 
 
-ggplot(response, aes(x=fire, y=lag2peak, fill=sp_cat)) + geom_boxplot()
+ggplot(response, aes(x=fire, 
+                     y=lag2peak_halfP, 
+                     fill=sp_cat)) + geom_boxplot()
+
+ggplot(response, aes(x=fire, 
+                     y=lag2peak_Pstart, 
+                     fill=sp_cat)) + geom_boxplot()
+
+ggplot(response, aes(x=fire, 
+                     y=rbi, 
+                     fill=sp_cat)) + geom_boxplot()
+
+ggplot(response, aes(x=fire, 
+                     y=stage_rise_cm, 
+                     fill=sp_cat)) + geom_boxplot()
 
 ```
 
@@ -485,15 +411,15 @@ picked to represent topographic, soil, climate and burn characteristics
 df <- response %>%
   select(stage_rise_cm, 
          MI60_mmhr, 
-         #fire, # at bottom of importance based on initial run
+         fire, # at bottom of importance based on initial run
          lag_pwd,
          hypso75, 
          mean_dnbr, 
          AVG_CLAY, 
          AVG_KSAT, 
-         elongation, 
+         elongation = ELONGATION.x, 
          aws0150wta, 
-         #geo_general, # at bottom of impotance based on inital run
+         geo_general = geo_general.x, # at bottom of impotance based on inital run
          NDVI, 
          frac_valley,
          flow_length_m, 
@@ -501,8 +427,8 @@ df <- response %>%
          SP_mean,
          hypso_integral,
          year,
-         #slope23_frac, # less important than slop30 based on initial run
-         #hypso_integral, # less important than hypso75 based on initial run
+         slope23_frac, # less important than slop30 based on initial run
+         hypso_integral, # less important than hypso75 based on initial run
          frac_glacial) %>%
   drop_na()
 
@@ -842,5 +768,86 @@ Old corr
 
 ```
 
+Old Tukey analysis
+
+```{r}
+
+# # function to run two-way anova and Tukey letters
+# tukey_results <- inputs_long %>%
+#   mutate(fire = as.factor(fire),
+#          sp_cat = as.factor(sp_cat)) %>%
+#   group_split(vars) %>%
+#   map(function(df) {
+#     # two-way ANOVA
+#     model <- aov(vals ~ fire * sp_cat, data = df)
+#     
+#     # Tukey HSD
+#     tukey_test <- TukeyHSD(model)
+#     
+#     # Tukey letters based on p val
+#     tukey_letters <- multcompLetters4(model, tukey_test)
+# 
+#     list(
+#       var = unique(df$vars),
+#       model = model,
+#       tukey = tukey_test,
+#       letters = tukey_letters
+#     )
+#   })
+# 
+# 
+# # Convert results into a tibble
+# tukey_df <- tibble(
+#   var = map_chr(tukey_results, "var"),
+#   model = map(tukey_results, "model"),
+#   tukey = map(tukey_results, "tukey"),
+#   letters = map(tukey_results, "letters"))
+# 
+# # extract letters 
+# letters_all_vars <- tukey_df %>%
+#   mutate(
+#     letters_fire_sp_cat = map(letters, ~ {
+#       letters_vec <- .x$`fire:sp_cat`$Letters
+#       enframe(letters_vec, name = "group", value = "letter")})) %>%
+#   select(var, letters_fire_sp_cat) %>%
+#   unnest(letters_fire_sp_cat) %>%
+#   separate_wider_delim(group, ":", names = c('fire', 'sp_cat'))
+# 
+# # bring letters back into main df
+# inputs_tukey <- inputs_long %>%
+#   rename(var = vars) %>% 
+#   left_join(., letters_all_vars, by = c('var', 'fire', 'sp_cat')) %>%
+#   filter(!var %in% c('geo_coded', 
+#                      'geo_general_code', 
+#                      'max_elev', 
+#                      'min_elev', 
+#                      'slope'))
+# 
+# # find the max to place the letters in the plots
+# inputs_tukey <- inputs_tukey %>% 
+#   group_by(var, fire, sp_cat) %>%
+#   mutate(y_text = max(vals, na.rm = TRUE) * 1.01) %>%  # Slightly above max value
+#   ungroup()
+# 
+# # basic fig, no formatting
+# ggplot(inputs_tukey, aes(x=fire, 
+#                          y=vals, 
+#                          fill=sp_cat)) + 
+#   geom_boxplot() +
+#   geom_text(aes(label = letter, y = y_text), 
+#             position = position_dodge(width = 0.75),  # Align with boxplots
+#             size = 6, 
+#             vjust = 0) + 
+#   facet_wrap(~var, scales='free_y', ncol=3) +
+#    scale_y_continuous(expand = expansion(mult = c(0.1, 0.15)))
+# 
+# ggsave(
+#   '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/vars_boxplot.png',
+#        dpi=600,
+#        width=12,
+#        height=20)
+
+
+```
 
 
