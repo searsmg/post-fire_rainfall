@@ -352,19 +352,19 @@ need to move up
 response <- read_csv('./data/final_model_inputs/events_inputs.csv')
 
 # # divide the area and channel width and area
-# response <- response %>%
-#   mutate(stage_rise_area = stage_rise_cm / area_km2,
-#          stage_rise_channel = stage_rise_cm / estimated_chanwidth_m)
+response <- response %>%
+  mutate(stage_rise_area = stage_rise_cm / area_km2.x,
+         stage_rise_channel = stage_rise_cm / estimated_chanwidth_m)
 # 
 # # stage rise plots
-# stage_rise_plots <- response %>%
-#   select(fire, sp_cat, stage_rise_cm, stage_rise_area, stage_rise_channel) %>%
-#   pivot_longer(!c(fire, sp_cat), names_to='stage_rise_type', values_to = 'stage_rise') %>%
-#   ggplot(., aes(fire, stage_rise, fill = sp_cat)) + 
-#   geom_boxplot() + 
-#   facet_wrap(~stage_rise_type)
-# 
-# stage_rise_plots
+stage_rise_plots <- response %>%
+  select(fire, sp_cat, stage_rise_cm, stage_rise_area, stage_rise_channel) %>%
+  pivot_longer(!c(fire, sp_cat), names_to='stage_rise_type', values_to = 'stage_rise') %>%
+  ggplot(., aes(fire, stage_rise, fill = sp_cat)) +
+  geom_boxplot() +
+  facet_wrap(~stage_rise_type)
+
+stage_rise_plots
 
 
 ggplot(response, aes(x=fire, 
@@ -434,12 +434,12 @@ df <- response %>%
 
 # RF model
 rf <- randomForest(stage_rise_cm ~., 
-                          mtry = 5, 
+                          mtry = 7, 
                           ntree = 50000, 
                           data = df)
 
 # check model performance for % variance explained
-rf # only 20%
+rf # only 36.5%
 
 # plot ofr increased node purity
 varImpPlot(rf) 
@@ -470,17 +470,17 @@ sr_all_RF
 # subset dataframe based on variables selected
 df <- response %>%
   filter(fire == 'cpf') %>% 
-  select(stage_rise_cm, 
+  select(lag2peak_Pstart, 
          MI60_mmhr, 
-         #fire, # don't need here
+         #fire, # at bottom of importance based on initial run
          lag_pwd,
          hypso75, 
          mean_dnbr, 
          AVG_CLAY, 
          AVG_KSAT, 
-         elongation, 
+         elongation = ELONGATION.x, 
          aws0150wta, 
-         #geo_general, # at bottom of impotance based on inital run
+         #geo_general = geo_general.x, # at bottom of impotance based on inital run
          NDVI, 
          frac_valley,
          flow_length_m, 
@@ -488,13 +488,13 @@ df <- response %>%
          SP_mean,
          hypso_integral,
          year,
-         #slope23_frac, # less important than slop30 based on initial run
-         #hypso_integral, # less important than hypso75 based on initial run
+         slope23_frac, # less important than slop30 based on initial run
+         hypso_integral, # less important than hypso75 based on initial run
          frac_glacial) %>%
   drop_na()
 
 # RF model
-rf <- randomForest(stage_rise_cm ~., 
+rf <- randomForest(lag2peak_Pstart ~., 
                           mtry = 5, 
                           ntree = 1000, 
                           data = df)
@@ -531,17 +531,17 @@ sr_cpf_RF
 # subset dataframe based on variables selected
 df <- response %>%
   filter(fire == 'etf') %>% 
-  select(stage_rise_cm, 
+  select(lag2peak_Pstart, 
          MI60_mmhr, 
-         #fire, # don't need here
+         #fire, # at bottom of importance based on initial run
          lag_pwd,
-         #hypso75, # hypso integral more important here 
+         hypso75, 
          mean_dnbr, 
          AVG_CLAY, 
          AVG_KSAT, 
-         elongation, 
+         elongation = ELONGATION.x, 
          aws0150wta, 
-         #geo_general, # don't need here
+         #geo_general = geo_general.x, # at bottom of impotance based on inital run
          NDVI, 
          frac_valley,
          flow_length_m, 
@@ -549,13 +549,13 @@ df <- response %>%
          SP_mean,
          hypso_integral,
          year,
-         #slope23_frac, # about the same as slope 30 so removing to stay consistent w/ others
-         hypso_integral, 
+         slope23_frac, # less important than slop30 based on initial run
+         hypso_integral, # less important than hypso75 based on initial run
          frac_glacial) %>%
   drop_na()
 
 # RF model
-rf <- randomForest(stage_rise_cm ~., 
+rf <- randomForest(lag2peak_Pstart ~., 
                           mtry = 5, 
                           ntree = 1000, 
                           data = df)
@@ -584,6 +584,35 @@ sr_etf_RF <- varImps %>%
 sr_etf_RF
 
 ```
+
+# Response vars distribution
+
+## Stage rise
+
+```{r}
+
+ggplot(response, aes(x = stage_rise_cm)) +
+  geom_density(fill = "lightgreen")
+
+ggplot(response, aes(sample = stage_rise_cm)) +
+  stat_qq() +
+  stat_qq_line()
+
+```
+
+## lag to peak - halfP
+
+```{r}
+
+ggplot(response, aes(x = lag2peak_halfP)) +
+  geom_density(fill = "lightgreen")
+
+ggplot(response, aes(sample = lag2peak_halfP)) +
+  stat_qq() +
+  stat_qq_line()
+
+```
+
 
 # Archive
 Stage rise
