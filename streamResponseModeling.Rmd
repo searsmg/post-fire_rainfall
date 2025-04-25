@@ -240,15 +240,18 @@ ggplot(vars, aes(x=fire,
                  y=vals,
                  fill=sp_cat)) + 
   geom_boxplot(           
-    color = "black",          
+  color = "black",
     size = 0.8,                 
-    width = 0.4, ) +
-  # geom_jitter(aes(color = sp_cat),
-  #   width = 0.1,             
-  #   height = 0,              
-  #   size = 1.2,               
-  #   alpha = 0.3) + 
+    width = 0.3) +
+  # geom_jitter(
+  #   aes(color = sp_cat),
+  #   size = 3,               
+  #   alpha = 0.7,
+  #  show.legend = FALSE,
+  #  position = position_jitterdodge(jitter.width = 0.1, 
+  #                                  dodge.width = 0.4)) +
   scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  #scale_color_manual(values = c('#7570B3', "#D95F02")) +
   theme_bw(base_size = 20) +
   labs(x = NULL,
     y = NULL,
@@ -334,6 +337,85 @@ need to move up
 
 ```{r}
 
+# need to split out fire and sp cat and join to pwd by site
+temp <- inputs %>%
+  select(site, fire, sp_cat) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site)) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'high',
+                          'SP > 60',
+                          'SP < 60')) 
+
+pwd_plot <- left_join(pwd,
+                      temp,
+                      by = 'site') %>%
+  mutate(facet_label = paste(fire, sp_cat, sep = " "),
+         month = month(date)) %>%
+  filter(month %in% c(6:9))
+
+ggplot(pwd_plot,
+       aes(x=site,
+           y=lag_pwd)) +
+  geom_hline(yintercept = 0, , color = "darkgrey") +
+  geom_boxplot(size = 0.6,                 
+    width = 0.5) +
+  facet_wrap(~facet_label,
+             scales = 'free_x') +
+  #scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  theme_bw(base_size = 20) +
+  labs(x = NULL,
+    y = 'Lag PWD (mm)') +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")) 
+
+###
+summary_stats <- pwd_plot %>%
+  group_by(site, facet_label) %>%
+  summarise(mean = mean(lag_pwd, na.rm = TRUE),
+            sd = sd(lag_pwd, na.rm = TRUE),
+            .groups = "drop")
+
+ggplot(pwd_plot, aes(x = site, y = lag_pwd)) +
+  geom_hline(yintercept = 0, color = "darkgrey") +
+  geom_jitter(width = 0.3,
+              height = 0.3,
+              alpha = 0.4, size = 1.5, color='lightblue') +
+  geom_errorbar(data = summary_stats,
+                aes(y = mean, ymin = mean - sd, ymax = mean + sd),
+                width = 0.2,
+                color = "black") +
+  geom_point(data = summary_stats,
+             aes(y = mean),
+             shape = 21, fill = "white", color = "black", size = 2.5, stroke = 0.8) +
+  facet_wrap(~facet_label, scales = 'free_x') +
+  theme_bw(base_size = 16) +
+  labs(x = NULL, y = 'Lag PWD (mm)') +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")
+  )
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/pwd.png',
+       dpi=600,
+       width=12,
+       height=8)
+
+##########################
+# MI60 next
 
 
 ```
@@ -392,6 +474,8 @@ ggplot(response, aes(x=fire,
 ## Response figures
 
 ```{r}
+
+
 
 ```
 
