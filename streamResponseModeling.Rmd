@@ -347,8 +347,8 @@ temp <- inputs %>%
                         'CPF',
                         'ETF'),
          sp_cat = if_else(sp_cat == 'high',
-                          'SP > 60',
-                          'SP < 60')) 
+                          'Seasonal SZ',
+                          'Intermittent SZ')) 
 
 pwd_plot <- left_join(pwd,
                       temp,
@@ -357,26 +357,6 @@ pwd_plot <- left_join(pwd,
          month = month(date)) %>%
   filter(month %in% c(6:9))
 
-ggplot(pwd_plot,
-       aes(x=site,
-           y=lag_pwd)) +
-  geom_hline(yintercept = 0, , color = "darkgrey") +
-  geom_boxplot(size = 0.6,                 
-    width = 0.5) +
-  facet_wrap(~facet_label,
-             scales = 'free_x') +
-  #scale_fill_manual(values = c('#7570B3', "#D95F02")) +
-  theme_bw(base_size = 20) +
-  labs(x = NULL,
-    y = 'Lag PWD (mm)') +
-  theme(
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black")) 
-
 ###
 summary_stats <- pwd_plot %>%
   group_by(site, facet_label) %>%
@@ -384,11 +364,11 @@ summary_stats <- pwd_plot %>%
             sd = sd(lag_pwd, na.rm = TRUE),
             .groups = "drop")
 
-ggplot(pwd_plot, aes(x = site, y = lag_pwd)) +
-  geom_hline(yintercept = 0, color = "darkgrey") +
+pwd_plot_use <- ggplot(pwd_plot, aes(x = site, y = lag_pwd)) +
+  #geom_hline(yintercept = 0, color = "darkgrey") +
   geom_jitter(width = 0.3,
               height = 0.3,
-              alpha = 0.4, size = 1.5, color='lightblue') +
+              alpha = 0.4, size = 1.5, color='lightsteelblue') +
   geom_errorbar(data = summary_stats,
                 aes(y = mean, ymin = mean - sd, ymax = mean + sd),
                 width = 0.2,
@@ -404,9 +384,10 @@ ggplot(pwd_plot, aes(x = site, y = lag_pwd)) +
     panel.background = element_rect(fill = "white"),
     strip.background = element_blank(),
     text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black")
-  )
+    axis.text = element_text(color = "black", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+pwd_plot_use
 
 ggsave(
   '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/pwd.png',
@@ -414,8 +395,86 @@ ggsave(
        width=12,
        height=8)
 
+# lets get some pwd stats
+pwd_fire <- pwd_plot %>%
+  group_by(fire) %>%
+  summarize(mean = mean(lag_pwd))
+
+
+
+
 ##########################
+mi60 <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv') %>%
+  rename(site = ID) %>%
+  mutate(site = tolower(site))
+
 # MI60 next
+mi60 <- mi60 %>%
+  select(site, MI60_mmhr) %>%
+  left_join(.,
+            temp,
+            by = 'site') %>%
+  mutate(facet_label = paste(fire, 
+                             sp_cat, sep = " "))
+
+summary_stats1 <- mi60 %>%
+  group_by(site, facet_label) %>%
+  summarise(mean = mean(MI60_mmhr, na.rm = TRUE),
+            sd = sd(MI60_mmhr, na.rm = TRUE))
+
+mi60_plot <- ggplot(mi60, aes(x = site, y = MI60_mmhr)) +
+  geom_jitter(width = 0.2,
+              height = 0.3,
+              alpha = 0.8, size = 1.75, color='lightsteelblue') +
+  geom_errorbar(data = summary_stats1,
+                aes(y = mean, ymin = mean - sd, ymax = mean + sd),
+                width = 0.2,
+                color = "black") +
+  geom_point(data = summary_stats1,
+             aes(y = mean),
+             shape = 21, fill = "white", color = "black", size = 2.5, stroke = 0.8) +
+  facet_wrap(~facet_label, scales = 'free_x') +
+  theme_bw(base_size = 16) +
+  labs(x = NULL, y = 'MI60 (mm/hr)') +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+
+mi60_plot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/mi60.png',
+       dpi=600,
+       width=12,
+       height=8)
+
+# stats for text
+mi60_stats <- summary_stats1 %>%
+  group_by(facet_label) %>%
+  summarize(min_mean = min(mean),
+            max_mean = max(mean),
+            mean = mean(mean))
+
+mi60_fire <- mi60 %>%
+  group_by(fire) %>%
+  summarize(mean = mean(MI60_mmhr),
+            sd = sd(MI60_mmhr))
+
+library(cowplot)
+
+plot_grid(mi60_plot,
+          pwd_plot_use)
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/mi60_pwd.png',
+       dpi=600,
+       width=12,
+       height=8)
 
 
 ```
