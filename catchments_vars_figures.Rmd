@@ -93,6 +93,10 @@ vars_summary <- vars %>%
   summarize(
     mean_val = mean(vals, na.rm = TRUE),
     sd_val = sd(vals, na.rm = TRUE))
+
+vars_fire <- vars %>%
+  group_by(vars, fire) %>%
+  summarize(mean = mean(vals))
   
 soil <- ggplot(vars, aes(x=fire, 
                  y=vals,
@@ -146,13 +150,17 @@ vars <- inputs_long %>%
                         'CPF',
                         'ETF'))
 
+# values for results
 vars_summary <- vars %>%
   group_by(vars, fire, sp_cat) %>%
   summarize(
     mean_val = mean(vals, na.rm = TRUE),
     sd_val = sd(vals, na.rm = TRUE))
-  
-  
+
+vars_fire <- vars %>%
+  group_by(vars, fire) %>%
+  summarize(mean = mean(vals))
+
 terrain_plot <- ggplot(vars, aes(x=fire, 
                  y=vals,
                  fill=sp_cat)) + 
@@ -203,6 +211,17 @@ vars <- inputs_long %>%
                         'CPF',
                         'ETF'))
 
+# values for results
+vars_summary <- vars %>%
+  group_by(vars, fire, sp_cat) %>%
+  summarize(
+    mean_val = mean(vals, na.rm = TRUE),
+    sd_val = sd(vals, na.rm = TRUE))
+
+vars_fire <- vars %>%
+  group_by(vars, fire) %>%
+  summarize(mean = mean(vals, na.rm=T))
+
 ndvi <- vars %>%
   filter(!vars == 'Mean dNBR') %>%
   mutate(
@@ -215,6 +234,7 @@ ndvi <- vars %>%
 
 ndvi <- ndvi %>%
   mutate(group = paste(fire, year, sep = " "))
+
 
 ndvi_plot <- ggplot(ndvi, aes(x = group, 
                  y = vals,
