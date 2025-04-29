@@ -1,0 +1,155 @@
+---
+title: "Exploratory mediation"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+library(pacman)
+
+p_load(here, 
+       regsem, 
+       semPlot, 
+       caret, 
+       ggh4x, 
+       ggdag, 
+       tidyverse, 
+       ggsankeyfier, 
+       reshape, 
+       networkD3, 
+       igraph, 
+       ggraph, 
+       ggridges,
+       glmnet)
+
+```
+
+# Prep
+
+```{r}
+
+response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
+  select(site,
+         sp_cat,
+         fire,
+         stage_rise_cm,
+         lag2peak_halfP,
+         lag2peak_Pstart,
+         MI60_mmhr,
+         lag_pwd,
+         hypso75, 
+         mean_dnbr, 
+         AVG_CLAY, 
+         AVG_KSAT, 
+         elongation = ELONGATION.x, 
+         aws0150wta, 
+         NDVI, 
+         frac_valley,
+         flow_length_m, 
+         slope30_frac, 
+         SP_mean,
+         hypso_integral,
+         year,
+         hypso_integral,
+         frac_glacial) %>%
+  mutate(site_number = as.integer(factor(site))) %>% # give each site a number
+  select(-site)
+
+
+```
+
+# Exploratory mediation
+
+No bootstrapping yet
+
+## Stage rise
+
+### CPF intermittent
+
+```{r}
+
+cpf_i <- response %>%
+  filter(fire == 'cpf',
+         sp_cat == 'low') %>%
+  drop_na()
+
+mediators <- c('site_number',
+         'hypso75', 
+         'mean_dnbr', 
+         'AVG_CLAY', 
+         'AVG_KSAT', 
+         'elongation', 
+         'aws0150wta', 
+         'NDVI', 
+         'frac_valley',
+         'flow_length_m', 
+         'slope30_frac', 
+         'SP_mean',
+         'year',
+         'hypso_integral')
+         #'frac_glacial'
+
+dv <- 'stage_rise_cm'
+
+iv <- c('MI60_mmhr',
+        'lag_pwd')
+
+# run 
+result <- xmed(data = cpf_i, 
+               iv = iv, 
+               dv = dv, 
+               mediators = mediators, 
+               nfolds = 10, 
+               type = 'enet')
+
+ivs <- names(result)[names(result) %in% c('MI60_mmhr', 'lag_pwd')]
+    
+# Combine all paths into a single tidy data frame for each resample
+effect_df <- map_dfr(ivs, function(iv_name) {
+      a <- result[[iv_name]]$a.coefs
+      b <- result[[iv_name]]$b.coefs
+      indirect <- as.numeric(result[[iv_name]]$indirect)
+      mediator_names <- names(a)
+      
+      tibble(
+        IV = iv_name,
+        Mediator = mediator_names,
+        a_coef = a,
+        b_coef = b[mediator_names],
+        weight = indirect
+      )
+    })
+    
+effect_df <- effect_df %>%
+      mutate(effects = 'coefIndir') %>%
+      mutate(depVar = dv)
+
+# plot
+ ggplot(effect_df, 
+        aes(x = weight, y = Mediator)) + 
+   theme_bw(base_size = 20) +
+  geom_point(aes(fill = a_coef, 
+                 color = a_coef), 
+             shape = 21, 
+             size = 6, 
+             color = 'gray50') + 
+   facet_wrap(~IV) +
+  labs(x = 'Indirect effect size', 
+       fill = 'Direct effect size\nIV -> Mediator', 
+       color = 'Direct effect size\nIV -> Mediator') +
+  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
+  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
+   ggtitle('Stage rise - CPF intermittent')
+
+
+
+```
+
