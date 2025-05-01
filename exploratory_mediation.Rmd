@@ -76,41 +76,49 @@ No bootstrapping yet
 
 ```{r}
 
-cpf_i <- response %>%
-  filter(fire == 'cpf',
+data <- response %>%
+  filter(fire == 'etf',
          sp_cat == 'low') %>%
   drop_na()
 
-mediators <- c('site_number',
-         'hypso75', 
-         'mean_dnbr', 
-         'AVG_CLAY', 
-         'AVG_KSAT', 
-         'elongation', 
-         'aws0150wta', 
-         'NDVI', 
-         'frac_valley',
-         'flow_length_m', 
-         'slope30_frac', 
-         'SP_mean',
-         'year',
-         'hypso_integral')
-         #'frac_glacial'
+mediators <- c(
+  'hypso75',
+  'mean_dnbr',
+  'AVG_CLAY',
+  'AVG_KSAT',
+  'elongation',
+  'aws0150wta',
+  #'NDVI',
+  'frac_valley',
+  'flow_length_m',
+  'slope30_frac',
+  'SP_mean',
+  'hypso_integral'
+  #'frac_glacial'
+)
 
 dv <- 'stage_rise_cm'
 
 iv <- c('MI60_mmhr',
         'lag_pwd')
+        
+covariates <- c('site_number',
+                'year',
+                'NDVI')
 
 # run 
-result <- xmed(data = cpf_i, 
+result <- xmed(data = data, 
                iv = iv, 
                dv = dv, 
-               mediators = mediators, 
+               mediators = mediators,
+               covariates = covariates,
                nfolds = 10, 
-               type = 'enet')
+               type = 'ridge')
 
-ivs <- names(result)[names(result) %in% c('MI60_mmhr', 'lag_pwd')]
+ivs <- names(result)[names(result) %in% c(
+  'MI60_mmhr',
+  'lag_pwd'
+)]
     
 # Combine all paths into a single tidy data frame for each resample
 effect_df <- map_dfr(ivs, function(iv_name) {
@@ -134,17 +142,17 @@ effect_df <- effect_df %>%
 
 # plot
  ggplot(effect_df, 
-        aes(x = weight, y = Mediator)) + 
+        aes(x = b_coef, y = Mediator)) + 
    theme_bw(base_size = 20) +
-  geom_point(aes(fill = a_coef, 
-                 color = a_coef), 
+  geom_point(aes(fill = weight,
+                 color = weight), 
              shape = 21, 
              size = 6, 
              color = 'gray50') + 
    facet_wrap(~IV) +
-  labs(x = 'Indirect effect size', 
-       fill = 'Direct effect size\nIV -> Mediator', 
-       color = 'Direct effect size\nIV -> Mediator') +
+  labs(x = 'Direct effect size\nMediator -> DV',
+       fill = 'Indirect effect size', 
+       color = 'Indirect effect sizer') +
   paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
   paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
    ggtitle('Stage rise - CPF intermittent')
