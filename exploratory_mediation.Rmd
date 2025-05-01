@@ -80,17 +80,15 @@ response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
 
 # Exploratory mediation
 
-No bootstrapping yet
+## No bootstrapping yet
 
-## Stage rise
-
-### CPF intermittent
+### Stage rise
 
 ```{r}
 
 data <- response %>%
-  # filter(fire == 'etf',
-  #        sp_cat == 'low') %>%
+  filter(fire == 'cpf',
+         sp_cat == 'low') %>%
   drop_na()
 
 mediators <- c(
@@ -201,6 +199,189 @@ ggplot(effect_df_plot,
  #  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
  #  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
  #   ggtitle('Stage rise - CPF intermittent')
+
+```
+
+## Adding bootstrapping
+
+### Stage rise
+
+```{r}
+
+data <- response %>%
+  filter(fire == 'etf',
+         sp_cat == 'high') %>%
+  drop_na()
+
+xmedFunc <- function(dv, n_bootstrap = 10){
+  n_bootstrap = 10
+
+  mediators <- c(
+  "hypso75", 
+  "hypso25", 
+  "hypso50",
+  "hypso_integral", 
+  "IC", 
+  "hydraulic_func_conn",
+  "area_km2", 
+  "rc_circle",
+  "elongation",
+  "slope40_frac",
+  "slope30_frac",
+  "avg_vbw_m", 
+  "frac_recharge_area",
+  "frac_valley", 
+  "flow_length_m",
+  "frac_glacial",
+  "brockdepmin", 
+  "AVG_SAND", 
+  "AVG_CLAY", 
+  "AVG_SILT", 
+  "AVG_KSAT",
+  "aws0150wta", 
+  "mean_dnbr", 
+  "SP_mean"
+  #"geo_coded")
+)
+  
+dv <- 'stage_rise_cm'
+
+iv <- c('MI60_mmhr',
+        'lag_pwd')
+        
+covariates <- c('site_number',
+                'year',
+                'NDVI')
+  
+  # Function to apply xmed to a single resampled dataset
+  bootstrap_run <- function(data) {
+    
+    result <- xmed(data = data, 
+               iv = iv, 
+               dv = dv, 
+               mediators = mediators,
+               covariates = covariates,
+               nfolds = 10, 
+               type = 'ridge')
+    
+    ivs <- names(result)[names(result) %in% c('MI60_mmhr',
+                                              'lag_pwd')]
+    
+    # Combine all paths into a single tidy data frame for each resample
+    effect_df <- map_dfr(ivs, function(iv_name) {
+      
+      a <- result[[iv_name]]$a.coefs
+      b <- result[[iv_name]]$b.coefs
+      indirect <- as.numeric(result[[iv_name]]$indirect)
+      mediator_names <- names(a)
+      
+      tibble(
+        IV = iv_name,
+        Mediator = mediator_names,
+        a_coef = a,
+        b_coef = b[mediator_names],
+        weight = indirect)
+    }) %>%
+      mutate(effects = 'coefIndir') %>%
+      mutate(depVar = dv)
+    
+    return(effect_df)
+  }
+  
+  # Bootstrapping: Resample the data and apply the bootstrap_run function
+  set.seed(123)  # For reproducibility
+  
+  bootstrap_results <- map_dfr(1:n_bootstrap, function(i) {
+    
+    # Resample with replacement
+    resampled_data <- data[sample(nrow(data), replace = TRUE), ]
+    bootstrap_run(resampled_data)
+  })
+  
+  # Summarize the bootstrap results (e.g., by calculating means and confidence intervals)
+  summary_results <- bootstrap_results %>%
+    mutate(a_coef = ifelse(a_coef == 0, NA, a_coef),
+           b_coef = ifelse(b_coef == 0, NA, b_coef),
+           weight = ifelse(weight == 0, NA, weight)) %>%
+    group_by(IV, Mediator) %>%
+    summarise(
+      mean_a_coef = mean(a_coef, na.rm = T),
+      mean_b_coef = mean(b_coef, na.rm = T),
+      mean_weight = mean(weight, na.rm = T),
+      lower_ci_a_coef = quantile(a_coef, 0.025, na.rm = T),
+      upper_ci_a_coef = quantile(a_coef, 0.975, na.rm = T),
+      lower_ci_b_coef = quantile(b_coef, 0.025, na.rm = T),
+      upper_ci_b_coef = quantile(b_coef, 0.975, na.rm = T),
+      lower_ci_weight = quantile(weight, 0.025, na.rm = T),
+      upper_ci_weight = quantile(weight, 0.975, na.rm = T)
+    ) %>%
+    mutate(depVar = dv,
+           significant = ifelse(lower_ci_weight < 0 & 
+                                  upper_ci_weight > 0 | 
+                                  lower_ci_weight > 0 & 
+                                  upper_ci_weight < 0, 
+                                "Not", "Sig"))
+  
+  return(summary_results)
+}
+
+nb = 50
+xmedOut <- xmedFunc('stage_rise_cm', n_bootstrap = nb)
+
+xmedOut %>%
+  subset(significant == 'Sig') %>%
+  ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0, linetype = 'dashed') +
+  geom_linerange(aes(xmin = lower_ci_weight, xmax = upper_ci_weight, y = Mediator), #, fill = mean_a_coef, color = mean_a_coef),
+                 size = 1, color = 'gray50') + 
+  geom_point(aes(fill = mean_b_coef, color = mean_b_coef), 
+             shape = 21, size = 6, color = 'gray50') + 
+  facet_wrap(~IV) +
+  #xlim(c(-.36, .36)) +
+  labs(x = 'Indirect effect size', 
+       fill = 'Direct effect size\nMediator -> DV', 
+       color = 'Direct effect size\nMediator -> DV') +
+  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
+  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") 
+  #scale_size_continuous(range = c(1,8))
+  
+# look at all 3: a coef, b coef, weight
+long_summary <- xmedOut %>%
+  select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
+  pivot_longer(
+    cols = c(mean_a_coef, mean_b_coef, mean_weight),
+    names_to = "effect_type",
+    names_prefix = "mean_",
+    values_to = "estimate"
+  ) %>%
+  mutate(
+    lower_ci = case_when(
+      effect_type == "a_coef" ~ lower_ci_a_coef,
+      effect_type == "b_coef" ~ lower_ci_b_coef,
+      effect_type == "weight" ~ lower_ci_weight
+    ),
+    upper_ci = case_when(
+      effect_type == "a_coef" ~ upper_ci_a_coef,
+      effect_type == "b_coef" ~ upper_ci_b_coef,
+      effect_type == "weight" ~ upper_ci_weight
+    )
+  )
+
+long_summary %>%
+  filter(IV == 'MI60_mmhr') %>% 
+  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
+ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
+  geom_vline(xintercept = 0, color = "black") +
+  geom_point(aes(color = effect_type), size = 3) +
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
+  facet_wrap(~effect_type, scales = "free_x") +
+  labs(
+    x = "Effect Size with 95% CI",
+    y = "Mediator",
+    title = "Stage rise, MI60, all sites",
+    color = "Effect Type"
+  ) +
+  theme_bw(base_size = 14)
 
 ```
 
