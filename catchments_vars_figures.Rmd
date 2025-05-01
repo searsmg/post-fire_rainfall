@@ -25,7 +25,7 @@ library(cowplot)
 
 ```
 
-# Catchment variables
+# Data
 
 ```{r}
 
@@ -346,6 +346,102 @@ ggsave(
        dpi=600,
        width=12,
        height=8)
+
+```
+
+# Climate
+
+Right now, MI60 and lag PWD includes all events or days not just ones from the response dataset
+
+```{r}
+
+# add pwd data
+pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
+  mutate(date = mdy(Date)) %>%
+  dplyr::select(-Date) %>%
+  dplyr::select(date, lag_pwd, site) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site),
+         month = month(date)) %>%
+  filter(month %in% c(6:9))
+
+# grab site, fire, sp_cat from inputs
+temp <- inputs %>%
+  select(site, fire, sp_cat) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site)) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'Seasonal',
+                          'Seasonal SZ',
+                          'Intermittent SZ')) 
+
+pwd <- left_join(pwd,
+                      temp,
+                      by = 'site')
+
+pwd_plot <- ggplot(pwd, aes(x = fire, 
+                 y = lag_pwd,
+                 fill = sp_cat)) + 
+  geom_boxplot(
+    color = "black",
+    size = 0.2,                 
+    width = 0.6
+  ) +
+  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = 'Snow zone') +
+  ggtitle("Lag PWD") +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 14))
+
+pwd_plot
+
+# now MI60
+mi60 <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv') %>%
+  dplyr::rename(site = ID) %>%
+  mutate(site = tolower(site))
+
+# add fire, sz by site
+mi60 <- mi60 %>%
+  select(site, MI60_mmhr) %>%
+  left_join(.,
+            temp,
+            by = 'site')
+
+mi60_plot <- ggplot(mi60, aes(x = fire, 
+                 y = MI60_mmhr,
+                 fill = sp_cat)) + 
+  geom_boxplot(
+    color = "black",
+    size = 0.2,                 
+    width = 0.6
+  ) +
+  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = 'Snow zone') +
+  ggtitle("MI60") +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5, size = 14))
+
+mi60_plot
 
 ```
 
