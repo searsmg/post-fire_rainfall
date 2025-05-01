@@ -159,7 +159,6 @@ ggplot(sr_mi60, aes(x = MI60_mmhr,
 
 ```
 
-
 ## Histograms and boxplots
 
 ```{r}
@@ -420,13 +419,15 @@ pwd_plot <- left_join(pwd,
          month = month(date)) %>%
   filter(month %in% c(6:9))
 
-###
+# mean and sd for figure
 summary_stats <- pwd_plot %>%
   group_by(site, facet_label) %>%
   summarise(mean = mean(lag_pwd, na.rm = TRUE),
             sd = sd(lag_pwd, na.rm = TRUE),
             .groups = "drop")
 
+
+# by site
 pwd_plot_use <- ggplot(pwd_plot, aes(x = site, y = lag_pwd)) +
   #geom_hline(yintercept = 0, color = "darkgrey") +
   geom_jitter(width = 0.3,
@@ -462,9 +463,6 @@ ggsave(
 pwd_fire <- pwd_plot %>%
   group_by(fire) %>%
   summarize(mean = mean(lag_pwd))
-
-
-
 
 ##########################
 mi60 <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv') %>%
