@@ -45,9 +45,21 @@ response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
          lag2peak_Pstart,
          MI60_mmhr,
          lag_pwd,
-         hypso75, 
+         hypso75,
+         hypso25,
+         hypso50,
+         IC,
+         hydraulic_func_conn,
+         area_km2 = area_km2.x,
+         rc_circle = RC_CIRCLE.x,
+         slope40_frac,
+         brockdepmin,
+         frac_recharge_area,
+         avg_vbw_m,
+         AVG_SAND,
          mean_dnbr, 
-         AVG_CLAY, 
+         AVG_CLAY,
+         AVG_SILT,
          AVG_KSAT, 
          elongation = ELONGATION.x, 
          aws0150wta, 
@@ -58,8 +70,8 @@ response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
          SP_mean,
          hypso_integral,
          year,
-         hypso_integral,
-         frac_glacial) %>%
+         frac_glacial,
+         geo_coded) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
   select(-site)
 
@@ -77,24 +89,36 @@ No bootstrapping yet
 ```{r}
 
 data <- response %>%
-  filter(fire == 'etf',
-         sp_cat == 'low') %>%
+  # filter(fire == 'etf',
+  #        sp_cat == 'low') %>%
   drop_na()
 
 mediators <- c(
-  'hypso75',
-  'mean_dnbr',
-  'AVG_CLAY',
-  'AVG_KSAT',
-  'elongation',
-  'aws0150wta',
-  #'NDVI',
-  'frac_valley',
-  'flow_length_m',
-  'slope30_frac',
-  'SP_mean',
-  'hypso_integral'
-  #'frac_glacial'
+  "hypso75", 
+  "hypso25", 
+  "hypso50",
+  "hypso_integral", 
+  "IC", 
+  "hydraulic_func_conn",
+  "area_km2", 
+  "rc_circle",
+  "elongation",
+  "slope40_frac",
+  "slope30_frac",
+  "avg_vbw_m", 
+  "frac_recharge_area",
+  "frac_valley", 
+  "flow_length_m",
+  "frac_glacial",
+  "brockdepmin", 
+  "AVG_SAND", 
+  "AVG_CLAY", 
+  "AVG_SILT", 
+  "AVG_KSAT",
+  "aws0150wta", 
+  "mean_dnbr", 
+  "SP_mean",
+  "geo_coded"
 )
 
 dv <- 'stage_rise_cm'
@@ -140,24 +164,43 @@ effect_df <- effect_df %>%
       mutate(effects = 'coefIndir') %>%
       mutate(depVar = dv)
 
-# plot
- ggplot(effect_df, 
-        aes(x = b_coef, y = Mediator)) + 
-   theme_bw(base_size = 20) +
-  geom_point(aes(fill = weight,
-                 color = weight), 
+ # make weight fill by white if 0 but keep other colors 
+ effect_df_plot <- effect_df %>%
+  mutate(weight_for_plot = ifelse(weight == 0, NA, weight))
+
+ggplot(effect_df_plot, 
+       aes(x = b_coef, y = Mediator)) + 
+  theme_bw(base_size = 20) +
+  geom_point(aes(fill = weight_for_plot,
+                 color = weight_for_plot), 
              shape = 21, 
              size = 6, 
+             stroke = 0.5,  # optional: makes the outline more visible
              color = 'gray50') + 
-   facet_wrap(~IV) +
+  facet_wrap(~IV) +
   labs(x = 'Direct effect size\nMediator -> DV',
        fill = 'Indirect effect size', 
-       color = 'Indirect effect sizer') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
-   ggtitle('Stage rise - CPF intermittent')
+       color = 'Indirect effect size') +
+  paletteer::scale_color_paletteer_c("grDevices::RdYlBu", na.value = "white") +
+  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu", na.value = "white") +
+  ggtitle('Stage rise - ALL')
 
-
+# plot
+ # ggplot(effect_df, 
+ #        aes(x = b_coef, y = Mediator)) + 
+ #   theme_bw(base_size = 20) +
+ #  geom_point(aes(fill = weight,
+ #                 color = weight), 
+ #             shape = 21, 
+ #             size = 6, 
+ #             color = 'gray50') + 
+ #   facet_wrap(~IV) +
+ #  labs(x = 'Direct effect size\nMediator -> DV',
+ #       fill = 'Indirect effect size', 
+ #       color = 'Indirect effect sizer') +
+ #  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
+ #  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
+ #   ggtitle('Stage rise - CPF intermittent')
 
 ```
 
