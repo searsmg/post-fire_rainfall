@@ -446,7 +446,7 @@ covariates <- c('site_number',
                mediators = mediators,
                covariates = covariates,
                nfolds = 10, 
-               type = 'enet')
+               type = 'ridge')
     
     ivs <- names(result)[names(result) %in% c('MI60_mmhr',
                                               'lag_pwd')]
