@@ -443,5 +443,30 @@ mi60_plot <- ggplot(mi60, aes(x = fire,
 
 mi60_plot
 
+legend <- cowplot::get_plot_component(mi60_plot, "guide-box", return_all = TRUE)[[3]]
+
+mi60_plot <- mi60_plot +
+  theme(legend.position = "none")
+
+pwd_plot <- pwd_plot +
+  theme(legend.position = "none")
+
+climate <- plot_grid(mi60_plot,
+                     pwd_plot) 
+          
+climate_final <- plot_grid(climate,
+                           legend,
+                           ncol=1,
+                           rel_heights = c(1.5, 0.1))
+
+climate_final
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/mi60_pwd_bySZ.png',
+       dpi=600,
+       width=12,
+       height=8)
+
+
 ```
 
