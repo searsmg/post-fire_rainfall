@@ -28,7 +28,8 @@ p_load(here,
        igraph, 
        ggraph, 
        ggridges,
-       glmnet)
+       glmnet,
+       ggcorrplot)
 
 ```
 
@@ -38,45 +39,90 @@ p_load(here,
 
 response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
   select(site,
-         sp_cat,
-         fire,
+         sp_cat, # categorical
+         fire, # categorical
          stage_rise_cm,
          lag2peak_halfP,
          lag2peak_Pstart,
          MI60_mmhr,
          lag_pwd,
-         hypso75,
-         hypso25,
-         hypso50,
-         IC,
-         hydraulic_func_conn,
+         terrain_hypso75 = hypso75,
+         terrain_hypso25 = hypso25,
+         terrain_hypso50 = hypso50,
+         terrain_connec = IC,
+         terrain_conn_dnbr = hydraulic_func_conn,
          area_km2 = area_km2.x,
-         rc_circle = RC_CIRCLE.x,
-         slope40_frac,
-         brockdepmin,
-         frac_recharge_area,
-         avg_vbw_m,
-         AVG_SAND,
+         terrain_rc_circle = RC_CIRCLE.x,
+         terrain_slope40 = slope40_frac,
+         soil_brockdepmin = brockdepmin,
+         terrain_recharge = frac_recharge_area,
+         terrain_vbw = avg_vbw_m,
+         soil_sand = AVG_SAND,
          mean_dnbr, 
-         AVG_CLAY,
-         AVG_SILT,
-         AVG_KSAT, 
-         elongation = ELONGATION.x, 
-         aws0150wta, 
+         soil_clay = AVG_CLAY,
+         soil_ksat = AVG_KSAT, 
+         terrain_elongation = ELONGATION.x, 
+         soil_availwaterstor = aws0150wta, 
          NDVI, 
-         frac_valley,
-         flow_length_m, 
-         slope30_frac, 
+         terrain_vall_holl = frac_valley,
+         terrain_flowlength = flow_length_m, 
+         terrain_slope30 = slope30_frac, 
          SP_mean,
-         hypso_integral,
+         terrain_hypsoint = hypso_integral,
          year,
-         frac_glacial,
+         terrain_glacial = frac_glacial,
          fire_no) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
   select(-site)
 
 
 ```
+
+# Correlations
+
+```{r}
+
+corr_prep <- response %>%
+  select(-c(MI60_mmhr, 
+            #lag_pwd,
+            lag2peak_halfP,
+            lag2peak_Pstart,
+            stage_rise_cm,
+            fire_no)) %>%
+  select(where(is.numeric))
+
+corr_matrix <- cor(corr_prep, use = "complete.obs")
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = FALSE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+
+masked_corr <- corr_matrix
+masked_corr[abs(masked_corr) < 0.7] <- NA
+
+ggcorrplot(masked_corr, method = "square", 
+           #hc.order = FALSE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = c("blue", "white", "red")) +
+  theme(
+    plot.margin = margin(1, 1,1,1),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+```
+
 
 # Exploratory mediation
 
@@ -202,6 +248,7 @@ ggplot(effect_df_plot,
 
 ```
 
+
 ## Adding bootstrapping
 
 ### Stage rise
@@ -209,49 +256,38 @@ ggplot(effect_df_plot,
 ```{r}
 
 data <- response %>%
-  filter(fire == 'etf') %>%
-  filter(sp_cat == 'high') %>%
+  #filter(fire == 'cpf') %>%
+  #filter(sp_cat == 'high') %>%
   drop_na()
 
-xmedFunc <- function(dv, n_bootstrap = 10){
-  n_bootstrap = 10
+xmedFunc <- function(dv, n_bootstrap = 200){
 
   mediators <- c(
-  "hypso75", 
-  "hypso25", 
-  "hypso50",
-  "hypso_integral", 
-  "IC", 
-  "hydraulic_func_conn",
-  "area_km2", 
-  "rc_circle",
-  "elongation",
-  "slope40_frac",
-  "slope30_frac",
-  "avg_vbw_m", 
-  "frac_recharge_area",
-  "frac_valley", 
-  "flow_length_m",
-  "frac_glacial",
-  "brockdepmin", 
-  "AVG_SAND", 
-  "AVG_CLAY", 
-  #"AVG_SILT", 
-  "AVG_KSAT",
-  "aws0150wta", 
-  "mean_dnbr", 
-  "SP_mean"
-  #"fire_no"
+  # "terrain_hypso75", 
+  # "terrain_connec", 
+  # "terrain_elongation",
+  # "terrain_slope30",
+  # "terrain_vbw", 
+  # "terrain_recharge",
+  # "terrain_vall_holl", 
+  # "terrain_flowlength",
+  # "terrain_glacial",
+   "soil_clay", 
+  # "soil_ksat",
+  # "soil_availwaterstor", 
+  # "mean_dnbr", 
+  # "SP_mean",
+    "lag_pwd"
+   # "NDVI"
 )
   
 dv <- 'stage_rise_cm'
 
-iv <- c('MI60_mmhr',
-        'lag_pwd')
+iv <- c('MI60_mmhr')
+       # 'lag_pwd')
         
 covariates <- c('site_number',
-                'year',
-                'NDVI')
+                'year')
   
   # Function to apply xmed to a single resampled dataset
   bootstrap_run <- function(data) {
@@ -262,10 +298,10 @@ covariates <- c('site_number',
                mediators = mediators,
                covariates = covariates,
                nfolds = 10, 
-               type = 'ridge')
+               type = 'enet')
     
-    ivs <- names(result)[names(result) %in% c('MI60_mmhr',
-                                              'lag_pwd')]
+    ivs <- names(result)[names(result) %in% c('MI60_mmhr')]
+                                              # 'lag_pwd')]
     
     # Combine all paths into a single tidy data frame for each resample
     effect_df <- map_dfr(ivs, function(iv_name) {
@@ -316,19 +352,32 @@ covariates <- c('site_number',
       upper_ci_weight = quantile(weight, 0.975, na.rm = T)
     ) %>%
     mutate(depVar = dv,
-           significant = ifelse(lower_ci_weight < 0 & 
-                                  upper_ci_weight > 0 | 
-                                  lower_ci_weight > 0 & 
-                                  upper_ci_weight < 0, 
+           significant = ifelse(lower_ci_weight < 0 &
+                                  upper_ci_weight > 0 |
+                                  lower_ci_weight > 0 &
+                                  upper_ci_weight < 0,
                                 "Not", "Sig"))
   
-  return(summary_results)
+    return(list(
+    summary = summary_results,
+    bootstrap = bootstrap_results
+  ))
 }
 
-nb = 50
+
+nb = 200
 xmedOut <- xmedFunc('stage_rise_cm', n_bootstrap = nb)
 
-xmedOut %>%
+full <- xmedOut$bootstrap
+summary <- xmedOut$summary
+
+# write_csv(full,
+#           './data/final/exploratory_mediation/stagerise_bs1000_enet_full_low.csv')
+# 
+# write_csv(summary,
+#           './data/final/exploratory_mediation/stagerise_bs1000_enet_summary_low.csv')
+
+summary %>%
   subset(significant == 'Sig') %>%
   ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
   geom_vline(xintercept = 0, linetype = 'dashed') +
@@ -346,7 +395,7 @@ xmedOut %>%
   #scale_size_continuous(range = c(1,8))
   
 # look at all 3: a coef, b coef, weight
-long_summary <- xmedOut %>%
+long_summary <- summary %>%
   select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
   pivot_longer(
     cols = c(mean_a_coef, mean_b_coef, mean_weight),
@@ -367,21 +416,21 @@ long_summary <- xmedOut %>%
     )
   )
 
-long_summary %>%
-  filter(IV == 'lag_pwd') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "Stage rise, lag PWD, ETF SZ",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
+# long_summary %>%
+#   filter(IV == 'lag_pwd') %>% 
+#   filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
+# ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
+#   geom_vline(xintercept = 0, color = "black") +
+#   geom_point(aes(color = effect_type), size = 3) +
+#   geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
+#   facet_wrap(~effect_type, scales = "free_x") +
+#   labs(
+#     x = "Effect Size with 95% CI",
+#     y = "Mediator",
+#     title = "Stage rise, lag PWD, low SZ",
+#     color = "Effect Type"
+#   ) +
+#   theme_bw(base_size = 14)
 
 long_summary %>%
   filter(IV == 'MI60_mmhr') %>% 
@@ -394,15 +443,16 @@ ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
   labs(
     x = "Effect Size with 95% CI",
     y = "Mediator",
-    title = "Stage rise, MI60, ETF SZ",
+    title = "Stage rise, MI60, all",
     color = "Effect Type"
   ) +
   theme_bw(base_size = 14)
 
-write_csv(long_summary,
-          './data/final/exploratory_mediation/stagerise_bs_ridge_etfSZ.csv')
+
+
 
 ```
+
 
 ### Lag to peak
 
@@ -413,35 +463,24 @@ data <- response %>%
   #filter(sp_cat == 'high') %>%
   drop_na()
 
-xmedFunc <- function(dv, n_bootstrap = 10){
-  n_bootstrap = 10
+xmedFunc <- function(dv, n_bootstrap = 1000){
+  #n_bootstrap = 10
 
-  mediators <- c(
-  "hypso75", 
-  "hypso25", 
-  "hypso50",
-  "hypso_integral", 
-  "IC", 
-  "hydraulic_func_conn",
-  "area_km2", 
-  "rc_circle",
-  "elongation",
-  "slope40_frac",
-  "slope30_frac",
-  "avg_vbw_m", 
-  "frac_recharge_area",
-  "frac_valley", 
-  "flow_length_m",
-  "frac_glacial",
-  "brockdepmin", 
-  "AVG_SAND", 
-  "AVG_CLAY", 
-  #"AVG_SILT", 
-  "AVG_KSAT",
-  "aws0150wta", 
+   mediators <- c(
+  "terrain_hypso75", 
+  "terrain_connec", 
+  "terrain_elongation",
+  "terrain_slope30",
+  "terrain_vbw", 
+  "terrain_recharge",
+  "terrain_vall_holl", 
+  "terrain_flowlength",
+  "terrain_glacial",
+  "soil_clay", 
+  "soil_ksat",
+  "soil_availwaterstor", 
   "mean_dnbr", 
-  "SP_mean",
-  "fire_no"
+  "SP_mean"
 )
   
 dv <- 'lag2peak_halfP'
@@ -462,7 +501,7 @@ covariates <- c('site_number',
                mediators = mediators,
                covariates = covariates,
                nfolds = 10, 
-               type = 'ridge')
+               type = 'enet')
     
     ivs <- names(result)[names(result) %in% c('MI60_mmhr',
                                               'lag_pwd')]
@@ -525,7 +564,7 @@ covariates <- c('site_number',
   return(summary_results)
 }
 
-nb = 50
+nb = 1000
 xmedOut <- xmedFunc('lag2peak_halfP', n_bootstrap = nb)
 
 xmedOut %>%
@@ -578,7 +617,7 @@ ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
   labs(
     x = "Effect Size with 95% CI",
     y = "Mediator",
-    title = "Lag to peak, lag PWD, all",
+    title = "Lag to peak, lag PWD, all sites",
     color = "Effect Type"
   ) +
   theme_bw(base_size = 14)
@@ -594,13 +633,13 @@ ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
   labs(
     x = "Effect Size with 95% CI",
     y = "Mediator",
-    title = "Lag to peak, MI60, all",
+    title = "Lag to peak, MI60, all sites",
     color = "Effect Type"
   ) +
   theme_bw(base_size = 14)
 
 write_csv(long_summary,
-          './data/final/exploratory_mediation/lag2peak_bs_ridge_all.csv')
+          './data/final/exploratory_mediation/lag2peak_bs1000_enet_allsites.csv')
 
 ```
 
