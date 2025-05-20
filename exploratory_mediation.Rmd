@@ -18,7 +18,9 @@ library(pacman)
 p_load(here, 
        regsem, 
        semPlot, 
-       caret, 
+       caret,
+       boot,
+       cowplot,
        ggh4x, 
        ggdag, 
        tidyverse, 
@@ -256,29 +258,29 @@ ggplot(effect_df_plot,
 ```{r}
 
 data <- response %>%
-  #filter(fire == 'cpf') %>%
-  #filter(sp_cat == 'high') %>%
+  filter(fire == 'etf') %>%
+  filter(sp_cat == 'high') %>%
   drop_na()
 
 xmedFunc <- function(dv, n_bootstrap = 200){
 
   mediators <- c(
-  # "terrain_hypso75", 
-  # "terrain_connec", 
-  # "terrain_elongation",
-  # "terrain_slope30",
-  # "terrain_vbw", 
-  # "terrain_recharge",
-  # "terrain_vall_holl", 
-  # "terrain_flowlength",
-  # "terrain_glacial",
-   "soil_clay", 
-  # "soil_ksat",
-  # "soil_availwaterstor", 
-  # "mean_dnbr", 
-  # "SP_mean",
-    "lag_pwd"
-   # "NDVI"
+  "terrain_hypso75",
+  "terrain_connec",
+  "terrain_elongation",
+  "terrain_slope30",
+  "terrain_vbw",
+  "terrain_recharge",
+  "terrain_vall_holl",
+  "terrain_flowlength",
+ # "terrain_glacial",
+  "soil_clay", 
+  "soil_ksat",
+  "soil_availwaterstor",
+  "mean_dnbr",
+  "SP_mean",
+  "lag_pwd"
+  # "NDVI"
 )
   
 dv <- 'stage_rise_cm'
@@ -467,16 +469,16 @@ xmedFunc <- function(dv, n_bootstrap = 1000){
   #n_bootstrap = 10
 
    mediators <- c(
-  "terrain_hypso75", 
-  "terrain_connec", 
-  "terrain_elongation",
-  "terrain_slope30",
-  "terrain_vbw", 
-  "terrain_recharge",
-  "terrain_vall_holl", 
-  "terrain_flowlength",
-  "terrain_glacial",
-  "soil_clay", 
+  # "terrain_hypso75", 
+  # "terrain_connec", 
+  # "terrain_elongation",
+  # "terrain_slope30",
+  # "terrain_vbw", 
+  # "terrain_recharge",
+  # "terrain_vall_holl", 
+  # "terrain_flowlength",
+  # "terrain_glacial",
+  # "soil_clay", 
   "soil_ksat",
   "soil_availwaterstor", 
   "mean_dnbr", 
@@ -1041,6 +1043,189 @@ ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
 
 write_csv(long_summary,
           './data/final/exploratory_mediation/2023lag2peak_bs_ridge_all.csv')
+
+
+
+```
+
+# Updated exp med
+
+```{r}
+
+data <- response %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'high') %>%
+  drop_na()
+
+# XMED FUNCTION -----------------------------------------------------------
+
+xmedFunc <- function(data, iv, dv, mediators, covariates, boot){
+  
+  xmedData <- data
+  
+  # Bootstrap function for one iteration
+  bootstrap_run <- function(data) {
+    result <- xmed(data, 
+                   iv = iv, 
+                   dv = dv, 
+                   mediators = mediators,
+                   covariates = covariates, 
+                   nfolds = 10, 
+                   type = 'enet') 
+    
+    ivs <- names(result)[names(result) %in% iv]
+    
+    # Extract indirect effects and path coefficients
+    effectDF <- map_dfr(ivs, function(iv_name) {
+      a <- result[[iv_name]]$a.coefs
+      b <- result[[iv_name]]$b.coefs
+      indirect <- as.numeric(result[[iv_name]]$indirect)
+      mediator_names <- names(a)
+      
+      tibble(
+        IV = iv_name,
+        DV = dv,
+        Mediator = mediator_names,
+        a_coef = a[mediator_names],
+        b_coef = b[mediator_names],
+        weight = indirect
+      )
+    })
+    
+    # Extract direct and total indirect effects
+    summaryDF <- map_dfr(ivs, function(iv_name) {
+      direct_effect <- result$direct  # Safely extract named vector value
+      total_indirect <- sum(as.numeric(result[[iv_name]]$indirect), na.rm = TRUE)
+      absolute_indirect <- sum(abs(as.numeric(result[[iv_name]]$indirect)), na.rm = TRUE)
+      
+      tibble(
+        IV = iv_name,
+        DV = dv,
+        directEffect = direct_effect,
+        totalIndirect = total_indirect,
+        absIndirect = absolute_indirect
+      )
+    })
+    
+    return(list(indirect = effectDF, 
+                summary = summaryDF))
+  }
+  
+  # Run bootstrapping
+  all_bootstrap_results <- map(1:boot, function(i) {
+    resampled_data <- xmedData[sample(nrow(xmedData), replace = TRUE), ]
+    bootstrap_run(resampled_data)
+  })
+  
+  # Combine across all bootstrap replicates
+  path_effects <- map_dfr(all_bootstrap_results, "indirect")
+  summary_effects <- map_dfr(all_bootstrap_results, "summary")
+  
+  return(list(
+    path_effects = path_effects,
+    summary_effects = summary_effects
+  ))
+}
+
+mediators <- c(
+  "terrain_hypso75",
+  "terrain_connec",
+  "terrain_elongation",
+  "terrain_slope30",
+  "terrain_vbw",
+  "terrain_recharge",
+  "terrain_vall_holl",
+  "terrain_flowlength",
+  "terrain_glacial",
+  "soil_clay", 
+  "soil_ksat",
+  "soil_availwaterstor",
+  "mean_dnbr",
+  "SP_mean"
+  #"lag_pwd"
+  # "NDVI"
+)
+
+covariates <- c('site_number',
+                'year')
+
+nBoot = 100
+results <- xmedFunc(data = data, 
+               iv = 'MI60_mmhr', 
+               dv = 'stage_rise_cm', 
+               mediators = mediators,
+               covariates = covariates,
+               boot = nBoot)
+
+summary <- results$summary_effects
+paths <- results$path_effects
+
+totals <- summary %>%
+  mutate(
+    totalEffect = directEffect + absIndirect,
+    pctDirect = (directEffect / totalEffect) * 100,
+    pctIndirect = (absIndirect / totalEffect) * 100
+  ) %>%
+  summarize(median_percDirect = median(pctDirect),
+            median_percIndir = median(pctIndirect))
+
+
+p1 <- summary %>%
+  # mutate(Species2 = ifelse(Species == 'Vaccinium sp', 'VASC', 'ORPA'),
+  #        IV = factor(IV, levels = c('Biochar', 'Mulch', 'TWI', 'Aspect', 'Clay'))) %>%
+  group_by(IV, DV) %>%
+  summarise(medianEffect = median(directEffect, na.rm = T),
+            lowCI = quantile(directEffect, 0.025, na.rm = T),
+            upCI = quantile(directEffect, 0.975, na.rm = T)) %>%
+  mutate(isSig = ifelse(upCI > 0 & lowCI > 0 | upCI < 0 & lowCI < 0, "sig", "notsig")) %>%
+  ggplot(., aes(x = DV, fill = isSig, color = isSig)) + theme_bw(base_size = 20) +
+  geom_hline(yintercept = 0) +
+  geom_linerange(aes(ymin = lowCI, ymax = upCI), size = 1) +
+  geom_point(aes(y = medianEffect), shape = 21, size = 6) +
+  #facet_grid(Species2~IV) +
+  coord_flip() +
+  labs(y = 'Direct effect size') +
+  scale_fill_manual(values = c('gray75', '#647184FF')) +
+  scale_color_manual(values = c('gray7', 'black')) +
+  #scale_alpha_manual(values = c(0.1, 1)) +
+  theme(legend.position = 'none',
+        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.title.y = element_blank())
+p1
+
+
+
+
+p2 <- paths %>%
+  #mutate(Species2 = ifelse(Species == 'Vaccinium sp', 'VASC', 'ORPA')) %>%
+  #mutate(weight = ifelse(weight == 0, NA, weight)) %>%
+  group_by(IV, DV, Mediator) %>%
+  summarise(medianWeight = median(weight, na.rm = T),
+            lowCI = quantile(weight, 0.025, na.rm = T),
+            upCI = quantile(weight, 0.975, na.rm = T)) %>%
+  mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) %>% 
+         #IV = factor(IV, levels = c('Biochar', 'Mulch', 'TWI', 'Aspect', 'Clay'))) %>%
+  na.omit %>%
+  #subset(isSig == 'sig') %>%
+  ggplot(., aes(x = Mediator, y=DV, fill = medianWeight)) + theme_bw(base_size = 20) +
+    geom_tile(color = 'gray80') +
+    #facet_grid(Species2~IV) +
+    #paletteer::scale_fill_paletteer_c("pals::ocean.balance", max = 0.2, min = -0.2) +
+    scale_fill_gradient2(low = 'red', mid = 'white', high = '#273649FF', midpoint = 0) +
+    labs(fill = 'Indirect effect size') +
+    #scale_y_discrete(labels = c('Height', 'LDMC', 'SLA')) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+          axis.title = element_blank(),
+          legend.position = 'bottom',
+          legend.key.size = unit(1.5, 'cm'))
+
+p2    
+  
+plot_grid(p1, p2, ncol = 1, align = 'v', rel_heights = c(0.45, 0.55))
+
+
+
+
 
 
 
