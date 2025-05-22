@@ -15,23 +15,18 @@ editor_options:
 
 library(pacman)
 
-p_load(here, 
-       regsem, 
-       semPlot, 
-       caret,
-       boot,
-       cowplot,
-       ggh4x, 
-       ggdag, 
-       tidyverse, 
-       ggsankeyfier, 
-       reshape, 
-       networkD3, 
-       igraph, 
-       ggraph, 
-       ggridges,
-       glmnet,
-       ggcorrplot)
+p_load(
+  tidyverse,
+  ggcorrplot,
+  regsem, 
+  cowplot,
+  piecewiseSEM,
+  lme4,
+  RColorBrewer
+)
+
+# Set a basic ggplot theme
+theme_set(theme_bw(base_size = 20))
 
 ```
 
@@ -78,6 +73,16 @@ response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
   select(-site)
 
 
+# Stage rise by fire and SP cat
+ggplot(response,
+       aes(x=fire, y=stage_rise_cm, fill=sp_cat)) +
+  geom_boxplot()
+  
+# Lag to peak by fire and SP cat
+ggplot(response,
+       aes(x=fire, y=lag2peak_halfP, fill=sp_cat)) +
+  geom_boxplot()
+
 ```
 
 # Correlations
@@ -85,31 +90,41 @@ response <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
 ```{r}
 
 corr_prep <- response %>%
-  select(-c(MI60_mmhr, 
-            #lag_pwd,
-            lag2peak_halfP,
-            lag2peak_Pstart,
-            stage_rise_cm,
-            fire_no)) %>%
+  # select(-c(MI60_mmhr, 
+  #           lag_pwd,
+  #           lag2peak_halfP,
+  #           lag2peak_Pstart,
+  #           stage_rise_cm,
+  #           fire_no)) %>%
   select(where(is.numeric))
 
 corr_matrix <- cor(corr_prep, use = "complete.obs")
 
 ggcorrplot(corr_matrix, method = "square", 
            hc.order = FALSE,
-           type = "lower", 
+           #type = "lower", 
            lab = TRUE, 
            lab_col = "black", 
            lab_size = 3, 
-           colors = c("blue", "white", "red")) +
+           #colors = c("blue", "white", "red")
+           colors = brewer.pal(n = 3, name = "BrBG")) +
   theme(
     plot.margin = margin(1, 1,1,1),
     axis.text.x = element_text(angle = 45, hjust = 1),
     axis.text.y = element_text(hjust = 1))
 
+ggsave(
+  './figures/SR_response/corrplot_all.png',
+       dpi=600,
+       width=14,
+       height=12)
 
-masked_corr <- corr_matrix
-masked_corr[abs(masked_corr) < 0.7] <- NA
+# filter to only view values > abs(0.7)
+masked_corr <- corr_matrix %>%
+  as.data.frame() %>%
+  mutate(across(everything(), 
+                ~ ifelse(abs(.) < 0.7, 
+                         NA, .)))
 
 ggcorrplot(masked_corr, method = "square", 
            #hc.order = FALSE,
@@ -117,944 +132,27 @@ ggcorrplot(masked_corr, method = "square",
            lab = TRUE, 
            lab_col = "black", 
            lab_size = 3, 
-           colors = c("blue", "white", "red")) +
+           colors = brewer.pal(n = 3, name = "BrBG")) +
   theme(
     plot.margin = margin(1, 1,1,1),
     axis.text.x = element_text(angle = 45, hjust = 1),
     axis.text.y = element_text(hjust = 1))
 
-```
-
-
-# Exploratory mediation
-
-## No bootstrapping yet
-
-### Stage rise
-
-```{r}
-
-data <- response %>%
-  filter(fire == 'cpf',
-         sp_cat == 'low') %>%
-  drop_na()
-
-mediators <- c(
-  "hypso75", 
-  "hypso25", 
-  "hypso50",
-  "hypso_integral", 
-  "IC", 
-  "hydraulic_func_conn",
-  "area_km2", 
-  "rc_circle",
-  "elongation",
-  "slope40_frac",
-  "slope30_frac",
-  "avg_vbw_m", 
-  "frac_recharge_area",
-  "frac_valley", 
-  "flow_length_m",
-  "frac_glacial",
-  "brockdepmin", 
-  "AVG_SAND", 
-  "AVG_CLAY", 
-  "AVG_SILT", 
-  "AVG_KSAT",
-  "aws0150wta", 
-  "mean_dnbr", 
-  "SP_mean",
-  "geo_coded"
-)
-
-dv <- 'stage_rise_cm'
-
-iv <- c('MI60_mmhr',
-        'lag_pwd')
-        
-covariates <- c('site_number',
-                'year',
-                'NDVI')
-
-# run 
-result <- xmed(data = data, 
-               iv = iv, 
-               dv = dv, 
-               mediators = mediators,
-               covariates = covariates,
-               nfolds = 10, 
-               type = 'ridge')
-
-ivs <- names(result)[names(result) %in% c(
-  'MI60_mmhr',
-  'lag_pwd'
-)]
-    
-# Combine all paths into a single tidy data frame for each resample
-effect_df <- map_dfr(ivs, function(iv_name) {
-      a <- result[[iv_name]]$a.coefs
-      b <- result[[iv_name]]$b.coefs
-      indirect <- as.numeric(result[[iv_name]]$indirect)
-      mediator_names <- names(a)
-      
-      tibble(
-        IV = iv_name,
-        Mediator = mediator_names,
-        a_coef = a,
-        b_coef = b[mediator_names],
-        weight = indirect
-      )
-    })
-    
-effect_df <- effect_df %>%
-      mutate(effects = 'coefIndir') %>%
-      mutate(depVar = dv)
-
- # make weight fill by white if 0 but keep other colors 
- effect_df_plot <- effect_df %>%
-  mutate(weight_for_plot = ifelse(weight == 0, NA, weight))
-
-ggplot(effect_df_plot, 
-       aes(x = b_coef, y = Mediator)) + 
-  theme_bw(base_size = 20) +
-  geom_point(aes(fill = weight_for_plot,
-                 color = weight_for_plot), 
-             shape = 21, 
-             size = 6, 
-             stroke = 0.5,  # optional: makes the outline more visible
-             color = 'gray50') + 
-  facet_wrap(~IV) +
-  labs(x = 'Direct effect size\nMediator -> DV',
-       fill = 'Indirect effect size', 
-       color = 'Indirect effect size') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu", na.value = "white") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu", na.value = "white") +
-  ggtitle('Stage rise - ALL')
-
-# plot
- # ggplot(effect_df, 
- #        aes(x = b_coef, y = Mediator)) + 
- #   theme_bw(base_size = 20) +
- #  geom_point(aes(fill = weight,
- #                 color = weight), 
- #             shape = 21, 
- #             size = 6, 
- #             color = 'gray50') + 
- #   facet_wrap(~IV) +
- #  labs(x = 'Direct effect size\nMediator -> DV',
- #       fill = 'Indirect effect size', 
- #       color = 'Indirect effect sizer') +
- #  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
- #  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") +
- #   ggtitle('Stage rise - CPF intermittent')
+ggsave(
+  './figures/SR_response/corrplot_cross.png',
+       dpi=600,
+       width=14,
+       height=12)
 
 ```
 
-
-## Adding bootstrapping
-
-### Stage rise
+# Exploratory Mediation
 
 ```{r}
 
 data <- response %>%
   filter(fire == 'etf') %>%
-  filter(sp_cat == 'high') %>%
-  drop_na()
-
-xmedFunc <- function(dv, n_bootstrap = 200){
-
-  mediators <- c(
-  "terrain_hypso75",
-  "terrain_connec",
-  "terrain_elongation",
-  "terrain_slope30",
-  "terrain_vbw",
-  "terrain_recharge",
-  "terrain_vall_holl",
-  "terrain_flowlength",
- # "terrain_glacial",
-  "soil_clay", 
-  "soil_ksat",
-  "soil_availwaterstor",
-  "mean_dnbr",
-  "SP_mean",
-  "lag_pwd"
-  # "NDVI"
-)
-  
-dv <- 'stage_rise_cm'
-
-iv <- c('MI60_mmhr')
-       # 'lag_pwd')
-        
-covariates <- c('site_number',
-                'year')
-  
-  # Function to apply xmed to a single resampled dataset
-  bootstrap_run <- function(data) {
-    
-    result <- xmed(data = data, 
-               iv = iv, 
-               dv = dv, 
-               mediators = mediators,
-               covariates = covariates,
-               nfolds = 10, 
-               type = 'enet')
-    
-    ivs <- names(result)[names(result) %in% c('MI60_mmhr')]
-                                              # 'lag_pwd')]
-    
-    # Combine all paths into a single tidy data frame for each resample
-    effect_df <- map_dfr(ivs, function(iv_name) {
-      
-      a <- result[[iv_name]]$a.coefs
-      b <- result[[iv_name]]$b.coefs
-      indirect <- as.numeric(result[[iv_name]]$indirect)
-      mediator_names <- names(a)
-      
-      tibble(
-        IV = iv_name,
-        Mediator = mediator_names,
-        a_coef = a,
-        b_coef = b[mediator_names],
-        weight = indirect)
-    }) %>%
-      mutate(effects = 'coefIndir') %>%
-      mutate(depVar = dv)
-    
-    return(effect_df)
-  }
-  
-  # Bootstrapping: Resample the data and apply the bootstrap_run function
-  set.seed(123)  # For reproducibility
-  
-  bootstrap_results <- map_dfr(1:n_bootstrap, function(i) {
-    
-    # Resample with replacement
-    resampled_data <- data[sample(nrow(data), replace = TRUE), ]
-    bootstrap_run(resampled_data)
-  })
-  
-  # Summarize the bootstrap results (e.g., by calculating means and confidence intervals)
-  summary_results <- bootstrap_results %>%
-    mutate(a_coef = ifelse(a_coef == 0, NA, a_coef),
-           b_coef = ifelse(b_coef == 0, NA, b_coef),
-           weight = ifelse(weight == 0, NA, weight)) %>%
-    group_by(IV, Mediator) %>%
-    summarise(
-      mean_a_coef = mean(a_coef, na.rm = T),
-      mean_b_coef = mean(b_coef, na.rm = T),
-      mean_weight = mean(weight, na.rm = T),
-      lower_ci_a_coef = quantile(a_coef, 0.025, na.rm = T),
-      upper_ci_a_coef = quantile(a_coef, 0.975, na.rm = T),
-      lower_ci_b_coef = quantile(b_coef, 0.025, na.rm = T),
-      upper_ci_b_coef = quantile(b_coef, 0.975, na.rm = T),
-      lower_ci_weight = quantile(weight, 0.025, na.rm = T),
-      upper_ci_weight = quantile(weight, 0.975, na.rm = T)
-    ) %>%
-    mutate(depVar = dv,
-           significant = ifelse(lower_ci_weight < 0 &
-                                  upper_ci_weight > 0 |
-                                  lower_ci_weight > 0 &
-                                  upper_ci_weight < 0,
-                                "Not", "Sig"))
-  
-    return(list(
-    summary = summary_results,
-    bootstrap = bootstrap_results
-  ))
-}
-
-
-nb = 200
-xmedOut <- xmedFunc('stage_rise_cm', n_bootstrap = nb)
-
-full <- xmedOut$bootstrap
-summary <- xmedOut$summary
-
-# write_csv(full,
-#           './data/final/exploratory_mediation/stagerise_bs1000_enet_full_low.csv')
-# 
-# write_csv(summary,
-#           './data/final/exploratory_mediation/stagerise_bs1000_enet_summary_low.csv')
-
-summary %>%
-  subset(significant == 'Sig') %>%
-  ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  geom_linerange(aes(xmin = lower_ci_weight, xmax = upper_ci_weight, y = Mediator), #, fill = mean_a_coef, color = mean_a_coef),
-                 size = 1, color = 'gray50') + 
-  geom_point(aes(fill = mean_b_coef, color = mean_b_coef), 
-             shape = 21, size = 6, color = 'gray50') + 
-  facet_wrap(~IV) +
-  #xlim(c(-.36, .36)) +
-  labs(x = 'Indirect effect size', 
-       fill = 'Direct effect size\nMediator -> DV', 
-       color = 'Direct effect size\nMediator -> DV') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") 
-  #scale_size_continuous(range = c(1,8))
-  
-# look at all 3: a coef, b coef, weight
-long_summary <- summary %>%
-  select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
-  pivot_longer(
-    cols = c(mean_a_coef, mean_b_coef, mean_weight),
-    names_to = "effect_type",
-    names_prefix = "mean_",
-    values_to = "estimate"
-  ) %>%
-  mutate(
-    lower_ci = case_when(
-      effect_type == "a_coef" ~ lower_ci_a_coef,
-      effect_type == "b_coef" ~ lower_ci_b_coef,
-      effect_type == "weight" ~ lower_ci_weight
-    ),
-    upper_ci = case_when(
-      effect_type == "a_coef" ~ upper_ci_a_coef,
-      effect_type == "b_coef" ~ upper_ci_b_coef,
-      effect_type == "weight" ~ upper_ci_weight
-    )
-  )
-
-# long_summary %>%
-#   filter(IV == 'lag_pwd') %>% 
-#   filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-# ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-#   geom_vline(xintercept = 0, color = "black") +
-#   geom_point(aes(color = effect_type), size = 3) +
-#   geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-#   facet_wrap(~effect_type, scales = "free_x") +
-#   labs(
-#     x = "Effect Size with 95% CI",
-#     y = "Mediator",
-#     title = "Stage rise, lag PWD, low SZ",
-#     color = "Effect Type"
-#   ) +
-#   theme_bw(base_size = 14)
-
-long_summary %>%
-  filter(IV == 'MI60_mmhr') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "Stage rise, MI60, all",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-
-
-
-```
-
-
-### Lag to peak
-
-```{r}
-
-data <- response %>%
-  #filter(fire == 'etf') %>%
-  #filter(sp_cat == 'high') %>%
-  drop_na()
-
-xmedFunc <- function(dv, n_bootstrap = 1000){
-  #n_bootstrap = 10
-
-   mediators <- c(
-  # "terrain_hypso75", 
-  # "terrain_connec", 
-  # "terrain_elongation",
-  # "terrain_slope30",
-  # "terrain_vbw", 
-  # "terrain_recharge",
-  # "terrain_vall_holl", 
-  # "terrain_flowlength",
-  # "terrain_glacial",
-  # "soil_clay", 
-  "soil_ksat",
-  "soil_availwaterstor", 
-  "mean_dnbr", 
-  "SP_mean"
-)
-  
-dv <- 'lag2peak_halfP'
-
-iv <- c('MI60_mmhr',
-        'lag_pwd')
-        
-covariates <- c('site_number',
-                'year',
-                'NDVI')
-  
-  # Function to apply xmed to a single resampled dataset
-  bootstrap_run <- function(data) {
-    
-    result <- xmed(data = data, 
-               iv = iv, 
-               dv = dv, 
-               mediators = mediators,
-               covariates = covariates,
-               nfolds = 10, 
-               type = 'enet')
-    
-    ivs <- names(result)[names(result) %in% c('MI60_mmhr',
-                                              'lag_pwd')]
-    
-    # Combine all paths into a single tidy data frame for each resample
-    effect_df <- map_dfr(ivs, function(iv_name) {
-      
-      a <- result[[iv_name]]$a.coefs
-      b <- result[[iv_name]]$b.coefs
-      indirect <- as.numeric(result[[iv_name]]$indirect)
-      mediator_names <- names(a)
-      
-      tibble(
-        IV = iv_name,
-        Mediator = mediator_names,
-        a_coef = a,
-        b_coef = b[mediator_names],
-        weight = indirect)
-    }) %>%
-      mutate(effects = 'coefIndir') %>%
-      mutate(depVar = dv)
-    
-    return(effect_df)
-  }
-  
-  # Bootstrapping: Resample the data and apply the bootstrap_run function
-  set.seed(123)  # For reproducibility
-  
-  bootstrap_results <- map_dfr(1:n_bootstrap, function(i) {
-    
-    # Resample with replacement
-    resampled_data <- data[sample(nrow(data), replace = TRUE), ]
-    bootstrap_run(resampled_data)
-  })
-  
-  # Summarize the bootstrap results (e.g., by calculating means and confidence intervals)
-  summary_results <- bootstrap_results %>%
-    mutate(a_coef = ifelse(a_coef == 0, NA, a_coef),
-           b_coef = ifelse(b_coef == 0, NA, b_coef),
-           weight = ifelse(weight == 0, NA, weight)) %>%
-    group_by(IV, Mediator) %>%
-    summarise(
-      mean_a_coef = mean(a_coef, na.rm = T),
-      mean_b_coef = mean(b_coef, na.rm = T),
-      mean_weight = mean(weight, na.rm = T),
-      lower_ci_a_coef = quantile(a_coef, 0.025, na.rm = T),
-      upper_ci_a_coef = quantile(a_coef, 0.975, na.rm = T),
-      lower_ci_b_coef = quantile(b_coef, 0.025, na.rm = T),
-      upper_ci_b_coef = quantile(b_coef, 0.975, na.rm = T),
-      lower_ci_weight = quantile(weight, 0.025, na.rm = T),
-      upper_ci_weight = quantile(weight, 0.975, na.rm = T)
-    ) %>%
-    mutate(depVar = dv,
-           significant = ifelse(lower_ci_weight < 0 & 
-                                  upper_ci_weight > 0 | 
-                                  lower_ci_weight > 0 & 
-                                  upper_ci_weight < 0, 
-                                "Not", "Sig"))
-  
-  return(summary_results)
-}
-
-nb = 1000
-xmedOut <- xmedFunc('lag2peak_halfP', n_bootstrap = nb)
-
-xmedOut %>%
-  subset(significant == 'Sig') %>%
-  ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  geom_linerange(aes(xmin = lower_ci_weight, xmax = upper_ci_weight, y = Mediator), #, fill = mean_a_coef, color = mean_a_coef),
-                 size = 1, color = 'gray50') + 
-  geom_point(aes(fill = mean_b_coef, color = mean_b_coef), 
-             shape = 21, size = 6, color = 'gray50') + 
-  facet_wrap(~IV) +
-  #xlim(c(-.36, .36)) +
-  labs(x = 'Indirect effect size', 
-       fill = 'Direct effect size\nMediator -> DV', 
-       color = 'Direct effect size\nMediator -> DV') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") 
-  #scale_size_continuous(range = c(1,8))
-  
-# look at all 3: a coef, b coef, weight
-long_summary <- xmedOut %>%
-  select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
-  pivot_longer(
-    cols = c(mean_a_coef, mean_b_coef, mean_weight),
-    names_to = "effect_type",
-    names_prefix = "mean_",
-    values_to = "estimate"
-  ) %>%
-  mutate(
-    lower_ci = case_when(
-      effect_type == "a_coef" ~ lower_ci_a_coef,
-      effect_type == "b_coef" ~ lower_ci_b_coef,
-      effect_type == "weight" ~ lower_ci_weight
-    ),
-    upper_ci = case_when(
-      effect_type == "a_coef" ~ upper_ci_a_coef,
-      effect_type == "b_coef" ~ upper_ci_b_coef,
-      effect_type == "weight" ~ upper_ci_weight
-    )
-  )
-
-long_summary %>%
-  filter(IV == 'lag_pwd') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "Lag to peak, lag PWD, all sites",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-long_summary %>%
-  filter(IV == 'MI60_mmhr') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "Lag to peak, MI60, all sites",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-write_csv(long_summary,
-          './data/final/exploratory_mediation/lag2peak_bs1000_enet_allsites.csv')
-
-```
-
-# NDVI
-
-## Stage rise
-
-```{r}
-
-data <- response %>%
-  filter(year == 2023) %>% 
-  #filter(fire == 'etf') %>%
-  #filter(sp_cat == 'high') %>%
-  drop_na()
-
-xmedFunc <- function(dv, n_bootstrap = 10){
-  n_bootstrap = 10
-
-  mediators <- c(
-  "hypso75", 
-  "hypso25", 
-  "hypso50",
-  "hypso_integral", 
-  "IC", 
-  "hydraulic_func_conn",
-  "area_km2", 
-  "rc_circle",
-  "elongation",
-  "slope40_frac",
-  "slope30_frac",
-  "avg_vbw_m", 
-  "frac_recharge_area",
-  "frac_valley", 
-  "flow_length_m",
-  "frac_glacial",
-  "brockdepmin", 
-  "AVG_SAND", 
-  "AVG_CLAY", 
-  #"AVG_SILT", 
-  "AVG_KSAT",
-  "aws0150wta", 
-  "mean_dnbr", 
-  "SP_mean",
-  "fire_no",
-  "NDVI"
-)
-  
-dv <- 'stage_rise_cm'
-
-iv <- c('MI60_mmhr',
-        'lag_pwd')
-        
-covariates <- c('site_number')
-  
-  # Function to apply xmed to a single resampled dataset
-  bootstrap_run <- function(data) {
-    
-    result <- xmed(data = data, 
-               iv = iv, 
-               dv = dv, 
-               mediators = mediators,
-               covariates = covariates,
-               nfolds = 10, 
-               type = 'ridge')
-    
-    ivs <- names(result)[names(result) %in% c('MI60_mmhr',
-                                              'lag_pwd')]
-    
-    # Combine all paths into a single tidy data frame for each resample
-    effect_df <- map_dfr(ivs, function(iv_name) {
-      
-      a <- result[[iv_name]]$a.coefs
-      b <- result[[iv_name]]$b.coefs
-      indirect <- as.numeric(result[[iv_name]]$indirect)
-      mediator_names <- names(a)
-      
-      tibble(
-        IV = iv_name,
-        Mediator = mediator_names,
-        a_coef = a,
-        b_coef = b[mediator_names],
-        weight = indirect)
-    }) %>%
-      mutate(effects = 'coefIndir') %>%
-      mutate(depVar = dv)
-    
-    return(effect_df)
-  }
-  
-  # Bootstrapping: Resample the data and apply the bootstrap_run function
-  set.seed(123)  # For reproducibility
-  
-  bootstrap_results <- map_dfr(1:n_bootstrap, function(i) {
-    
-    # Resample with replacement
-    resampled_data <- data[sample(nrow(data), replace = TRUE), ]
-    bootstrap_run(resampled_data)
-  })
-  
-  # Summarize the bootstrap results (e.g., by calculating means and confidence intervals)
-  summary_results <- bootstrap_results %>%
-    mutate(a_coef = ifelse(a_coef == 0, NA, a_coef),
-           b_coef = ifelse(b_coef == 0, NA, b_coef),
-           weight = ifelse(weight == 0, NA, weight)) %>%
-    group_by(IV, Mediator) %>%
-    summarise(
-      mean_a_coef = mean(a_coef, na.rm = T),
-      mean_b_coef = mean(b_coef, na.rm = T),
-      mean_weight = mean(weight, na.rm = T),
-      lower_ci_a_coef = quantile(a_coef, 0.025, na.rm = T),
-      upper_ci_a_coef = quantile(a_coef, 0.975, na.rm = T),
-      lower_ci_b_coef = quantile(b_coef, 0.025, na.rm = T),
-      upper_ci_b_coef = quantile(b_coef, 0.975, na.rm = T),
-      lower_ci_weight = quantile(weight, 0.025, na.rm = T),
-      upper_ci_weight = quantile(weight, 0.975, na.rm = T)
-    ) %>%
-    mutate(depVar = dv,
-           significant = ifelse(lower_ci_weight < 0 & 
-                                  upper_ci_weight > 0 | 
-                                  lower_ci_weight > 0 & 
-                                  upper_ci_weight < 0, 
-                                "Not", "Sig"))
-  
-  return(summary_results)
-}
-
-nb = 50
-xmedOut <- xmedFunc('stage_rise_cm', n_bootstrap = nb)
-
-xmedOut %>%
-  subset(significant == 'Sig') %>%
-  ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  geom_linerange(aes(xmin = lower_ci_weight, xmax = upper_ci_weight, y = Mediator), #, fill = mean_a_coef, color = mean_a_coef),
-                 size = 1, color = 'gray50') + 
-  geom_point(aes(fill = mean_b_coef, color = mean_b_coef), 
-             shape = 21, size = 6, color = 'gray50') + 
-  facet_wrap(~IV) +
-  #xlim(c(-.36, .36)) +
-  labs(x = 'Indirect effect size', 
-       fill = 'Direct effect size\nMediator -> DV', 
-       color = 'Direct effect size\nMediator -> DV') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") 
-  #scale_size_continuous(range = c(1,8))
-  
-# look at all 3: a coef, b coef, weight
-long_summary <- xmedOut %>%
-  select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
-  pivot_longer(
-    cols = c(mean_a_coef, mean_b_coef, mean_weight),
-    names_to = "effect_type",
-    names_prefix = "mean_",
-    values_to = "estimate"
-  ) %>%
-  mutate(
-    lower_ci = case_when(
-      effect_type == "a_coef" ~ lower_ci_a_coef,
-      effect_type == "b_coef" ~ lower_ci_b_coef,
-      effect_type == "weight" ~ lower_ci_weight
-    ),
-    upper_ci = case_when(
-      effect_type == "a_coef" ~ upper_ci_a_coef,
-      effect_type == "b_coef" ~ upper_ci_b_coef,
-      effect_type == "weight" ~ upper_ci_weight
-    )
-  )
-
-long_summary %>%
-  filter(IV == 'lag_pwd') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "2023 Stage rise, lag PWD, all",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-long_summary %>%
-  filter(IV == 'MI60_mmhr') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "2023 Stage rise, MI60, all",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-write_csv(long_summary,
-          './data/final/exploratory_mediation/stagerise2023_bs_ridge_all.csv')
-```
-
-## Lag to peak
-
-```{r}
-
-data <- response %>%
-  filter(year == 2023) %>% 
-  #filter(fire == 'etf') %>%
-  #filter(sp_cat == 'high') %>%
-  drop_na()
-
-xmedFunc <- function(dv, n_bootstrap = 10){
-  n_bootstrap = 10
-
-  mediators <- c(
-  "hypso75", 
-  "hypso25", 
-  "hypso50",
-  "hypso_integral", 
-  "IC", 
-  "hydraulic_func_conn",
-  "area_km2", 
-  "rc_circle",
-  "elongation",
-  "slope40_frac",
-  "slope30_frac",
-  "avg_vbw_m", 
-  "frac_recharge_area",
-  "frac_valley", 
-  "flow_length_m",
-  "frac_glacial",
-  "brockdepmin", 
-  "AVG_SAND", 
-  "AVG_CLAY", 
-  #"AVG_SILT", 
-  "AVG_KSAT",
-  "aws0150wta", 
-  "mean_dnbr", 
-  "SP_mean",
-  "fire_no",
-  "NDVI"
-)
-  
-dv <- 'lag2peak_halfP'
-
-iv <- c('MI60_mmhr',
-        'lag_pwd')
-        
-covariates <- c('site_number')
-  
-  # Function to apply xmed to a single resampled dataset
-  bootstrap_run <- function(data) {
-    
-    result <- xmed(data = data, 
-               iv = iv, 
-               dv = dv, 
-               mediators = mediators,
-               covariates = covariates,
-               nfolds = 10, 
-               type = 'ridge')
-    
-    ivs <- names(result)[names(result) %in% c('MI60_mmhr',
-                                              'lag_pwd')]
-    
-    # Combine all paths into a single tidy data frame for each resample
-    effect_df <- map_dfr(ivs, function(iv_name) {
-      
-      a <- result[[iv_name]]$a.coefs
-      b <- result[[iv_name]]$b.coefs
-      indirect <- as.numeric(result[[iv_name]]$indirect)
-      mediator_names <- names(a)
-      
-      tibble(
-        IV = iv_name,
-        Mediator = mediator_names,
-        a_coef = a,
-        b_coef = b[mediator_names],
-        weight = indirect)
-    }) %>%
-      mutate(effects = 'coefIndir') %>%
-      mutate(depVar = dv)
-    
-    return(effect_df)
-  }
-  
-  # Bootstrapping: Resample the data and apply the bootstrap_run function
-  set.seed(123)  # For reproducibility
-  
-  bootstrap_results <- map_dfr(1:n_bootstrap, function(i) {
-    
-    # Resample with replacement
-    resampled_data <- data[sample(nrow(data), replace = TRUE), ]
-    bootstrap_run(resampled_data)
-  })
-  
-  # Summarize the bootstrap results (e.g., by calculating means and confidence intervals)
-  summary_results <- bootstrap_results %>%
-    mutate(a_coef = ifelse(a_coef == 0, NA, a_coef),
-           b_coef = ifelse(b_coef == 0, NA, b_coef),
-           weight = ifelse(weight == 0, NA, weight)) %>%
-    group_by(IV, Mediator) %>%
-    summarise(
-      mean_a_coef = mean(a_coef, na.rm = T),
-      mean_b_coef = mean(b_coef, na.rm = T),
-      mean_weight = mean(weight, na.rm = T),
-      lower_ci_a_coef = quantile(a_coef, 0.025, na.rm = T),
-      upper_ci_a_coef = quantile(a_coef, 0.975, na.rm = T),
-      lower_ci_b_coef = quantile(b_coef, 0.025, na.rm = T),
-      upper_ci_b_coef = quantile(b_coef, 0.975, na.rm = T),
-      lower_ci_weight = quantile(weight, 0.025, na.rm = T),
-      upper_ci_weight = quantile(weight, 0.975, na.rm = T)
-    ) %>%
-    mutate(depVar = dv,
-           significant = ifelse(lower_ci_weight < 0 & 
-                                  upper_ci_weight > 0 | 
-                                  lower_ci_weight > 0 & 
-                                  upper_ci_weight < 0, 
-                                "Not", "Sig"))
-  
-  return(summary_results)
-}
-
-nb = 50
-xmedOut <- xmedFunc('lag2peak_halfP', n_bootstrap = nb)
-
-xmedOut %>%
-  subset(significant == 'Sig') %>%
-  ggplot(., aes(x = mean_weight, y = Mediator)) + theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0, linetype = 'dashed') +
-  geom_linerange(aes(xmin = lower_ci_weight, xmax = upper_ci_weight, y = Mediator), #, fill = mean_a_coef, color = mean_a_coef),
-                 size = 1, color = 'gray50') + 
-  geom_point(aes(fill = mean_b_coef, color = mean_b_coef), 
-             shape = 21, size = 6, color = 'gray50') + 
-  facet_wrap(~IV) +
-  #xlim(c(-.36, .36)) +
-  labs(x = 'Indirect effect size', 
-       fill = 'Direct effect size\nMediator -> DV', 
-       color = 'Direct effect size\nMediator -> DV') +
-  paletteer::scale_color_paletteer_c("grDevices::RdYlBu") +
-  paletteer::scale_fill_paletteer_c("grDevices::RdYlBu") 
-  #scale_size_continuous(range = c(1,8))
-  
-# look at all 3: a coef, b coef, weight
-long_summary <- xmedOut %>%
-  select(IV, Mediator, starts_with("mean_"), starts_with("lower_ci_"), starts_with("upper_ci_"), depVar) %>%
-  pivot_longer(
-    cols = c(mean_a_coef, mean_b_coef, mean_weight),
-    names_to = "effect_type",
-    names_prefix = "mean_",
-    values_to = "estimate"
-  ) %>%
-  mutate(
-    lower_ci = case_when(
-      effect_type == "a_coef" ~ lower_ci_a_coef,
-      effect_type == "b_coef" ~ lower_ci_b_coef,
-      effect_type == "weight" ~ lower_ci_weight
-    ),
-    upper_ci = case_when(
-      effect_type == "a_coef" ~ upper_ci_a_coef,
-      effect_type == "b_coef" ~ upper_ci_b_coef,
-      effect_type == "weight" ~ upper_ci_weight
-    )
-  )
-
-long_summary %>%
-  filter(IV == 'lag_pwd') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "2023 Lag to peak, lag PWD, all",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-long_summary %>%
-  filter(IV == 'MI60_mmhr') %>% 
-  filter(!(lower_ci < 0 & upper_ci > 0)) %>%  
-ggplot(., aes(x = estimate, y = fct_reorder(Mediator, estimate))) +
-  geom_vline(xintercept = 0, color = "black") +
-  geom_point(aes(color = effect_type), size = 3) +
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = effect_type), height = 0.2) +
-  facet_wrap(~effect_type, scales = "free_x") +
-  labs(
-    x = "Effect Size with 95% CI",
-    y = "Mediator",
-    title = "2023 Lag to peak, MI60, all",
-    color = "Effect Type"
-  ) +
-  theme_bw(base_size = 14)
-
-write_csv(long_summary,
-          './data/final/exploratory_mediation/2023lag2peak_bs_ridge_all.csv')
-
-
-
-```
-
-# Updated exp med
-
-```{r}
-
-data <- response %>%
-  #filter(fire == 'etf') %>%
-  #filter(sp_cat == 'high') %>%
+  #filter(sp_cat == 'low') %>%
   drop_na()
 
 # XMED FUNCTION -----------------------------------------------------------
@@ -1141,95 +239,217 @@ mediators <- c(
   "soil_ksat",
   "soil_availwaterstor",
   "mean_dnbr",
-  "SP_mean"
-  #"lag_pwd"
-  # "NDVI"
+  "SP_mean",
+  "lag_pwd",
+   "NDVI"
 )
 
 covariates <- c('site_number',
                 'year')
 
-nBoot = 100
-results <- xmedFunc(data = data, 
+nBoot = 1000
+results1 <- xmedFunc(data = data, 
                iv = 'MI60_mmhr', 
                dv = 'stage_rise_cm', 
                mediators = mediators,
                covariates = covariates,
                boot = nBoot)
 
-summary <- results$summary_effects
-paths <- results$path_effects
+results2 <- xmedFunc(data = data, 
+               iv = 'MI60_mmhr', 
+               dv = 'lag2peak_halfP', 
+               mediators = mediators,
+               covariates = covariates,
+               boot = nBoot)
 
-totals <- summary %>%
+# stage rise results
+summary1 <- results1$summary_effects
+paths1 <- results1$path_effects
+
+directEffect_mean1 <- summary1 %>%
+  summarise(meanEffect = mean(directEffect, na.rm = T),
+            lowCI = quantile(directEffect, 0.025, na.rm = T),
+            upCI = quantile(directEffect, 0.975, na.rm = T)) %>%
+  mutate(isSig = ifelse(upCI > 0 & lowCI > 0 | 
+                          upCI < 0 & lowCI < 0, 
+                        "sig", "notsig")) %>%
+  mutate(DV = 'stage_rise_cm')
+
+totals1 <- summary1 %>%
   mutate(
-    totalEffect = directEffect + absIndirect,
-    pctDirect = (directEffect / totalEffect) * 100,
-    pctIndirect = (absIndirect / totalEffect) * 100
+    totalEffect = abs(directEffect) + absIndirect,
+    pctDirect = (abs(directEffect) / totalEffect),
+    pctIndirect = (absIndirect / totalEffect)
   ) %>%
-  summarize(median_percDirect = median(pctDirect),
-            median_percIndir = median(pctIndirect))
+  mutate(total_frac = pctDirect + pctIndirect) %>%
+  summarize(mean_percDirect = (mean(pctDirect))*100,
+            mean_percIndir = (mean(pctIndirect))*100) %>%
+  mutate(DV = 'stage_rise_cm')
+  
+# lag to peak results
+summary2 <- results2$summary_effects
+paths2 <- results2$path_effects
 
+directEffect_mean2 <- summary2 %>%
+  summarise(meanEffect = mean(directEffect, na.rm = T),
+            lowCI = quantile(directEffect, 0.025, na.rm = T),
+            upCI = quantile(directEffect, 0.975, na.rm = T)) %>%
+  mutate(isSig = ifelse(upCI > 0 & lowCI > 0 | 
+                          upCI < 0 & lowCI < 0, 
+                        "sig", "notsig")) %>%
+  mutate(DV = 'lag2peak_halfP')
+
+totals2 <- summary2 %>%
+  mutate(
+    totalEffect = abs(directEffect) + absIndirect,
+    pctDirect = (abs(directEffect) / totalEffect),
+    pctIndirect = (absIndirect / totalEffect)
+  ) %>%
+  mutate(total_frac = pctDirect + pctIndirect) %>%
+  summarize(mean_percDirect = (mean(pctDirect))*100,
+            mean_percIndir = (mean(pctIndirect)*100)) %>%
+  mutate(DV = 'lag2peak_halfP')
+
+summary <- bind_rows(summary1, summary2)
+paths <- bind_rows(paths1, paths2)
+totals <- bind_rows(totals1, totals2)
+directEffect <- bind_rows(directEffect_mean1,
+                          directEffect_mean2)
+
+write_csv(summary,
+          './data/final/exploratory_mediation/summary_etf_bs1000_enet.csv')
+
+write_csv(paths,
+          './data/final/exploratory_mediation/paths_etf_bs1000_enet.csv')
+
+write_csv(totals,
+          './data/final/exploratory_mediation/totals_etf_bs1000_enet.csv')
+
+write_csv(directEffect,
+          './data/final/exploratory_mediation/directEffect_etf_bs1000_enet.csv')
 
 p1 <- summary %>%
-  # mutate(Species2 = ifelse(Species == 'Vaccinium sp', 'VASC', 'ORPA'),
-  #        IV = factor(IV, levels = c('Biochar', 'Mulch', 'TWI', 'Aspect', 'Clay'))) %>%
   group_by(IV, DV) %>%
-  summarise(medianEffect = median(directEffect, na.rm = T),
+  summarise(meanEffect = mean(directEffect, na.rm = T),
             lowCI = quantile(directEffect, 0.025, na.rm = T),
             upCI = quantile(directEffect, 0.975, na.rm = T)) %>%
   mutate(isSig = ifelse(upCI > 0 & lowCI > 0 | upCI < 0 & lowCI < 0, "sig", "notsig")) %>%
   ggplot(., aes(x = DV, fill = isSig, color = isSig)) + theme_bw(base_size = 20) +
   geom_hline(yintercept = 0) +
   geom_linerange(aes(ymin = lowCI, ymax = upCI), size = 1) +
-  geom_point(aes(y = medianEffect), shape = 21, size = 6) +
-  #facet_grid(Species2~IV) +
+  geom_point(aes(y = meanEffect), shape = 21, size = 6) +
   coord_flip() +
   labs(y = 'Direct effect size') +
   scale_fill_manual(values = c('gray75', '#647184FF')) +
   scale_color_manual(values = c('gray7', 'black')) +
   #scale_alpha_manual(values = c(0.1, 1)) +
   theme(legend.position = 'none',
-        #axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-        axis.title.y = element_blank())
+        axis.title.y = element_blank()) +
+  theme_bw(base_size=18)
+
 p1
 
-
-
-
 p2 <- paths %>%
-  #mutate(Species2 = ifelse(Species == 'Vaccinium sp', 'VASC', 'ORPA')) %>%
-  #mutate(weight = ifelse(weight == 0, NA, weight)) %>%
   group_by(IV, DV, Mediator) %>%
   summarise(medianWeight = median(weight, na.rm = T),
             lowCI = quantile(weight, 0.025, na.rm = T),
             upCI = quantile(weight, 0.975, na.rm = T)) %>%
   mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) %>% 
-         #IV = factor(IV, levels = c('Biochar', 'Mulch', 'TWI', 'Aspect', 'Clay'))) %>%
   na.omit %>%
   #subset(isSig == 'sig') %>%
-  ggplot(., aes(x = Mediator, y=DV, fill = medianWeight)) + theme_bw(base_size = 20) +
-    geom_tile(color = 'gray80') +
-    #facet_grid(Species2~IV) +
-    #paletteer::scale_fill_paletteer_c("pals::ocean.balance", max = 0.2, min = -0.2) +
-    scale_fill_gradient2(low = 'red', mid = 'white', high = '#273649FF', midpoint = 0) +
-    labs(fill = 'Indirect effect size') +
-    #scale_y_discrete(labels = c('Height', 'LDMC', 'SLA')) +
-    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-          axis.title = element_blank(),
+  ggplot(., aes(y = Mediator, x=medianWeight)) + theme_bw(base_size = 20) +
+    geom_col(color = 'gray80') +
+    facet_wrap(~DV) +
+    labs(x = 'Indirect effect size') +
+    theme(
           legend.position = 'bottom',
-          legend.key.size = unit(1.5, 'cm'))
+          legend.key.size = unit(1.5, 'cm')) +
+  theme_bw(base_size=15)
 
-p2    
+p2
   
-plot_grid(p1, p2, ncol = 1, align = 'v', rel_heights = c(0.45, 0.55))
+plot_grid(p1, 
+          p2, 
+          ncol = 1, 
+          align = 'v')
+
+# plotted distribution for directEffect sizes and percentages
+# for the most part, they were normal (ish)
+
+```
+
+# Effect percentages
+
+```{r}
+
+# direct effects
+dirEff <- read_csv('./data/final/exploratory_mediation/allDirectEffects.csv')
 
 
 
+# percentages for indirect and direct
+allTotals <- read_csv('./data/final/exploratory_mediation/alltotals.csv') %>%
+  pivot_longer(!c(group, DV),
+               names_to = 'type',
+               values_to = 'percent')
 
+ggplot(allTotals,
+       aes(x=percent,
+           y=group,
+           color=type,
+           fill=type)) +
+  geom_col(position = "stack") +
+  #geom_col(position = position_dodge(width = 0.8)) +
+  theme_bw(base_size=20) +
+  facet_wrap(~DV)
+
+```
+
+# Indirect effects
+
+All sites only
+
+```{r}
 
 
 
 ```
 
+# SEM: lag PWD and NDVI
+
+```{r}
+# filter data if needed
+data <- response %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'high') %>%
+  drop_na()
+
+# check that stage rise is a gamma distr.
+ggplot(data, aes(x = stage_rise_cm)) +
+  geom_density(fill = "lightgreen", alpha = 0.6)
+
+# data scale
+data1 <- data %>%
+  mutate(
+    MI60_scaled = scale(MI60_mmhr),
+    lag_pwd_scaled = scale(lag_pwd))
+
+# Mediator model
+model_mediator <- lmer(lag_pwd_scaled ~ MI60_scaled + (1 | site_number), data = data1)
+
+model_outcome <- glmer(stage_rise_cm ~ MI60_scaled + lag_pwd_scaled + (1 | site_number),
+                         data = data1, family = Gamma(link = "log"))
+
+# SEM for Stage rise
+sem <- psem(model_mediator, model_outcome)
+
+summary(sem, conserve = TRUE)
+
+# lag to peak distr.
+ggplot(data, aes(x = lag2peak_halfP)) +
+  geom_density(fill = "lightgreen", alpha = 0.6) +
+  theme_bw(base_size=20)
+
+```
 
 
