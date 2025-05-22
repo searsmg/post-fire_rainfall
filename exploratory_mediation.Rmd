@@ -383,25 +383,98 @@ plot_grid(p1,
 ```{r}
 
 # direct effects
-dirEff <- read_csv('./data/final/exploratory_mediation/allDirectEffects.csv')
+dirEff <- read_csv('./data/final/exploratory_mediation/allDirectEffects.csv') %>%
+  mutate(DV = if_else(DV == 'stage_rise_cm',
+                      'Stage rise',
+                      'Lag to peak')) %>%
+  mutate(group = factor(group, levels = c('Intermittent SZ',
+                                          'Seasonal SZ',
+                                          'ETF',
+                                          'CPF',
+                                          'All'))) %>%
+  mutate(DV = factor(DV, levels = c("Stage rise", "Lag to peak"))) %>%
+  mutate(isSig = if_else(isSig == 'sig',
+                         'Significant',
+                         'NS'))
 
 
+p1 <- ggplot(dirEff, aes(x = group, fill = isSig, color = isSig)) +
+  geom_hline(yintercept = 0) +
+  geom_linerange(aes(ymin = lowCI, ymax = upCI), size = 1) +
+  geom_point(aes(y = meanEffect), shape = 21, size = 6) +
+  facet_wrap(~DV) +
+  coord_flip() +
+  labs(y = 'Direct effect size', 
+       fill = NULL, 
+       color = NULL,
+       x = NULL) +
+  scale_fill_manual(values = c('gray96', 'steelblue4')) +
+  scale_color_manual(values = c('black', 'black')) +
+   theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        legend.position = c(0.92, 0.91),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        plot.margin = margin(10, 10, 2, 10))
+
+p1
 
 # percentages for indirect and direct
 allTotals <- read_csv('./data/final/exploratory_mediation/alltotals.csv') %>%
   pivot_longer(!c(group, DV),
                names_to = 'type',
-               values_to = 'percent')
+               values_to = 'percent') %>%
+  mutate(group = factor(group, levels = c('Intermittent SZ',
+                                          'Seasonal SZ',
+                                          'ETF',
+                                          'CPF',
+                                          'All'))) %>%
+  mutate(DV = if_else(DV == 'stage_rise_cm',
+                      'Stage rise',
+                      'Lag to peak')) %>%
+   mutate(DV = factor(DV, levels = c("Stage rise", "Lag to peak"))) %>%
+  mutate(type = if_else(type == 'mean_percDirect',
+                        'Direct',
+                        'Indirect')) %>%
+  mutate(type = factor(type, levels = c("Indirect", "Direct")))
 
-ggplot(allTotals,
+p2 <- ggplot(allTotals,
        aes(x=percent,
            y=group,
-           color=type,
            fill=type)) +
-  geom_col(position = "stack") +
-  #geom_col(position = position_dodge(width = 0.8)) +
-  theme_bw(base_size=20) +
-  facet_wrap(~DV)
+  geom_col(position = "dodge") +
+  labs(y=NULL,
+       fill=NULL,
+       x='Percent of total effects') +
+  scale_fill_manual(values = c("Direct" = "#1b9e77", "Indirect" = "grey")) +
+  facet_wrap(~DV) +
+  theme(panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text.x = element_text(color = "black"),
+        legend.position = c(0.43,0.91),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 14),
+        legend.margin = margin(t = -5),
+        plot.margin = margin(2, 12, 10, 10))
+
+p2
+
+plot_grid(p1,
+          p2,
+          ncol=1)
+
+ggsave(
+  './figures/SR_response/direct_percent.png',
+       dpi=600,
+       width=14,
+       height=12)
 
 ```
 
