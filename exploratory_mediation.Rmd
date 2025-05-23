@@ -484,6 +484,185 @@ All sites only
 
 ```{r}
 
+# get distri of mediators
+paths %>%
+  filter(!is.na(weight)) %>%
+  ggplot(aes(x = weight)) +
+  geom_histogram(bins = 40, fill = "steelblue", color = "white") +
+  facet_wrap(~ Mediator, scales = "free") +
+  theme_bw(base_size = 14) +
+  labs(
+    title = "Distribution of Indirect Effect Weights",
+    x = "Weight",
+    y = "Count"
+  ) +
+  theme(
+    strip.text = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    axis.title = element_text(size = 12)
+  )
+# use medianWeight (a lot of these are bimodal)
+
+paths <- read_csv('./data/final/exploratory_mediation/paths_all_bs1000_enet.csv') %>%
+  mutate(Mediator = case_when(
+    Mediator == "soil_clay" ~ "Clay",
+    Mediator == "soil_availwaterstor" ~ "Avail. water storage",
+    Mediator == "SP_mean" ~ "Snow persistence",
+    Mediator == "terrain_vall_holl" ~ "Valleys & hollows",
+    Mediator == "terrain_hypso75" ~ "Area > 75% elevation",
+    Mediator == "lag_pwd" ~ "Lag PWD",
+    Mediator == "terrain_connec" ~ "Connectivity",
+    Mediator == "terrain_elongation" ~ "Elongation",
+    Mediator == "terrain_glacial" ~ "Glacial deposits",
+    Mediator == "terrain_flowlength" ~ "Max flow length",
+    Mediator == "terrain_recharge" ~ "Recharge area",
+    Mediator == "terrain_vbw" ~ "Valley bottom width",
+    TRUE ~ Mediator  # keep others unchanged
+  ))
+
+p3 <- paths %>%
+  group_by(IV, DV, Mediator) %>%
+  summarise(medianWeight = median(weight, na.rm = TRUE),
+            lowCI = quantile(weight, 0.025, na.rm = TRUE),
+            upCI = quantile(weight, 0.975, na.rm = TRUE)) %>%
+  mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) %>%
+  na.omit() %>%
+  mutate(DV = if_else(DV == 'stage_rise_cm', 'Stage rise', 'Lag to peak')) %>%
+  mutate(DV = factor(DV, levels = c("Stage rise", "Lag to peak"))) %>%
+    filter(!medianWeight == 0) %>%
+    mutate(varies_by = case_when(
+    Mediator == 'Clay' ~ 'Fire',
+    Mediator == 'Avail. water storage' ~ 'Fire',
+    Mediator == 'Snow persistence' ~ 'SZ',
+    Mediator == 'Valleys & hollows' ~ 'Fire',
+    Mediator == 'Area > 75% elevation' ~ 'SZ',
+    Mediator == 'Lag PWD' ~ 'SZ',
+    Mediator == 'Connectivity' ~ 'Other',
+    Mediator == 'Elongation' ~ 'Other',
+    Mediator == 'Glacial deposits' ~ 'SZ',
+    Mediator == 'Max flow length' ~ 'Other',
+    Mediator == 'Recharge area' ~ 'SZ',
+    Mediator == 'NDVI' ~ 'Other',
+    Mediator == 'Valley bottom width' ~ 'Other',
+    TRUE ~ 'NA'
+  )) %>%
+  group_by(DV) %>%
+  mutate(Mediator = tidytext::reorder_within(Mediator, abs(medianWeight), DV)) %>%
+  mutate(varies_by = factor(varies_by, levels = c("Fire", "SZ", "Other"))) %>%
+  ggplot(aes(y = Mediator, 
+             x = medianWeight,
+             fill = varies_by)) +
+    geom_col() +
+  scale_fill_manual(values = c(
+  "Fire" = "#D55E00",
+  "SZ" = "#009E73",
+  "Other" = "gray"
+)) +
+    facet_wrap(~DV, scales = 'free') +
+    scale_y_reordered() +  # Remove the DV suffix from y-axis labels
+    geom_vline(xintercept = 0) +
+    labs(x = 'Indirect effect size',
+         y=NULL,
+         fill=NULL) +
+    theme(
+      legend.position = 'bottom',
+      legend.key.size = unit(1.5, 'cm'),
+      legend.text = element_text(size = 12),
+      plot.title = element_text(hjust = 0.5, size = 14),
+      legend.margin = margin(t = -5),
+      plot.margin = margin(2, 12, 10, 10),
+      panel.grid = element_blank(),
+      panel.background = element_rect(fill = "white"),
+      strip.background = element_blank(),
+      text = element_text(color = "black"),
+      axis.title = element_text(color = "black"),
+      axis.text.x = element_text(color = "black")
+    )
+
+p3
+
+# as <- p3 %>%
+#   arrange(abs(medianWeight))
+
+ggsave(
+  './figures/SR_response/median_indirect_all.png',
+       dpi=600,
+       width=16,
+       height=10)
+
+
+p4 <- paths %>%
+  group_by(IV, DV, Mediator) %>%
+  summarise(medianWeight = median(weight, na.rm = TRUE),
+            lowCI = quantile(weight, 0.025, na.rm = TRUE),
+            upCI = quantile(weight, 0.975, na.rm = TRUE)) %>%
+  mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) %>%
+  na.omit() %>%
+  mutate(DV = if_else(DV == 'stage_rise_cm', 'Stage rise', 'Lag to peak')) %>%
+  mutate(DV = factor(DV, levels = c("Stage rise", "Lag to peak"))) %>%
+    filter(!medianWeight == 0) %>%
+    mutate(varies_by = case_when(
+    Mediator == 'Clay' ~ 'Fire',
+    Mediator == 'Avail. water storage' ~ 'Fire',
+    Mediator == 'Snow persistence' ~ 'SZ',
+    Mediator == 'Valleys & hollows' ~ 'Fire',
+    Mediator == 'Area > 75% elevation' ~ 'SZ',
+    Mediator == 'Lag PWD' ~ 'SZ',
+    Mediator == 'Connectivity' ~ 'Other',
+    Mediator == 'Elongation' ~ 'Other',
+    Mediator == 'Glacial deposits' ~ 'SZ',
+    Mediator == 'Max flow length' ~ 'Other',
+    Mediator == 'Recharge area' ~ 'SZ',
+    Mediator == 'NDVI' ~ 'Other',
+    Mediator == 'Valley bottom width' ~ 'Other',
+    TRUE ~ 'NA'
+  )) %>%
+  group_by(DV) %>%
+  mutate(Mediator = tidytext::reorder_within(Mediator, abs(medianWeight), DV)) %>%
+  mutate(varies_by = factor(varies_by, levels = c("Fire", "SZ", "Other"))) #%>%
+ggplot(aes(y = Mediator, 
+           x = medianWeight,
+           fill = varies_by)) +
+  geom_col() +
+  geom_point(data = . %>% filter(isSig == 'sig'),  # Only sig points
+             aes(x = medianWeight, y = Mediator),
+             color = "black",
+             shape = 42,      # Star shape
+             size = 18,
+             inherit.aes = FALSE) +  # Prevent fill being reused
+  scale_fill_manual(values = c(
+    "Fire" = "#D55E00",
+    "SZ" = "#009E73",
+    "Other" = "gray"
+  )) +
+  facet_wrap(~DV, scales = 'free') +
+  scale_y_reordered() +
+  geom_vline(xintercept = 0) +
+  labs(x = 'Indirect effect size',
+       y = NULL,
+       fill = NULL) +
+  theme(
+    legend.position = 'bottom',
+    legend.key.size = unit(1.5, 'cm'),
+    legend.text = element_text(size = 12),
+    plot.title = element_text(hjust = 0.5, size = 14),
+    legend.margin = margin(t = -5),
+    plot.margin = margin(2, 12, 10, 10),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text.x = element_text(color = "black")
+  )
+
+p4
+
+ggsave(
+  './figures/SR_response/median_indirect_all_sig.png',
+       dpi=600,
+       width=16,
+       height=10)
 
 
 ```
