@@ -20,22 +20,233 @@ knitr::opts_chunk$set(echo = F,
 
 library(tidyverse)
 library(plotly)
-library(ggplot2); theme_set(theme_bw(base_size = 14))
+library(ggplot2); theme_set(theme_bw(base_size = 20))
 library(cowplot)
 
 ```
 
-# Data
+# Figure 2
 
 ```{r}
 
-inputs <- read_csv('./data/final_model_inputs/inputs_combine.csv')
-
-# create snow persistence categories
-inputs <- inputs %>% 
-  mutate(sp_cat = if_else(SP_mean > 60,
+inputs <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
+  select(sp_cat, fire, stage_rise_cm, lag2peak_halfP, year) %>% 
+  mutate(year = as.factor(year)) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'high',
                           'Seasonal',
                           'Intermittent'))
+
+inputs_all_years <- inputs %>%
+  mutate(year = factor("All years"))
+
+
+inputs_combined <- bind_rows(inputs, inputs_all_years)
+
+
+inputs_combined$year <- factor(inputs_combined$year,
+                               levels = c("All years", '2021', '2022', '2023'))
+
+sr_plot <- ggplot(inputs_combined, aes(x = fire, y = stage_rise_cm, fill = sp_cat)) +
+  geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  labs(x = NULL, y = 'Stage rise (cm)', fill = 'Snow zone') +
+  facet_wrap(~year, ncol = 4) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    strip.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    legend.position = "bottom",
+    plot.margin = margin(5, 5, 2, 5)
+  )
+
+sr_plot
+
+lag_plot <- ggplot(inputs_combined, aes(x = fire, y = lag2peak_halfP, fill = sp_cat)) +
+  geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  labs(x = NULL, y = 'Lag to peak (hr)', fill = 'Snow zone') +
+  facet_wrap(~year, ncol = 4) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    strip.text = element_blank(),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = "bottom",
+    plot.margin = margin(2, 5, 5, 5)
+  )
+
+lag_plot
+
+legend <- cowplot::get_plot_component(sr_plot, "guide-box", return_all = TRUE)[[3]]
+
+srplot <- sr_plot +
+  theme(legend.position = "none")
+
+lagplot <- lag_plot +
+  theme(legend.position = "none")
+
+plots <-plot_grid(srplot,
+                  lagplot,
+                  ncol=1,
+                  align='v')
+plots
+
+plot_grid(plots,
+          legend,
+          ncol=1,
+          rel_heights = c(1.5, 0.1))
+
+ggsave(
+  './figures/SR_response/boxplot_sr_l2p.png',
+       dpi=600,
+       width=16,
+       height=12)
+
+```
+
+# Figure 3
+
+```{r}
+
+sr_mi60 <- read_csv('./data/final_model_inputs/events_inputs.csv')
+
+burn_cat <- read_csv('./data/final_model_inputs/inputs_combine.csv') %>%
+  select(site, burn_cat) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                         'mtcampus',
+                         site))
+  
+sr_mi60 <- left_join(sr_mi60,
+                     burn_cat,
+                     by='site')
+
+sr_mi60 <- sr_mi60 %>%
+select(sp_cat, fire, 
+       stage_rise_cm, 
+       MI60_mmhr, 
+       year, 
+       burn_cat) %>% 
+  mutate(year = as.factor(year)) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'high',
+                          'Seasonal',
+                          'Intermittent'))
+
+
+
+seasonal <- sr_mi60 %>%
+  filter(sp_cat == 'Seasonal') %>%
+  ggplot(., aes(x = MI60_mmhr, 
+                    y = stage_rise_cm,
+                    color = as.factor(fire),
+                    shape = burn_cat)) +
+  geom_point(size = 3, 
+             alpha = 0.7,
+             stroke = 1) +
+  scale_color_brewer(palette = "Dark2") +
+   scale_shape_manual(values = c("unburned" = 1, 
+                                 "burned" = 16)) +
+  labs(x = 'MI60 (mm/hr)', 
+       y = 'Stage rise (cm)',
+       color = NULL,
+       shape = NULL) +
+  ggtitle('Seasonal') +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black",),
+    legend.position = 'bottom',
+    plot.title = element_text(hjust = 0.5,
+                              size=18)) +
+  geom_magnify(
+    from = c(xmin = 0, xmax = 10, ymin = 0, ymax = 25),
+    to = c(xmin = 12, xmax = 32, ymin = 110, ymax = 200))
+
+seasonal
+
+inter <- sr_mi60 %>%
+  filter(sp_cat == 'Intermittent') %>%
+  ggplot(., aes(x = MI60_mmhr, 
+                    y = stage_rise_cm,
+                    color = as.factor(fire),
+                    shape = burn_cat)) +
+  geom_point(size = 3, 
+             alpha = 0.7,
+             stroke = 1) +
+  scale_color_brewer(palette = "Dark2") +
+   scale_shape_manual(values = c("unburned" = 1, 
+                                 "burned" = 16)) +
+  labs(x = 'MI60 (mm/hr)', 
+       y = 'Stage rise (cm)',
+       color = NULL,
+       shape = NULL) +
+  ylim(0,200) +
+  ggtitle('Intermittent') +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black",),
+    legend.position = 'bottom',
+    plot.title = element_text(hjust = 0.5,
+                              size=18))
+
+inter
+
+legend <- cowplot::get_plot_component(inter, "guide-box", return_all = TRUE)[[3]]
+
+seasonal <- seasonal +
+  theme(legend.position = "none")
+
+inter <- inter +
+  theme(legend.position = "none")
+
+both <- plot_grid(inter,
+          seasonal)
+
+both
+
+last <- plot_grid(both,
+                  legend,
+                  ncol=1,
+  rel_heights = c(1.5, 0.1))
+
+last
+
+ggsave(
+  './figures/SR_response/mi60_sr.png',
+       dpi=600,
+       width=12,
+       height=8)
+
+
+```
+
+
+
+
+# Figure 4
+
+```{r}
+
+inputs <- read_csv('./data/final_model_inputs/events_inputs.csv')
 
 # remove the unburned sites from inputs for dnbr and ndvi
 inputs_edit <- inputs %>%
@@ -44,33 +255,196 @@ inputs_edit <- inputs %>%
                                          'p1'),
                              NA,
                              mean_dnbr),
-         NDVI_2021.x = if_else(site %in% c('bighorn',
+         NDVI = if_else(site %in% c('bighorn',
                                            'michigan',
                                            'p1'),
                                NA,
-                               NDVI_2021.x),
-         NDVI_2022.x = if_else(site %in% c('bighorn',
-                                           'michigan',
-                                           'p1'),
-                               NA,
-                               NDVI_2022.x),
-         NDVI_2023.x = if_else(site %in% c('bighorn',
-                                           'michigan',
-                                           'p1'),
-                               NA,
-                               NDVI_2023.x))
+                               NDVI))
 
 # make df long & remove the categorical geology
 inputs_long <- inputs_edit %>%
-  select(-c(site, geo_general.x, geology.x)) %>%
-  pivot_longer(!c(fire, sp_cat), 
-               names_to = 'vars',
-               values_to = 'vals')
+  distinct(site,
+           .keep_all = T) %>%
+  select(aws0150wta,
+         AVG_CLAY,
+         SP_mean,
+         hypso75,
+         frac_valley,
+         ELONGATION.x,
+         lag_pwd,
+         IC,
+         flow_length_m,
+         fire,
+         sp_cat) %>%
+  pivot_longer(!c(sp_cat, fire),
+               names_to = 'var',
+               values_to = 'vals') %>%
+  mutate(var = case_when(
+    var == 'aws0150wta' ~ 'Avail. water storage',
+    var == 'AVG_CLAY' ~ 'Clay',
+    var == 'SP_mean' ~ 'Snow persistence',
+    var == 'hypso75' ~ 'Area > 75% elevation',
+    var == 'lag_pwd' ~ 'Lag PWD',
+    var == 'IC' ~ 'Connectivity',
+    var == 'frac_valley' ~ 'Valleys & hollows',
+    var == 'ELONGATION.x' ~ 'Elongation',
+    var == 'flow_length_m' ~ 'Max flow length',
+  )) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'high',
+                          'Seasonal',
+                          'Intermittent')) %>%
+  # mutate(var = factor(var, levels = c('Avail. water storage',
+  #                                     'Clay',
+  #                                     'Valleys & hollows',
+  #                                     'Snow persistence',
+  #                                     'Area > 75% elevation',
+  #                                     'Lag PWD',
+  #                                     'Elongation',
+  #                                     'Connectivity',
+  #                                     'Max flow length'))) %>%
+  mutate(var_group = case_when(
+    var %in% c('Avail. water storage',
+               'Clay',
+               'Valleys & hollows') ~ 'Fire',
+    var %in% c('Snow persistence',
+               'Area > 75% elevation') ~ "Snow zone",
+    var %in% c('Elongation',
+               'Connectivity',
+               'Max flow length') ~ 'Other'))
 
+
+# make a sep lag pwd plot
+pwd <- inputs_edit %>%
+  select(lag_pwd,
+         fire,
+         sp_cat) %>%
+  pivot_longer(!c(sp_cat, fire),
+               names_to = 'var',
+               values_to = 'vals') %>%
+  mutate(var = 'Lag PWD') %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'))
+
+# lag pwd plot only
+pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
+      geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+      scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+      labs(x = NULL, y = NULL, fill = 'Snow zone') +
+      facet_wrap(~var, scales = 'free_y', ncol = 3) +
+      theme(
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        strip.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text = element_text(color = "black"),
+        legend.position = "none",
+        plot.margin = margin(10, 5, 5, 5)
+      )
+
+pwd_plot
+
+group_levels <- c("Fire", "Snow zone", "Other")
+
+inputs_split <- inputs_long %>%
+  mutate(var_group = factor(var_group, levels = group_levels)) %>%
+  group_split(var_group)
+  
+plot_list <- inputs_split %>%
+  map(~ {
+    ggplot(.x, aes(x = fire, y = vals, fill = sp_cat)) +
+      geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+      scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+      labs(x = NULL, y = NULL, fill = 'Snow zone') +
+      facet_wrap(~var, scales = 'free_y', ncol = 3) +
+      theme(
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        strip.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text = element_text(color = "black"),
+        legend.position = "bottom",
+        plot.margin = margin(10, 5, 5, 5)
+      )
+  })
+
+
+legend <- cowplot::get_plot_component(plot_list[[1]], "guide-box", return_all = TRUE)[[3]]
+
+Fire <- plot_list[[1]] +
+  theme(legend.position = "none")
+
+fire_label <- plot_grid(Fire,
+                        labels = "a) Fire",
+                        label_x = 0,
+                        label_y = 1,
+                        hjust = 0) 
+
+fire_label
+
+#################
+SZ <- plot_list[[2]] +
+  theme(legend.position = "none")
+
+SZ_label <- plot_grid(
+  SZ,
+  pwd_plot,
+  labels = "b) Snow zone",
+  label_x = 0,
+  label_y = 1,
+  hjust = 0,
+  rel_widths = c(0.66, 0.34))
+
+SZ_label
+
+#################################
+Other <- plot_list[[3]] +
+  theme(legend.position = "none")
+
+other_label <- plot_grid(Other,
+                        labels = "c) Other",
+                        label_x = 0,
+                        label_y = 1,
+                        hjust = 0)
+other_label
+
+
+final_plot <- plot_grid(
+  fire_label,
+  SZ_label,
+  other_label,
+  ncol = 1,
+  align='v')
+
+final_plot
+
+# Combine row labels with plots
+full_plot <- plot_grid(
+  final_plot,
+  legend,
+  ncol=1,
+  rel_heights = c(1.5, 0.1)
+)
+
+full_plot
+
+ggsave(
+  './figures/SR_response/boxplot_vargroup.png',
+       dpi=600,
+       width=12,
+       height=12)
 
 ```
 
-# Soil
+
+# Archive
+
+## Soil
 
 ```{r}
 
@@ -129,7 +503,7 @@ ggsave(
 
 ```
 
-# Terrain morphology
+## Terrain morphology
 
 ```{r}
 
@@ -193,7 +567,7 @@ ggsave(
 
 ```
 
-# Vegetation and burn severity
+## Vegetation and burn severity
 
 ```{r}
 
@@ -305,7 +679,7 @@ burn_veg
 
 ```
 
-# Combine
+## Combine
 
 ```{r}
 
@@ -349,7 +723,7 @@ ggsave(
 
 ```
 
-# Climate
+## Climate
 
 Right now, MI60 and lag PWD includes all events or days not just ones from the response dataset
 
@@ -469,4 +843,3 @@ ggsave(
 
 
 ```
-
