@@ -38,6 +38,14 @@ inputs <- read_csv('./data/final_model_inputs/events_inputs.csv') %>%
          sp_cat = if_else(sp_cat == 'high',
                           'Seasonal',
                           'Intermittent'))
+# quick distr.
+ggplot(inputs, aes(x = lag2peak_halfP)) +
+  geom_density(fill = "lightgreen", alpha = 0.6) +
+  theme_bw(base_size=20)
+
+ggplot(inputs, aes(x = stage_rise_cm)) +
+  geom_density(fill = "lightgreen", alpha = 0.6) +
+  theme_bw(base_size=20)
 
 inputs_all_years <- inputs %>%
   mutate(year = factor("All years"))
@@ -49,9 +57,97 @@ inputs_combined <- bind_rows(inputs, inputs_all_years)
 inputs_combined$year <- factor(inputs_combined$year,
                                levels = c("All years", '2021', '2022', '2023'))
 
+
+#------- stats for results section
+summary <- inputs_combined %>%
+  filter(year == 'All years') %>%
+  group_by(sp_cat) %>%
+  summarize(median_sr = median(stage_rise_cm),
+            median_lag = median(lag2peak_halfP),
+            iqr_sr = IQR(stage_rise_cm),
+            iqr_lag = IQR(lag2peak_halfP))
+
+summary
+
+summary <- inputs_combined %>%
+  filter(year == 'All years') %>%
+  group_by(fire) %>%
+  summarize(median_sr = median(stage_rise_cm),
+            median_lag = median(lag2peak_halfP),
+            iqr_sr = IQR(stage_rise_cm),
+            iqr_lag = IQR(lag2peak_halfP))
+
+
+summary <- inputs_combined %>%
+  filter(year == 'All years') %>%
+  group_by(fire, sp_cat) %>%
+  summarize(median_sr = median(stage_rise_cm),
+            median_lag = median(lag2peak_halfP),
+            iqr_sr = IQR(stage_rise_cm),
+            iqr_lag = IQR(lag2peak_halfP))
+
+summary
+
+summary_yr <- inputs_combined %>%
+  filter(!year == 'All years') %>%
+  group_by(sp_cat, fire, year) %>%
+  summarize(median_sr = median(stage_rise_cm),
+            median_lag = median(lag2peak_halfP),
+            iqr_sr = IQR(stage_rise_cm),
+            iqr_lag = IQR(lag2peak_halfP))
+
+summary_yr
+
+#  SR test sig for SZ or fire
+wilcox.test(stage_rise_cm ~ sp_cat, data = inputs)
+wilcox.test(stage_rise_cm ~ fire, data = inputs)
+
+# test sig for years w/ in each fire/sz combo
+kruskal.test(stage_rise_cm ~ year, data = inputs %>%
+               filter(fire == 'CPF',
+                      sp_cat == 'Intermittent'))
+
+kruskal.test(stage_rise_cm ~ year, data = inputs %>%
+               filter(fire == 'CPF',
+                      sp_cat == 'Seasonal'))
+
+wilcox.test(stage_rise_cm ~ year, data = inputs %>%
+               filter(fire == 'ETF',
+                      sp_cat == 'Intermittent'))
+
+wilcox.test(stage_rise_cm ~ year, data = inputs %>%
+               filter(fire == 'ETF',
+                      sp_cat == 'Seasonal'))
+
+#  lag to peak test sig for SZ or fire
+wilcox.test(lag2peak_halfP ~ sp_cat, data = inputs)
+wilcox.test(lag2peak_halfP ~ fire, data = inputs)
+
+# test sig for years w/ in each fire/sz combo
+kruskal.test(lag2peak_halfP ~ year, data = inputs %>%
+               filter(fire == 'CPF',
+                      sp_cat == 'Intermittent'))
+
+kruskal.test(lag2peak_halfP ~ year, data = inputs %>%
+               filter(fire == 'CPF',
+                      sp_cat == 'Seasonal'))
+
+wilcox.test(lag2peak_halfP ~ year, data = inputs %>%
+               filter(fire == 'ETF',
+                      sp_cat == 'Intermittent'))
+
+wilcox.test(lag2peak_halfP ~ year, data = inputs %>%
+               filter(fire == 'ETF',
+                      sp_cat == 'Seasonal'))
+
+kruskal.test(lag2peak_halfP ~ year, data = inputs %>%
+               filter(sp_cat == 'Intermittent'))
+
+#-------
+
 sr_plot <- ggplot(inputs_combined, aes(x = fire, y = stage_rise_cm, fill = sp_cat)) +
   geom_boxplot(color = "black", size = 0.2, width = 0.6) +
-  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  scale_fill_manual(values = c("#D95F02",'#7570B3')) +
   labs(x = NULL, y = 'Stage rise (cm)', fill = 'Snow zone') +
   facet_wrap(~year, ncol = 4) +
   theme(
@@ -71,7 +167,7 @@ sr_plot
 
 lag_plot <- ggplot(inputs_combined, aes(x = fire, y = lag2peak_halfP, fill = sp_cat)) +
   geom_boxplot(color = "black", size = 0.2, width = 0.6) +
-  scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+  scale_fill_manual(values = c("#D95F02", '#7570B3')) +
   labs(x = NULL, y = 'Lag to peak (hr)', fill = 'Snow zone') +
   facet_wrap(~year, ncol = 4) +
   theme(
@@ -107,7 +203,7 @@ plot_grid(plots,
           rel_heights = c(1.5, 0.1))
 
 ggsave(
-  './figures/SR_response/boxplot_sr_l2p.png',
+  './figures/SR_response/boxplot_sr_l2p.jpg',
        dpi=600,
        width=16,
        height=12)
@@ -144,7 +240,22 @@ select(sp_cat, fire,
                           'Seasonal',
                           'Intermittent'))
 
+# --------- summary stats
+summary_mi60 <- sr_mi60 %>%
+  group_by(sp_cat, fire) %>%
+  summarize(mean_mi60 = mean(MI60_mmhr))
 
+summary_mi60
+
+summary <- sr_mi60 %>%
+  group_by(sp_cat, fire, burn_cat) %>%
+  summarize(mean_mi60 = mean(MI60_mmhr),
+            stage_rise_cm = mean(stage_rise_cm))
+
+summary
+
+
+# ----------
 
 seasonal <- sr_mi60 %>%
   filter(sp_cat == 'Seasonal') %>%
@@ -231,7 +342,7 @@ last <- plot_grid(both,
 last
 
 ggsave(
-  './figures/SR_response/mi60_sr.png',
+  './figures/SR_response/mi60_sr.jpg',
        dpi=600,
        width=12,
        height=8)
@@ -315,6 +426,14 @@ inputs_long <- inputs_edit %>%
                'Connectivity',
                'Max flow length') ~ 'Other'))
 
+# ---------- summary stats
+summary <- inputs_long %>%
+  group_by(fire, sp_cat, var) %>%
+  summarize(mean = mean(vals))
+
+summary
+
+# ----------
 
 # make a sep lag pwd plot
 pwd <- inputs_edit %>%
@@ -332,7 +451,7 @@ pwd <- inputs_edit %>%
 # lag pwd plot only
 pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
       geom_boxplot(color = "black", size = 0.2, width = 0.6) +
-      scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+      scale_fill_manual(values = c("#D95F02", '#7570B3')) +
       labs(x = NULL, y = NULL, fill = 'Snow zone') +
       facet_wrap(~var, scales = 'free_y', ncol = 3) +
       theme(
@@ -358,7 +477,7 @@ plot_list <- inputs_split %>%
   map(~ {
     ggplot(.x, aes(x = fire, y = vals, fill = sp_cat)) +
       geom_boxplot(color = "black", size = 0.2, width = 0.6) +
-      scale_fill_manual(values = c('#7570B3', "#D95F02")) +
+      scale_fill_manual(values = c("#D95F02", '#7570B3')) +
       labs(x = NULL, y = NULL, fill = 'Snow zone') +
       facet_wrap(~var, scales = 'free_y', ncol = 3) +
       theme(
@@ -434,7 +553,7 @@ full_plot <- plot_grid(
 full_plot
 
 ggsave(
-  './figures/SR_response/boxplot_vargroup.png',
+  './figures/SR_response/boxplot_vargroup.jpg',
        dpi=600,
        width=12,
        height=12)
