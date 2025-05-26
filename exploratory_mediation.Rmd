@@ -89,6 +89,22 @@ ggplot(response,
 
 ```{r}
 
+# columns to plot for distr.
+cols_to_plot <- c(3:34)
+
+plots <- map(cols_to_plot, ~ {
+  col_name <- names(response)[.x]
+  
+  ggplot(response, aes(x = .data[[col_name]])) +
+    geom_density(fill = "steelblue", alpha = 0.6) +
+    theme_bw(base_size=20)
+})
+
+# Print the plots
+walk(plots, print)
+# distr. are funky so use spearman
+
+
 corr_prep <- response %>%
   # select(-c(MI60_mmhr, 
   #           lag_pwd,
@@ -98,7 +114,9 @@ corr_prep <- response %>%
   #           fire_no)) %>%
   select(where(is.numeric))
 
-corr_matrix <- cor(corr_prep, use = "complete.obs")
+corr_matrix <- cor(corr_prep, 
+                   use = "complete.obs",
+                   method = 'spearman')
 
 ggcorrplot(corr_matrix, method = "square", 
            hc.order = FALSE,
