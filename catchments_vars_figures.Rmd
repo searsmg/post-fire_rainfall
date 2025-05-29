@@ -78,9 +78,11 @@ summary <- inputs_combined %>%
             iqr_lag = IQR(lag2peak_halfP))
 
 
+summary
+
 summary <- inputs_combined %>%
   filter(year == 'All years') %>%
-  group_by(fire, sp_cat) %>%
+  group_by(sp_cat) %>%
   summarize(median_sr = median(stage_rise_cm),
             median_lag = median(lag2peak_halfP),
             iqr_sr = IQR(stage_rise_cm),
@@ -226,6 +228,9 @@ sr_mi60 <- left_join(sr_mi60,
                      burn_cat,
                      by='site')
 
+test <- sr_mi60 %>%
+  filter(burn_cat == 'unburned')
+
 sr_mi60 <- sr_mi60 %>%
 select(sp_cat, fire, 
        stage_rise_cm, 
@@ -242,10 +247,12 @@ select(sp_cat, fire,
 
 # --------- summary stats
 summary_mi60 <- sr_mi60 %>%
-  group_by(sp_cat, fire) %>%
-  summarize(mean_mi60 = mean(MI60_mmhr))
+  group_by(sp_cat) %>%
+  summarize(median_mi60 = median(MI60_mmhr))
 
 summary_mi60
+
+wilcox.test(MI60_mmhr ~ sp_cat, data = sr_mi60)
 
 summary <- sr_mi60 %>%
   group_by(sp_cat, fire, burn_cat) %>%
@@ -443,15 +450,18 @@ pwd <- inputs_edit %>%
   pivot_longer(!c(sp_cat, fire),
                names_to = 'var',
                values_to = 'vals') %>%
-  mutate(var = 'Lag PWD') %>%
+  mutate(var = 'PWD') %>%
   mutate(fire = if_else(fire == 'cpf',
                         'CPF',
-                        'ETF'))
+                        'ETF'),
+          sp_cat = if_else(sp_cat == 'high',
+                          'Seasonal',
+                          'Intermittent'))
 
 # lag pwd plot only
 pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
       geom_boxplot(color = "black", size = 0.2, width = 0.6) +
-      scale_fill_manual(values = c("#D95F02", '#7570B3')) +
+      scale_fill_manual(values = c("#D95F02",'#7570B3')) +
       labs(x = NULL, y = NULL, fill = 'Snow zone') +
       facet_wrap(~var, scales = 'free_y', ncol = 3) +
       theme(
