@@ -22,6 +22,7 @@ library(tidyverse)
 library(plotly)
 library(ggplot2); theme_set(theme_bw(base_size = 20))
 library(cowplot)
+library(ggpubr)
 
 ```
 
@@ -440,6 +441,37 @@ summary <- inputs_long %>%
 
 summary
 
+# get distr for each var
+inputs_edit_1 <- inputs_edit %>%
+  distinct(site, .keep_all = T)
+
+ggplot(inputs_edit_1,
+       aes(x = flow_length_m)) +
+  geom_density(fill = "lightgreen", alpha = 0.6) +
+  theme_bw(base_size=20)
+
+wilcox.test(flow_length_m ~ sp_cat, data = inputs_edit_1)
+
+t.test(IC ~ sp_cat, data = inputs_edit_1)
+
+# pwd needs diff df
+ggplot(inputs_edit,
+       aes(x = lag_pwd)) +
+  geom_density(fill = "lightgreen", alpha = 0.6) +
+  theme_bw(base_size=20)
+
+t.test(lag_pwd ~ sp_cat, data = inputs_edit_1)
+
+# aws not normal, fire is sig diff: 2.589e-07, ***
+# clay normal, fire is sig diff: 4.865e-05, ***
+# frac_valley not normal, fire is sig diff: 0.0001734, ***
+# hypso75 not normal, sp cat is sig diff: 2.009e-05, ***
+# SP not normal, sp_cat is sig diff: 1.703e-05, ***
+# PWD normal, sp_cat is sig diff: p-value = 6.349e-05, ***
+# IC normal, not sig w/ fire or sp_cat
+# elong not normal, not sig w/ fire or sp cat
+#flow length not normal, not sig w/ fire or sp cat
+
 # ----------
 
 # make a sep lag pwd plot
@@ -462,8 +494,16 @@ pwd <- inputs_edit %>%
 pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
       geom_boxplot(color = "black", size = 0.2, width = 0.6) +
       scale_fill_manual(values = c("#D95F02",'#7570B3')) +
+  facet_wrap(~var, scales = 'free_y', ncol = 3) +
       labs(x = NULL, y = NULL, fill = 'Snow zone') +
-      facet_wrap(~var, scales = 'free_y', ncol = 3) +
+    annotate(
+    "text",
+    x = 1.7,
+    y = Inf,  # top of plot
+    label = "***", # this is from above calcs
+    hjust = 1.1, vjust = 1.5,
+    size = 8, color = "black"
+  ) +
       theme(
         panel.grid = element_blank(),
         panel.background = element_rect(fill = "white"),
@@ -473,7 +513,7 @@ pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
         axis.text = element_text(color = "black"),
         legend.position = "none",
         plot.margin = margin(10, 5, 5, 5)
-      )
+      ) 
 
 pwd_plot
 
@@ -506,6 +546,14 @@ plot_list <- inputs_split %>%
 legend <- cowplot::get_plot_component(plot_list[[1]], "guide-box", return_all = TRUE)[[3]]
 
 Fire <- plot_list[[1]] +
+         annotate(
+    "text",
+    x = 1.7,
+    y = Inf,  # top of plot
+    label = "***", # this is from above calcs
+    hjust = 1.1, vjust = 1.5,
+    size = 8, color = "black"
+  ) +
   theme(legend.position = "none")
 
 fire_label <- plot_grid(Fire,
@@ -518,6 +566,14 @@ fire_label
 
 #################
 SZ <- plot_list[[2]] +
+         annotate(
+    "text",
+    x = 1.7,
+    y = Inf,  # top of plot
+    label = "***", # this is from above calcs
+    hjust = 1.1, vjust = 1.5,
+    size = 8, color = "black"
+  ) +
   theme(legend.position = "none")
 
 SZ_label <- plot_grid(
@@ -563,7 +619,7 @@ full_plot <- plot_grid(
 full_plot
 
 ggsave(
-  './figures/SR_response/boxplot_vargroup.jpg',
+  './figures/SR_response/boxplot_vargroup_sig.jpg',
        dpi=600,
        width=12,
        height=12)
