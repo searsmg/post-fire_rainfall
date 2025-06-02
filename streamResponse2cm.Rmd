@@ -2780,6 +2780,8 @@ all_stage_events <- map_dfr(csv_files, read_csv)
 write.csv(all_stage_events,
           './data/final/stageResponse_2cm/all_stage_response.csv')
 
+# HAD TO MANUALLY EDIT THE ET PT SENSORS TO HAVE 7 HRS SUBTRACTED - it's already in all_stage_response
+
 # join camera data manually to all_stage_response.csv
 
 ```
@@ -2816,7 +2818,7 @@ stage_mrms <- left_join(stage,
                         by=c('site',
                              'date'))
 write.csv(stage_mrms,
-          './data/final/stageResponse_2cm/stage_mrms_temp.csv')
+          './data/final/stageResponse_2cm/stage_mrms_temp_v2.csv')
 
 # things that need to be done manually:
 # - check duplicate events
@@ -2828,7 +2830,7 @@ write.csv(stage_mrms,
 
 ```{r}
 
-stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp.csv') %>%
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp_v2.csv') %>%
   mutate(datetime_peak = mdy_hm(datetime_peak),
          datetime_min = mdy_hm(datetime_min),
          start_time = mdy_hm(start_time),
@@ -2841,11 +2843,11 @@ stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp.csv') %>%
 
 # lets look outside of R 
 write.csv(stage_mrms,
-          './data/final/stageResponse_2cm/stage_mrms_temp2.csv')
+          './data/final/stageResponse_2cm/stage_mrms_temp2_v2.csv')
 
 # looked at when lag2peak_halfP was negative and fixed or deleted those events
 # read back in
-stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp2.csv') %>%
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp2_v2.csv') %>%
     mutate(datetime_peak = mdy_hm(datetime_peak),
          datetime_min = mdy_hm(datetime_min),
          start_time = mdy_hm(start_time),
@@ -2858,10 +2860,10 @@ stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp2.csv') %>
 
 # look at high lag to peak outside of R
 write.csv(stage_mrms,
-          './data/final/stageResponse_2cm/stage_mrms_temp3.csv')
+          './data/final/stageResponse_2cm/stage_mrms_temp3_v2.csv')
 
 # deleted two really long (~24 hr lag to peaks)
-stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp3.csv') %>%
+stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp3_v2.csv') %>%
       mutate(datetime_peak = mdy_hm(datetime_peak),
          datetime_min = mdy_hm(datetime_min),
          start_time = mdy_hm(start_time),
@@ -2874,7 +2876,7 @@ stage_mrms <- read_csv('./data/final/stageResponse_2cm/stage_mrms_temp3.csv') %>
 
 # final dataset!
 write.csv(stage_mrms,
-          './data/final/stageResponse_2cm/stage2cm_mrms_final.csv')
+          './data/final/stageResponse_2cm/stage2cm_mrms_final_v2.csv')
 
 ```
 
