@@ -175,7 +175,7 @@ ggsave(
 
 data <- response %>%
   #filter(fire == 'etf') %>%
-  filter(sp_cat == 'high') %>%
+  #filter(sp_cat == 'high') %>%
   drop_na()
 
 # XMED FUNCTION -----------------------------------------------------------
@@ -258,9 +258,9 @@ mediators <- c(
   "terrain_vall_holl",
   "terrain_flowlength",
   "terrain_glacial",
-  "soil_clay", 
+  #"soil_clay", 
   "soil_ksat",
-  "soil_availwaterstor",
+  #"soil_availwaterstor",
   "mean_dnbr",
   "SP_mean",
   "lag_pwd",
@@ -270,7 +270,7 @@ mediators <- c(
 covariates <- c('site_number',
                 'year')
 
-nBoot = 1000
+nBoot = 50
 results1 <- xmedFunc(data = data, 
                iv = 'MI60_mmhr', 
                dv = 'stage_rise_cm', 
@@ -616,10 +616,11 @@ paths %>%
 
 p4 <- paths %>%
   group_by(IV, DV, Mediator) %>%
+  filter(!weight == 0) %>%
   summarise(medianWeight = median(weight, na.rm = TRUE),
             lowCI = quantile(weight, 0.025, na.rm = TRUE),
             upCI = quantile(weight, 0.975, na.rm = TRUE)) %>%
-  mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) #%>%
+  mutate(isSig = ifelse((lowCI <= 0 & upCI >= 0) | (lowCI >= 0 & upCI <= 0), "notsig", "sig")) %>%
   na.omit() %>%
   mutate(DV = if_else(DV == 'stage_rise_cm', 'Stage rise', 'Lag to peak')) %>%
   mutate(DV = factor(DV, levels = c("Stage rise", "Lag to peak"))) %>%
