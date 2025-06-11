@@ -1,0 +1,457 @@
+---
+title: "RF & GAM modeling"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+library(pacman)
+
+p_load(tidyverse, 
+       reshape, 
+       lme4, 
+       randomForest, 
+       mgcv, 
+       pdp,
+       ggcorrplot,
+       RColorBrewer)
+
+# Set a basic ggplot theme
+theme_set(theme_bw(base_size = 20))
+
+```
+
+# Prep
+
+```{r}
+
+response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         sp_cat, # categorical
+         fire, # categorical
+         stage_rise_cm,
+         lag2peak_halfP,
+         lag2peak_Pstart,
+         MI60_mmhr,
+         lag_pwd,
+         terrain_hypso75 = hypso75,
+         terrain_hypso25 = hypso25,
+         terrain_hypso50 = hypso50,
+         terrain_connec = IC,
+         terrain_conn_dnbr = hydraulic_func_conn,
+         area_km2 = area_km2.x,
+         terrain_rc_circle = RC_CIRCLE.x,
+         terrain_slope40 = slope40_frac,
+         soil_brockdepmin = brockdepmin,
+         terrain_recharge = frac_recharge_area,
+         terrain_vbw = avg_vbw_m,
+         soil_sand = AVG_SAND,
+         mean_dnbr, 
+         soil_clay = AVG_CLAY,
+         soil_ksat = AVG_KSAT, 
+         terrain_elongation = ELONGATION.x, 
+         soil_availwaterstor = aws0150wta, 
+         NDVI, 
+         terrain_vall_holl = frac_valley,
+         terrain_flowlength = flow_length_m, 
+         terrain_slope30 = slope30_frac, 
+         SP_mean,
+         terrain_hypsoint = hypso_integral,
+         year,
+         terrain_glacial = frac_glacial,
+         fire_no) %>%
+  mutate(site_number = as.integer(factor(site))) %>% # give each site a number
+  select(-site)
+
+write.csv(response, '/Users/megansears/Desktop/QM_paper/stream_response.csv')
+
+# Stage rise by fire and SP cat
+ggplot(response,
+       aes(x=fire, y=stage_rise_cm, fill=sp_cat)) +
+  geom_boxplot()
+  
+# Lag to peak by fire and SP cat
+ggplot(response,
+       aes(x=fire, y=lag2peak_halfP, fill=sp_cat)) +
+  geom_boxplot()
+
+```
+
+# Correlations
+
+```{r}
+
+# make a df that is just one row per site
+site_vars <- response %>%
+  distinct(site_number, .keep_all = T)
+
+# columns to plot for distr.
+cols_to_plot <- c(3:34)
+
+plots <- map(cols_to_plot, ~ {
+  col_name <- names(site_vars)[.x]
+  
+  ggplot(site_vars, aes(x = .data[[col_name]])) +
+    geom_density(fill = "steelblue", alpha = 0.6) +
+    theme_bw(base_size=20)
+})
+
+# Print the plots
+walk(plots, print)
+# distr. are funky so use spearman
+
+
+corr_prep <- site_vars %>%
+  select(-c(#MI60_mmhr,
+            #lag_pwd,
+            lag2peak_halfP,
+            lag2peak_Pstart,
+            #stage_rise_cm,
+            fire_no)) %>%
+  select(where(is.numeric))
+
+corr_matrix <- cor(corr_prep, 
+                   use = "complete.obs",
+                   method = 'spearman')
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = FALSE,
+           #type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3,
+           colors = brewer.pal(n = 3, name = "BrBG")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+ggsave(
+  './figures/SR_response/corrplot_all.png',
+       dpi=600,
+       width=14,
+       height=12)
+
+# filter to only view values > abs(0.6)
+masked_corr <- corr_matrix %>%
+  as.data.frame() %>%
+  mutate(across(everything(), 
+                ~ ifelse(abs(.) <= 0.6, 
+                         NA, .)))
+
+ggcorrplot(masked_corr, method = "square", 
+           #hc.order = FALSE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = brewer.pal(n = 3, name = "BrBG")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+ggsave(
+  './figures/SR_response/corrplot_cross.png',
+       dpi=600,
+       width=14,
+       height=12)
+
+```
+
+# RF modeling
+
+## All
+
+```{r}
+
+data <- response %>%
+  #filter(fire == 'cpf') %>%
+  #filter(sp_cat == 'low') %>%
+  drop_na()
+
+rf_all <- randomForest(stage_rise_cm ~ 
+                      MI60_mmhr + 
+                      lag_pwd +
+                      SP_mean +
+                      terrain_glacial +
+                      terrain_vall_holl +
+                      soil_clay +
+                      mean_dnbr +
+                      NDVI +
+                      terrain_slope30 +
+                      terrain_hypso75 +
+                      terrain_connec +
+                      mean_dnbr +
+                      terrain_elongation +
+                      terrain_flowlength +
+                      soil_ksat +
+                      terrain_recharge +
+                      terrain_vbw,
+                    data = data, 
+                    mtry = 5, 
+                    ntree = 1000)
+
+# variable importance
+varImpPlot(rf_all)
+
+varImps <- rf_all$importance %>%
+  as.data.frame() 
+
+sr_all_RF <- varImps %>%
+  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>%
+  rownames_to_column('Predictor') %>%
+  mutate(Predictor = as.factor(Predictor)) %>%
+  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
+      geom_bar(stat='identity', color='black', fill='black') +
+      coord_flip() +
+      labs(y='Normalized Variable Importance') +
+      theme(axis.title.y = element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=30)) +
+  ggtitle('Stage rise - Intermittent SZ, n = 85')
+
+sr_all_RF
+
+# compare response shapes RF versus GAM
+part1 <- partial(rf_all, pred.var = c('MI60_mmhr')) 
+plotPartial(part1, rug = T, train = data)
+
+# no random effects
+gam1 <- gam(stage_rise_cm ~ 
+              s(MI60_mmhr),
+            family = Gamma(link = "log"),
+            data = data)
+
+summary(gam1)
+plot(gam1)
+AIC(gam1)
+
+# add random effect to GAM
+gamm_site <- gamm(stage_rise_cm ~ s(MI60_mmhr), 
+                  random = list(site_number = ~1),
+                  family = Gamma(link = "log"),
+                  data = data)
+
+plot(gamm_site$gam)
+
+AIC(gamm_site$lme) # AIC much lower w/ site number as random effect
+
+summary(gamm_site$gam)  # fixed effects
+summary(gamm_site$lme)  # random effects
+
+# interactions
+part2 <- partial(rf_all, pred.var = c('MI60_mmhr', 'lag_pwd')) 
+plotPartial(part2, rug = T, train = data)
+
+gam2 <- gamm(stage_rise_cm ~ 
+               s(MI60_mmhr, by = lag_pwd),
+             random = list(site_number = ~1),
+             family = Gamma(link = "log"),
+             data = data)
+
+
+summary(gam2$gam)
+plot(gam2$gam)
+
+```
+
+## CPF only
+
+```{r}
+data <- response %>%
+  filter(fire == 'cpf') %>%
+  #filter(sp_cat == 'low') %>%
+  drop_na()
+
+rf_cpf <- randomForest(stage_rise_cm ~ 
+                      MI60_mmhr + 
+                      lag_pwd +
+                      SP_mean +
+                      terrain_glacial +
+                      terrain_vall_holl +
+                      soil_clay +
+                      mean_dnbr +
+                      NDVI +
+                      terrain_slope30 +
+                      terrain_hypso75 +
+                      terrain_connec +
+                      mean_dnbr +
+                      terrain_elongation +
+                      terrain_flowlength +
+                      soil_ksat +
+                      terrain_recharge +
+                      terrain_vbw,
+                    data = data, 
+                    mtry = 5, 
+                    ntree = 1000)
+
+# variable importance
+varImpPlot(rf_cpf)
+
+varImps <- rf_cpf$importance %>%
+  as.data.frame() # save increased node purity (metric of variable importance) to data frame
+
+sr_cpf_RF <- varImps %>%
+  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>% # IncNodePurity is the metric for regression RFs (continous data)
+  rownames_to_column('Predictor') %>%
+  mutate(Predictor = as.factor(Predictor)) %>%
+  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
+      geom_bar(stat='identity', color='black', fill='black') +
+      coord_flip() +
+      labs(y='Normalized Variable Importance') +
+      theme(axis.title.y = element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=30)) +
+  ggtitle('Stage rise - CPF, n = 140')
+
+sr_cpf_RF
+
+# compare response shapes RF versus GAM
+part1 <- partial(rf_cpf, pred.var = c('MI60_mmhr')) 
+plotPartial(part1, rug = T, train = data)
+
+# no random effects
+gam1 <- gam(stage_rise_cm ~ 
+              s(MI60_mmhr),
+            family = Gamma(link = "log"),
+            data = data)
+
+summary(gam1)
+plot(gam1)
+AIC(gam1)
+
+# add random effect to GAM
+gamm_site <- gamm(stage_rise_cm ~ s(MI60_mmhr), 
+                  random = list(site_number = ~1),
+                  family = Gamma(link = "log"),
+                  data = data)
+
+plot(gamm_site$gam)
+AIC(gamm_site$lme) # AIC much lower w/ site number as random effect
+
+summary(gamm_site$gam)  # fixed effects
+summary(gamm_site$lme)  # random effects
+
+# interactions
+part2 <- partial(rf_cpf, pred.var = c('MI60_mmhr', 'lag_pwd')) 
+plotPartial(part2, rug = T, train = data)
+
+gam2 <- gamm(stage_rise_cm ~ 
+               s(MI60_mmhr, by = lag_pwd),
+             random = list(site_number = ~1),
+             family = Gamma(link = "log"),
+             data = data)
+
+
+summary(gam2$gam)
+summary(gam2$lme)
+
+plot(gam2$gam)
+
+
+
+```
+
+# RF & PDP function
+
+```{r}
+
+data <- response %>%
+  filter(fire == 'cpf') %>%
+  #filter(sp_cat == 'low') %>%
+  drop_na()
+
+rf_cpf <- randomForest(stage_rise_cm ~ 
+                      MI60_mmhr + 
+                      lag_pwd +
+                      SP_mean +
+                      terrain_glacial +
+                      terrain_vall_holl +
+                      soil_clay +
+                      mean_dnbr +
+                      NDVI +
+                      terrain_slope30 +
+                      terrain_hypso75 +
+                      terrain_connec +
+                      terrain_elongation +
+                      terrain_flowlength +
+                      soil_ksat +
+                      terrain_recharge +
+                      terrain_vbw,
+                    data = data, 
+                    mtry = 5, 
+                    ntree = 1000)
+
+# variable importance
+varImpPlot(rf_cpf)
+
+varImps <- rf_cpf$importance %>%
+  as.data.frame() # save increased node purity (metric of variable importance) to data frame
+
+sr_cpf_RF <- varImps %>%
+  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>% # IncNodePurity is the metric for regression RFs (continous data)
+  rownames_to_column('Predictor') %>%
+  mutate(Predictor = as.factor(Predictor)) %>%
+  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
+      geom_bar(stat='identity', color='black', fill='black') +
+      coord_flip() +
+      labs(y='Normalized Variable Importance') +
+      theme(axis.title.y = element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=30)) +
+  ggtitle('Stage rise - CPF, n = 140')
+
+sr_cpf_RF
+
+# make PDP function
+vars <- c('lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'terrain_vbw')
+          
+
+
+
+
+partial_df <- map_dfr(vars, function(var) {
+  partial(rf_cpf, pred.var = c("MI60_mmhr", var), train = data) %>%
+    rename_with(~ "var_value", all_of(var)) %>%
+    mutate(variable = var)
+})
+
+
+
+ggplot(partial_df, 
+       aes(x = MI60_mmhr, y = var_value, fill = yhat)) +
+  geom_tile() +
+  facet_wrap(~ variable, scales = "free") +
+  #scale_fill_viridis_c(option = "C") +
+  labs(
+    x = "MI60 (mm/hr)",
+    y = "Covariate Value",
+    fill = "Predicted\n.yhat")
+
+
+
+```
+
+
+
