@@ -279,7 +279,6 @@ sum_all21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/
 sum_all22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2022_fil01.tif')
 sum_all23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
-
 # make df for ggplot
 p_df21<- as.data.frame(sum_all21, xy = TRUE) %>%
   rename(sum = summertotal_2021_fil01.tif) %>%
@@ -363,7 +362,57 @@ ptot_plot
 # save fig
 ggsave('./figures/mrms_ptotal.svg', dpi=600, width=15, height = 20)
 
-## get legend
+#############################################################################
+# look at same coords with DEM
+dem <- read_stars('./data/GIS/dem_10m.tif')
+
+dem <- as.data.frame(dem)
+
+dem_plot <- ggplot() +
+  geom_raster(data = dem,
+              aes(x = x, y = y, fill = dem_10m.tif)) +
+  scale_fill_viridis_c(name = "elevation (m)",
+                       option = "viridis",
+                       direction = 1) +
+                      # limits = c(0, 610)) +
+  #facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'grey40',
+          lwd = 1) +
+  geom_sf(data = huc8,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme_bw(base_size = 23) +
+  theme(
+    legend.position = 'bottom',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    #axis.text.x = element_blank(),
+    #axis.ticks.x = element_blank(),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4),
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 20,  # Adjust width of the colorbar
+    barheight = 1))
+
+dem_plot
+
+#####################################################################
+## get legend for mrms totals
 ptot_legend <- ggplot() +
   geom_raster(data = p_df, 
               aes(x = x, y = y, fill = sum)) +
