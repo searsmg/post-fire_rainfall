@@ -71,18 +71,6 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
   select(-site)
 
-write.csv(response, '/Users/megansears/Desktop/QM_paper/stream_response.csv')
-
-# Stage rise by fire and SP cat
-ggplot(response,
-       aes(x=fire, y=stage_rise_cm, fill=sp_cat)) +
-  geom_boxplot()
-  
-# Lag to peak by fire and SP cat
-ggplot(response,
-       aes(x=fire, y=lag2peak_halfP, fill=sp_cat)) +
-  geom_boxplot()
-
 ```
 
 # Correlations
@@ -167,13 +155,11 @@ ggsave(
 
 # RF modeling
 
-## All
-
 ```{r}
 
 data <- response %>%
-  #filter(fire == 'cpf') %>%
-  #filter(sp_cat == 'low') %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'high') %>%
   drop_na()
 
 rf_all <- randomForest(stage_rise_cm ~ 
@@ -188,12 +174,12 @@ rf_all <- randomForest(stage_rise_cm ~
                       terrain_slope30 +
                       terrain_hypso75 +
                       terrain_connec +
-                      mean_dnbr +
                       terrain_elongation +
                       terrain_flowlength +
                       soil_ksat +
                       terrain_recharge +
-                      terrain_vbw,
+                      terrain_vbw +
+                      year,
                     data = data, 
                     mtry = 5, 
                     ntree = 1000)
@@ -214,10 +200,101 @@ sr_all_RF <- varImps %>%
       labs(y='Normalized Variable Importance') +
       theme(axis.title.y = element_blank()) +
   theme(legend.position="bottom",
-        text = element_text(size=30)) +
-  ggtitle('Stage rise - Intermittent SZ, n = 85')
+        text = element_text(size=20)) +
+  ggtitle('Stage rise - All, n = 240')
 
 sr_all_RF
+
+```
+
+# RF PD plots
+
+```{r}
+
+# vars used in PD plots
+# vars <- c('lag_pwd',
+#           'SP_mean',
+#           'terrain_glacial',
+#           'terrain_vall_holl',
+#           'soil_clay',
+#           'mean_dnbr',
+#           'NDVI',
+#           'terrain_slope30',
+#           'terrain_hypso75',
+#           'terrain_connec',
+#           'terrain_elongation',
+#           'terrain_flowlength',
+#           'soil_ksat',
+#           'terrain_recharge',
+#           'terrain_vbw',
+#           'year')
+
+# small subset of above instead for testing
+vars <- c('lag_pwd')
+
+# partial diff here is from RF modeling above
+partial_df <- map_dfr(vars, function(var) {
+  partial(rf_all, pred.var = c("MI60_mmhr", var), train = data) %>%
+    rename_with(~ "var_value", all_of(var)) %>%
+    mutate(variable = var)
+})
+
+
+ggplot(partial_df, 
+       aes(x = MI60_mmhr, y = var_value, fill = yhat)) +
+  geom_tile() +
+  facet_wrap(~ variable, scales = "free") +
+  scale_fill_viridis_c(option = "C", na.value = "white") +
+  labs(
+    x = "MI60 (mm/hr)",
+    y = "Value",
+    fill = "Predicted\nstage rise (cm)") +
+  theme(legend.position = 'bottom',
+        legend.key.width = unit(2, "cm"))
+
+# ggsave(
+#   "./figures/SR_response/pdp_cpf.png",
+#   width = 20,
+#   height = 15,
+#   dpi = 600
+# )
+
+```
+
+# GAM PD plots
+
+```{r}
+
+# test significance for interactions
+gam2 <- gam(stage_rise_cm ~ te(MI60_mmhr, lag_pwd) +
+                          s(site_number, bs = "re"),
+            family = Gamma(link = "log"),
+            data = data)
+
+summary(gam2)
+AIC(gam2)
+
+# Partial dependence for x1
+pd_gam <- partial(gam2, 
+                  pred.var = c("MI60_mmhr", "lag_pwd"), 
+                  train = data)
+
+ggplot(pd_gam, 
+       aes(x = MI60_mmhr, y = lag_pwd, fill = yhat)) +
+  geom_tile() + 
+  scale_fill_viridis_c(option = "C", na.value = "white") +
+  labs(
+    x = "MI60 (mm/hr)",
+    y = "Value",
+    fill = "Predicted\nstage rise (cm)") +
+  theme(legend.position = 'bottom',
+        legend.key.width = unit(2, "cm"))
+
+```
+
+# Archive
+
+```{r}
 
 # compare response shapes RF versus GAM
 part1 <- partial(rf_all, pred.var = c('MI60_mmhr')) 
@@ -261,197 +338,4 @@ summary(gam2$gam)
 plot(gam2$gam)
 
 ```
-
-## CPF only
-
-```{r}
-data <- response %>%
-  filter(fire == 'cpf') %>%
-  #filter(sp_cat == 'low') %>%
-  drop_na()
-
-rf_cpf <- randomForest(stage_rise_cm ~ 
-                      MI60_mmhr + 
-                      lag_pwd +
-                      SP_mean +
-                      terrain_glacial +
-                      terrain_vall_holl +
-                      soil_clay +
-                      mean_dnbr +
-                      NDVI +
-                      terrain_slope30 +
-                      terrain_hypso75 +
-                      terrain_connec +
-                      mean_dnbr +
-                      terrain_elongation +
-                      terrain_flowlength +
-                      soil_ksat +
-                      terrain_recharge +
-                      terrain_vbw,
-                    data = data, 
-                    mtry = 5, 
-                    ntree = 1000)
-
-# variable importance
-varImpPlot(rf_cpf)
-
-varImps <- rf_cpf$importance %>%
-  as.data.frame() # save increased node purity (metric of variable importance) to data frame
-
-sr_cpf_RF <- varImps %>%
-  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>% # IncNodePurity is the metric for regression RFs (continous data)
-  rownames_to_column('Predictor') %>%
-  mutate(Predictor = as.factor(Predictor)) %>%
-  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
-      geom_bar(stat='identity', color='black', fill='black') +
-      coord_flip() +
-      labs(y='Normalized Variable Importance') +
-      theme(axis.title.y = element_blank()) +
-  theme(legend.position="bottom",
-        text = element_text(size=30)) +
-  ggtitle('Stage rise - CPF, n = 140')
-
-sr_cpf_RF
-
-# compare response shapes RF versus GAM
-part1 <- partial(rf_cpf, pred.var = c('MI60_mmhr')) 
-plotPartial(part1, rug = T, train = data)
-
-# no random effects
-gam1 <- gam(stage_rise_cm ~ 
-              s(MI60_mmhr),
-            family = Gamma(link = "log"),
-            data = data)
-
-summary(gam1)
-plot(gam1)
-AIC(gam1)
-
-# add random effect to GAM
-gamm_site <- gamm(stage_rise_cm ~ s(MI60_mmhr), 
-                  random = list(site_number = ~1),
-                  family = Gamma(link = "log"),
-                  data = data)
-
-plot(gamm_site$gam)
-AIC(gamm_site$lme) # AIC much lower w/ site number as random effect
-
-summary(gamm_site$gam)  # fixed effects
-summary(gamm_site$lme)  # random effects
-
-# interactions
-part2 <- partial(rf_cpf, pred.var = c('MI60_mmhr', 'lag_pwd')) 
-plotPartial(part2, rug = T, train = data)
-
-gam2 <- gamm(stage_rise_cm ~ 
-               s(MI60_mmhr, by = lag_pwd),
-             random = list(site_number = ~1),
-             family = Gamma(link = "log"),
-             data = data)
-
-
-summary(gam2$gam)
-summary(gam2$lme)
-
-plot(gam2$gam)
-
-
-
-```
-
-# RF & PDP function
-
-```{r}
-
-data <- response %>%
-  filter(fire == 'cpf') %>%
-  #filter(sp_cat == 'low') %>%
-  drop_na()
-
-rf_cpf <- randomForest(stage_rise_cm ~ 
-                      MI60_mmhr + 
-                      lag_pwd +
-                      SP_mean +
-                      terrain_glacial +
-                      terrain_vall_holl +
-                      soil_clay +
-                      mean_dnbr +
-                      NDVI +
-                      terrain_slope30 +
-                      terrain_hypso75 +
-                      terrain_connec +
-                      terrain_elongation +
-                      terrain_flowlength +
-                      soil_ksat +
-                      terrain_recharge +
-                      terrain_vbw,
-                    data = data, 
-                    mtry = 5, 
-                    ntree = 1000)
-
-# variable importance
-varImpPlot(rf_cpf)
-
-varImps <- rf_cpf$importance %>%
-  as.data.frame() # save increased node purity (metric of variable importance) to data frame
-
-sr_cpf_RF <- varImps %>%
-  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>% # IncNodePurity is the metric for regression RFs (continous data)
-  rownames_to_column('Predictor') %>%
-  mutate(Predictor = as.factor(Predictor)) %>%
-  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
-      geom_bar(stat='identity', color='black', fill='black') +
-      coord_flip() +
-      labs(y='Normalized Variable Importance') +
-      theme(axis.title.y = element_blank()) +
-  theme(legend.position="bottom",
-        text = element_text(size=30)) +
-  ggtitle('Stage rise - CPF, n = 140')
-
-sr_cpf_RF
-
-# make PDP function
-vars <- c('lag_pwd',
-          'SP_mean',
-          'terrain_glacial',
-          'terrain_vall_holl',
-          'soil_clay',
-          'mean_dnbr',
-          'NDVI',
-          'terrain_slope30',
-          'terrain_hypso75',
-          'terrain_connec',
-          'terrain_elongation',
-          'terrain_flowlength',
-          'soil_ksat',
-          'terrain_recharge',
-          'terrain_vbw')
-          
-
-
-
-
-partial_df <- map_dfr(vars, function(var) {
-  partial(rf_cpf, pred.var = c("MI60_mmhr", var), train = data) %>%
-    rename_with(~ "var_value", all_of(var)) %>%
-    mutate(variable = var)
-})
-
-
-
-ggplot(partial_df, 
-       aes(x = MI60_mmhr, y = var_value, fill = yhat)) +
-  geom_tile() +
-  facet_wrap(~ variable, scales = "free") +
-  #scale_fill_viridis_c(option = "C") +
-  labs(
-    x = "MI60 (mm/hr)",
-    y = "Covariate Value",
-    fill = "Predicted\n.yhat")
-
-
-
-```
-
-
 
