@@ -406,6 +406,72 @@ metrics <- left_join(metrics,
 
 ```
 
+# Valleys
+
+```{r}
+
+wbt_extract_valleys(
+    dem = lidar_path, 
+    output = "./data/GIS/valleys.tif", 
+    variant="LQ", 
+    line_thin=T, 
+    filter=5
+)
+
+test <- rast("./data/GIS/valleys.tif")
+plot(test) # none showed up
+
+# may need to run them separately 
+# run the hypsometric analysis on each site and export to csv
+get_valleys <- function(site_name) {
+  
+  # Filter the data for site polygon
+  # site_data <- catchments %>%
+  #   tidyterra::filter(site == site_name)
+
+  # get the valleys from indiv DEms
+  wbt_extract_valleys(
+    dem = paste0('./data/GIS/site_lidar/', site_name, '_lidar.tif'), # input the site specific lidar
+    output = paste0('./data/GIS/valleys/', site_name, '_valley.tif'),
+    variant="LQ", 
+    line_thin=T, 
+    filter=1)
+
+}
+
+# list site names
+site_name <- catchments$site 
+
+map(site_name, get_valleys)
+###########
+
+get_valleys <- function(site_name) {
+
+    # Define paths
+  lidar_path <- paste0('./data/GIS/site_lidar/', site_name, '_lidar.tif')
+  dem_5m_path <- paste0('./data/GIS/temp/', site_name, '_5m.tif')
+  valley_output <- paste0('./data/GIS/valleys/', site_name, '_valley.tif')
+
+  # Resample 1 m DEM to 5 m
+  dem_1m <- rast(lidar_path)
+  dem_5m <- aggregate(dem_1m, fact = 5, fun = "mean", na.rm = TRUE)
+  writeRaster(dem_5m, dem_5m_path, overwrite = TRUE)
+    # Extract valleys
+    wbt_extract_valleys(
+      dem = dem_5m_path,
+      output = valley_output,
+      variant = "LQ",
+      line_thin = TRUE,
+      filter = 5
+    )
+  }
+
+site_names <- unique(catchments$site)
+walk(site_names, get_valleys)
+
+```
+
+
 # Valley bottom width
 
 This was done manually in Arc
