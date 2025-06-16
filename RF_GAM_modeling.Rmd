@@ -52,7 +52,7 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          terrain_slope40 = slope40_frac,
          soil_brockdepmin = brockdepmin,
          terrain_recharge = frac_recharge_area,
-         terrain_vbw = avg_vbw_m,
+         #terrain_vbw = avg_vbw_m,
          soil_sand = AVG_SAND,
          mean_dnbr, 
          soil_clay = AVG_CLAY,
@@ -67,7 +67,8 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          terrain_hypsoint = hypso_integral,
          year,
          terrain_glacial = frac_glacial,
-         fire_no) %>%
+         fire_no,
+         mulch_frac) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
   select(-site)
 
@@ -158,7 +159,7 @@ ggsave(
 ```{r}
 
 data <- response %>%
-  #filter(fire == 'etf') %>%
+  #ilter(fire == 'etf') %>%
   #filter(sp_cat == 'high') %>%
   drop_na()
 
@@ -178,10 +179,10 @@ rf_all <- randomForest(stage_rise_cm ~
                       terrain_flowlength +
                       soil_ksat +
                       terrain_recharge +
-                      terrain_vbw +
+                      mulch_frac +
                       year,
                     data = data, 
-                    mtry = 5, 
+                    mtry = 6, 
                     ntree = 1000)
 
 # variable importance
@@ -230,7 +231,7 @@ sr_all_RF
 #           'year')
 
 # small subset of above instead for testing
-vars <- c('lag_pwd')
+vars <- c('mulch_frac')
 
 # partial diff here is from RF modeling above
 partial_df <- map_dfr(vars, function(var) {
@@ -266,7 +267,7 @@ ggplot(partial_df,
 ```{r}
 
 # test significance for interactions
-gam2 <- gam(stage_rise_cm ~ te(MI60_mmhr, lag_pwd) +
+gam2 <- gam(stage_rise_cm ~ te(MI60_mmhr, mulch_frac) +
                           s(site_number, bs = "re"),
             family = Gamma(link = "log"),
             data = data)
