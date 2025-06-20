@@ -159,8 +159,8 @@ ggsave(
 ```{r}
 
 data <- response %>%
-  #ilter(fire == 'etf') %>%
-  #filter(sp_cat == 'high') %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'low') %>%
   drop_na()
 
 rf_all <- randomForest(stage_rise_cm ~ 
@@ -179,11 +179,11 @@ rf_all <- randomForest(stage_rise_cm ~
                       terrain_flowlength +
                       soil_ksat +
                       terrain_recharge +
-                      mulch_frac +
+                      #mulch_frac +
                       year,
                     data = data, 
                     mtry = 6, 
-                    ntree = 1000)
+                    ntree = 500)
 
 # variable importance
 varImpPlot(rf_all)
@@ -206,6 +206,13 @@ sr_all_RF <- varImps %>%
 
 sr_all_RF
 
+ggsave(
+  "./figures/SR_response/RF_SR_all.png",
+  width=12,
+  height=8,
+  dpi = 600
+)
+
 ```
 
 # RF PD plots
@@ -213,25 +220,24 @@ sr_all_RF
 ```{r}
 
 # vars used in PD plots
-# vars <- c('lag_pwd',
-#           'SP_mean',
-#           'terrain_glacial',
-#           'terrain_vall_holl',
-#           'soil_clay',
-#           'mean_dnbr',
-#           'NDVI',
-#           'terrain_slope30',
-#           'terrain_hypso75',
-#           'terrain_connec',
-#           'terrain_elongation',
-#           'terrain_flowlength',
-#           'soil_ksat',
-#           'terrain_recharge',
-#           'terrain_vbw',
-#           'year')
+vars <- c('lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'year')
 
 # small subset of above instead for testing
-vars <- c('mulch_frac')
+# vars <- c('mulch_frac')
 
 # partial diff here is from RF modeling above
 partial_df <- map_dfr(vars, function(var) {
@@ -243,7 +249,7 @@ partial_df <- map_dfr(vars, function(var) {
 
 ggplot(partial_df, 
        aes(x = MI60_mmhr, y = var_value, fill = yhat)) +
-  geom_tile() +
+  geom_raster() +
   facet_wrap(~ variable, scales = "free") +
   scale_fill_viridis_c(option = "C", na.value = "white") +
   labs(
@@ -253,12 +259,12 @@ ggplot(partial_df,
   theme(legend.position = 'bottom',
         legend.key.width = unit(2, "cm"))
 
-# ggsave(
-#   "./figures/SR_response/pdp_cpf.png",
-#   width = 20,
-#   height = 15,
-#   dpi = 600
-# )
+ggsave(
+  "./figures/SR_response/pdp_SR_all.png",
+  width = 20,
+  height = 12,
+  dpi = 600
+)
 
 ```
 
@@ -266,30 +272,84 @@ ggplot(partial_df,
 
 ```{r}
 
-# test significance for interactions
-gam2 <- gam(stage_rise_cm ~ te(MI60_mmhr, mulch_frac) +
-                          s(site_number, bs = "re"),
+# test significance for interactions - one a time
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(MI60_mmhr, site_number, bs = "fs") +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, by=terrain_recharge),
             family = Gamma(link = "log"),
             data = data)
 
-summary(gam2)
-AIC(gam2)
+summary(gam)
+AIC(gam)
 
-# Partial dependence for x1
-pd_gam <- partial(gam2, 
-                  pred.var = c("MI60_mmhr", "lag_pwd"), 
-                  train = data)
 
-ggplot(pd_gam, 
-       aes(x = MI60_mmhr, y = lag_pwd, fill = yhat)) +
-  geom_tile() + 
-  scale_fill_viridis_c(option = "C", na.value = "white") +
-  labs(
-    x = "MI60 (mm/hr)",
-    y = "Value",
-    fill = "Predicted\nstage rise (cm)") +
-  theme(legend.position = 'bottom',
-        legend.key.width = unit(2, "cm"))
+# get p-values for all vars
+# pval_table <- map_dfr(vars, function(var) {
+#   tryCatch({
+#     # Formula
+#     form <- as.formula(paste0(
+#       "stage_rise_cm ~ te(MI60_mmhr, ", var, ") + s(site_number, bs = 're')"
+#     ))
+#     
+#     # GAM
+#     mod <- gam(form, 
+#                family = Gamma(link = "log"), 
+#                data = data)
+#     
+#     # Get p-value for interaction
+#     sum_mod <- summary(mod)
+#     term_label <- paste0("te(MI60_mmhr,", var, ")")
+#     pval <- sum_mod$s.table[term_label, "p-value"]
+#     
+#     tibble(variable = var, 
+#            p_value = pval)
+#     
+#   }, 
+#   error = function(e) {
+#     # Return NA for model error - usually for year (not enough values for 5 knots)
+#     tibble(variable = var, 
+#            p_value = NA_real_)
+#   })
+# })
+
+pval_table <- map_dfr(vars, function(var) {
+  tryCatch({
+    # Updated formula with terrain_glacial replaced by var
+    form <- as.formula(paste0(
+      "stage_rise_cm ~ ",
+      "s(MI60_mmhr) + ",
+      "s(MI60_mmhr, site_number, bs = 'fs') + ",
+      "s(site_number, bs = 're') + ",
+      "s(MI60_mmhr, by = ", var, ")"
+    ))
+    
+    # Fit GAM
+    mod <- gam(form, 
+               family = Gamma(link = "log"), 
+               data = data)
+    
+    # Extract p-value for interaction term
+    sum_mod <- summary(mod)
+    term_label <- paste0("s(MI60_mmhr):", var)
+    pval <- sum_mod$s.table[term_label, "p-value"]
+    
+    tibble(variable = var, 
+           p_value = pval)
+    
+  }, 
+  error = function(e) {
+    tibble(variable = var, 
+           p_value = NA_real_)
+  })
+})
+
+pval_table <- pval_table %>%
+  mutate(pval_adjusted = p_value/15,
+         sig = if_else(p_value < 0.00333, 
+                       'sig', 
+                       'ns'))
 
 ```
 
