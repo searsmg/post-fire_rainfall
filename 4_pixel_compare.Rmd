@@ -2140,7 +2140,7 @@ tbMI60 <- left_join(tb_events,
                                     'lpm',
                                     'mub',
                                     'p1'),
-                        'East Troublesome', 'Cameron Peak'))
+                        'West', 'East'))
 
 ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
   #geom_violin(color = "black", trim = FALSE) +  # violin layer
@@ -2197,6 +2197,8 @@ summary <- tbMI60 %>%
 # 
 # mi60
 
+tbMI60$fire <- factor(tbMI60$fire, levels = c("West", "East"))
+
   ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
   
   # Boxplot with bold outlines and minimal fill
@@ -2238,7 +2240,7 @@ summary <- tbMI60 %>%
   )
 
   
-ggsave('./figures/tb_mi60_elev.png',
+ggsave('./figures/tb_mi60_elev_updated.png',
        width = 8,
        height = 5,
        dpi=600)
