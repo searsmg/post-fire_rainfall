@@ -4970,8 +4970,8 @@ burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
   mutate(site = tolower(site))
 
 new_facet_titles <- c(
-  "cpf" = "Cameron Peak",
-  "etf" = "East Troublesome"
+  "cpf" = "East",
+  "etf" = "West"
 )
 
 # look at distribution 
@@ -4980,6 +4980,8 @@ ggplot(kappa, aes(x = kappa_value, fill = source)) +
   theme_minimal()
 
 ##
+
+kappa$fire <- factor(kappa$fire, levels = c("etf", "cpf"))
 
 p1<-ggplot(kappa, aes(x = source, y = kappa_value, fill = source)) + 
   #geom_violin(scale='width') +
@@ -5013,6 +5015,8 @@ p1
 kappa_burn <- left_join(kappa, burn, by = 'site') %>%
   mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned'))
 
+kappa_burn$fire <- factor(kappa_burn$fire, levels = c("etf", "cpf"))
+
 p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) + 
   #geom_violin(scale='width') +
   geom_boxplot(position = position_dodge(0.8),
@@ -5025,7 +5029,7 @@ p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) +
                      label.x = 1.4,
                      size = 15) +  # Adjust label position
   theme(
-    legend.position = c(.24, 1.01),
+    legend.position = c(.75, 1.01),
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),         # Adjust legend text size
     legend.title = element_blank(), 
@@ -5058,7 +5062,7 @@ combined_plot
 
 # make kappa 1:1 plots
 kappa_flip <- kappa %>%
-  select(-1) %>%
+  dplyr::select(-1) %>%
   pivot_wider(names_from = 'source',
               values_from = 'kappa_value')
   
@@ -5128,12 +5132,31 @@ kappa_elev_plot <- ggplot(kappa_elev) +
 ggsave('./figures/kappa_tb_mrms_elevmi60.png',
        dpi=600)
 
-combined_plot2 <- plot_grid(combined_plot, kappa_elev_plot, ncol = 2)
-combined_plot2
+white_spacer <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "white", color = NA))
 
-ggsave('./figures/kappa_combine2.png',
+# Stack white spacer and kappa plot
+adjusted_kappa <- plot_grid(
+  white_spacer,
+  kappa_elev_plot,
+  ncol = 1,
+  rel_heights = c(0.043, 1)
+)
+
+# Combine horizontally
+combined_plot2 <- plot_grid(
+  combined_plot,
+  adjusted_kappa,
+  ncol = 2,
+  labels = c("a", "b"),
+  label_size = 18
+)
+
+ggsave('./figures/kappa_combine2_updatelabels.png',
+       width=16,
+       height=10,
        dpi=600)
 
+##
 # by dnbr
 kappa_flip <- left_join(kappa_flip, burn, by = 'site')
 
