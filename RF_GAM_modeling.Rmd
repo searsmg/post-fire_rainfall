@@ -325,7 +325,7 @@ library(ggplot2)
 newdat <- with(data, expand.grid(
   MI60_mmhr = seq(min(MI60_mmhr), max(MI60_mmhr), length.out = 100),
   soil_clay = quantile(soil_clay, probs = c(0.1, 0.5, 0.9)),
-  site_number = levels(factor(site_number))[1]  # hold site constant
+  #site_number = levels(factor(site_number))
 ))
 
 
