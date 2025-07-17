@@ -1157,6 +1157,60 @@ plot(dnbr_etf)
 
 ```
 
+# General elev stats
+
+```{r}
+
+# load dem
+dem <- rast('./data/GIS/dem_10m.tif')
+
+# grab the extent of the study area
+extent <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2021_fil01.tif') 
+
+# project so it's same as dem
+extent <- project(extent, dem)
+
+# crop the dem to the study area
+dem_extent <- crop(dem, extent)
+
+# read in huc8 to get crop to left and right (west and east)
+huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+  filter(!huc8 == 10180001) %>%
+  filter(states %in% c('CO', 'CO,WY'))
+  
+huc8 <- st_union(huc) %>%
+  st_sf()
+
+# crop to huc8 - this will be for the right (east) side
+dem_right <- crop(dem_extent, huc8,
+                  mask=T)
+
+plot(dem_right)
+
+dem_right
+
+# change to spatvector
+huc8_vect <- vect(huc8)
+
+# Make sure CRS matches
+huc8_vect <- project(huc8_vect, crs(dem_extent))
+
+# Get DEM extent as polygon
+dem_bounds <- as.polygons(ext(dem_extent), crs = crs(dem_extent))
+
+# Erase huc8 from DEM bounds
+outside_huc8 <- erase(dem_bounds, huc8_vect)
+
+# Crop and mask DEM
+dem_left <- crop(dem_extent, outside_huc8, mask = TRUE)
+
+plot(dem_left)
+
+dem_left
+
+```
+
+
 # *Landfire stats
 
 ```{r}
