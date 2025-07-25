@@ -23,7 +23,8 @@ p_load(tidyverse,
        pdp,
        ggcorrplot,
        RColorBrewer,
-       gratia)
+       gratia,
+       performance)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -156,8 +157,7 @@ ggsave(
 ```
 
 
-
-# GAM PD plots
+# GAM
 
 ```{r}
 data <- response %>%
@@ -165,7 +165,7 @@ data <- response %>%
   #filter(sp_cat == 'low') %>%
   drop_na()
 
-# vars used in PD plots
+# vars
 vars <- c(#'lag_pwd',
           'SP_mean',
           'terrain_glacial',
@@ -179,15 +179,16 @@ vars <- c(#'lag_pwd',
           'terrain_elongation',
           'terrain_flowlength',
           'soil_ksat',
-          'terrain_recharge')
-          #'year')
+          'terrain_recharge',
+          'year')
 
-# test significance for interactions one at a time, if needed
+# w/ interaction - for if wanting to test 1 
 gam <- gam(stage_rise_cm ~ 
-             s(MI60_mmhr) +
-             s(site_number, bs = "re") +
-             s(MI60_mmhr, site_number, bs = "fs") +
-             s(MI60_mmhr, by=soil_clay),  # update the terrain var here
+             s(MI60_mmhr) + # smooth function of MI60, same for all sites
+             s(site_number, bs = "re") + # random effects, random intercept for each site
+             s(MI60_mmhr, site_number, bs = "fs") + # diff smooth of MI60 for each site
+             s(MI60_mmhr, by=SP_mean),  # smooth interaction of MI60 w/ var
+             #s(year),
             family = Gamma(link = "log"),
             data = data)
 
@@ -208,23 +209,25 @@ plot(gam, select = 4, rug = TRUE, shade = TRUE)
 # Generate prediction data across MI60 range for several soil_clay levels
 newdat <- with(data, expand.grid(
   MI60_mmhr = seq(min(MI60_mmhr), max(MI60_mmhr), length.out = 100),
-  soil_clay = quantile(soil_clay, probs = c(0.1, 0.5, 0.9)),
-  #site_number = levels(factor(site_number))
+  mean_dnbr = quantile(mean_dnbr, probs = c(0.1, 0.5, 0.9))
+  #site_number = factor(site_number, levels = levels(site_number))
 ))
-
 
 # Predict on response scale
 newdat$fit <- predict(gam, newdata = newdat, type = "response")
 
-ggplot(newdat, aes(x = MI60_mmhr, y = fit, color = factor(soil_clay))) +
+ggplot(newdat, aes(x = MI60_mmhr, 
+                   y = fit, 
+                   color = factor(mean_dnbr))) +
   geom_line(size = 1) +
-  labs(x = "MI60 (mm/hr)", y = "Predicted Stage Rise (cm)", color = "Soil Clay") +
-  theme_minimal()
+  labs(x = "MI60 (mm/hr)", 
+       y = "Predicted Stage Rise (cm)", 
+       color = "dnbr") +
+  theme_bw(base_size=20)
 
 ```
 
-
-# GAM p-values
+# GAM interaction p-vals
 
 ```{r}
 
@@ -274,7 +277,27 @@ all <- pval_table %>%
 
 ```{r}
 
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, by=lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
 
+pwd_gam <- summary(gam)
+
+pwd_pval <- pwd_gam$s.table['s(MI60_mmhr):lag_pwd', "p-value"]
+
+pwd_pval <- as.data.frame(pwd_pval) %>%
+  mutate(variable = 'pwd',
+         p_value = pwd_pval,
+         pval_adjusted = p_value / 15) %>%
+  mutate(sig = if_else(p_value < 0.00333, # =0.05/15
+                       'sig', 
+                       'ns')) %>% 
+  select(-pwd_pval)
+
+plot(gam)
 
 ```
 
@@ -288,9 +311,199 @@ gam_ndvi <- gam(stage_rise_cm ~ s(MI60_mmhr) +
                  s(MI60_mmhr, by = NDVI),
     data = data)
 
-gam
+ndvi_gam <- summary(gam_ndvi)
+
+ndvi_pval <- ndvi_gam$s.table['s(MI60_mmhr):NDVI', "p-value"]
+
+ndvi_pval <- as.data.frame(ndvi_pval) %>%
+  mutate(variable = 'ndvi',
+         p_value = ndvi_pval,
+         pval_adjusted = p_value / 15) %>%
+  mutate(sig = if_else(p_value < 0.00333, # =0.05/15
+                       'sig', 
+                       'ns')) %>% 
+  select(-ndvi_pval)
+
+plot(gam_ndvi)
 
 ```
+
+# Add all p vals together
+
+```{r}
+
+pvals <- bind_rows(pval_table,
+                   ndvi_pval,
+                   pwd_pval)
+
+```
+
+# ANOVA w/ & w/o interaction
+
+```{r}
+# vars to use
+vars <- c(#'lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          #'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge')
+          #'year')
+
+# test one at interaction at a time to start
+# w/ interaction
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) + # smooth function of MI60, same for all sites
+             s(site_number, bs = "re") + # random effects, random intercept for each site
+             s(MI60_mmhr, site_number, bs = "fs") + # diff smooth of MI60 for each site
+             te(MI60_mmhr, by=SP_mean),  # smooth interaction of MI60 w/ var
+            family = Gamma(link = "log"),
+            data = data)
+
+#r2_interaction <- summary(gam)$dev.expl - summary(gam_reduce)$dev.expl
+
+#gam_update <- gam(stage_rise_cm~ te(MI60_mmhr, SP_mean, by = site_number) + site_number, data = data)
+
+## w/o interaction
+gam_reduce <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, site_number, bs = "fs") +
+             s(SP_mean),  # update the var here
+            family = Gamma(link = "log"),
+            data = data)
+
+anova_soil_clay <- anova(gam, gam_reduce, 
+                    test='Chisq')
+
+dev_diff <- anova_soil_clay$Deviance[2]
+p_val <- anova_soil_clay$`Pr(>Chi)`[2]
+
+compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'soil_clay')
+
+###############################################################################
+# automated version of above:
+compare_results <- map_dfr(vars, function(v) {
+  
+  # Formulas
+  interaction_formula <- as.formula(paste0(
+    "stage_rise_cm ~ s(MI60_mmhr) + 
+    s(site_number, bs = 're') + ",
+    "s(MI60_mmhr, site_number, bs = 'fs') + ",
+    "s(MI60_mmhr, by = ", v, ")"
+  ))
+  
+  reduced_formula <- as.formula(paste0(
+    "stage_rise_cm ~ s(MI60_mmhr) + 
+    s(site_number, bs = 're') + ",
+    "s(MI60_mmhr, site_number, bs = 'fs') + ",
+    "s(", v, ")"
+  ))
+  
+  # Fit models
+  gam_full <- gam(interaction_formula, 
+                  family = Gamma(link = "log"), 
+                  data = data)
+  
+  gam_reduce <- gam(reduced_formula, 
+                    family = Gamma(link = "log"), 
+                    data = data)
+  
+  # Compare models
+  a <- anova(gam_reduce, gam_full, test = "Chisq")
+  
+  # Extract and return results
+  data.frame(
+    var = v,
+    deviance_difference = a$Deviance[2],
+    p_value = a$`Pr(>Chi)`[2]
+  )
+})
+
+compare_results
+
+
+```
+
+# ANOVA: NDVI
+
+```{r}
+
+gam_ndvi <- gam(stage_rise_cm ~ s(MI60_mmhr) +
+                 s(site_number, bs = "re") +                            
+                 s(MI60_mmhr, interaction(site_number, year), bs = "fs") +
+                 s(MI60_mmhr, by = NDVI),
+    data = data)
+
+gam_ndvi_reduce <- gam(stage_rise_cm ~ s(MI60_mmhr) +
+                 s(site_number, bs = "re") +                            
+                 s(MI60_mmhr, interaction(site_number, year), bs = "fs") +
+                 s(NDVI),
+    data = data)
+
+ndvi_anova <- anova(gam_ndvi_reduce, gam_ndvi, test = "Chisq")
+
+dev_diff <- ndvi_anova$Deviance[2]
+p_val <- ndvi_anova$`Pr(>Chi)`[2]
+
+ndvi_compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'ndvi')
+
+```
+
+# ANOVA: PWD
+
+```{r}
+
+gam_pwd <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, by=lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
+
+gam_pwd_reduce <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
+
+pwd_anova <- anova(gam_pwd_reduce, gam_pwd, test = "Chisq")
+
+dev_diff <- pwd_anova$Deviance[2]
+p_val <- pwd_anova$`Pr(>Chi)`[2]
+
+pwd_compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'pwd')
+
+```
+
+# Combina ANOVAs
+
+```{r}
+
+compare_results <- bind_rows(compare_results,
+                             ndvi_compare,
+                             pwd_compare)
+
+```
+
 
 # Archive
 
