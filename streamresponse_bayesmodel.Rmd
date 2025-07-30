@@ -139,6 +139,10 @@ summary(global)
 check_model(global)
 r2(global)
 
+summary <- posterior_summary(global, 
+                             probs = c(0.025, 0.975)) %>%
+  as.data.frame() 
+
 as_draws(global) %>% 
   data.frame() %>%
   select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
@@ -149,8 +153,8 @@ as_draws(global) %>%
   stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
   facet_wrap(~variable, ncol = 1, scales = 'free_y') +
-  theme(legend.position = 'none') +
-  xlim(c(-1,3))
+  theme(legend.position = 'none') #+
+  #xlim(c(-1,3))
 
 ```
 
@@ -188,6 +192,10 @@ summary(ndviYear)
 check_model(ndviYear)
 r2(ndviYear)
 
+summary <- posterior_summary(ndviYear, 
+                             probs = c(0.025, 0.975)) %>%
+  as.data.frame() 
+
 
 as_draws(ndviYear) %>% 
   data.frame() %>%
@@ -203,18 +211,53 @@ as_draws(ndviYear) %>%
 
 ```
 
+## Bayes for PWD
+
+```{r}
+
+
+pwd <- stan_glmer(
+  stage_rise_cm ~ MI60_mmhr*lag_pwd + 
+    fire + 
+    sp_cat + 
+    yearCont +     
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = stage,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 3,
+  cores = 8,
+  iter = 3000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+
+
+
+
+```
+
+
 ## Interaction bayes
 
 ```{r}
 
 # include linear interactions with static watershed characteristics
 interaction <- stan_glmer(
-  stage_rise_cm ~ MI60_mmhr*mean_dnbr + fire + sp_cat + yearCont +     
-    (1 + MI60_mmhr | site_number) + (1|yearFact),                          
+  stage_rise_cm ~ MI60_mmhr*mean_dnbr + 
+    fire + 
+    sp_cat + 
+    yearCont +     
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
   data = stage,
   family = Gamma(link = "log"),
-  prior = normal(0, 2.5),
-  prior_intercept = normal(0, 5),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
   chains = 3,
   cores = 8,
@@ -226,6 +269,15 @@ interaction <- stan_glmer(
 summary(interaction)
 check_model(interaction)
 r2(interaction)
+
+#
+summary <- posterior_summary(interaction, 
+                             probs = c(0.025, 0.975)) %>%
+  as.data.frame() %>%
+  slice(7) %>%
+  tibble::rownames_to_column("term") %>%
+  mutate(term = str_remove(term, "MI60_mmhr:"))  # remove prefix
+#
 
 as_draws(interaction) %>% 
   data.frame() %>%
@@ -243,8 +295,360 @@ as_draws(interaction) %>%
 # ranking interactions:
 # MI60:dNBR is positive, what percentage of the posterior distribution is positive?
 
-
+# RANKING INTERACTIONS - The posterior distribution of each interaction is an effect size, they can be ordered by their
+# mean value with "significant" interactions determined by 95% credible intervals
+# will require running a model for each interaction (~ several hours)
 
 
 ```
 
+## Interaction loop
+
+### All sites
+
+```{r}
+
+vars <- c('SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge')
+
+# function to run model and extract summary info
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("stage_rise_cm ~ 
+    MI60_mmhr*", var, " + 
+    fire + 
+    sp_cat + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  )
+  
+  interaction <- stan_glmer(
+    formula,
+    data = stage,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior summary
+  post <- posterior_summary(interaction, probs = c(0.025, 0.975)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    filter(str_detect(term, paste0("MI60_mmhr:", var))) %>%
+    mutate(var = var) %>%
+    select(var, term, Estimate, Est.Error, Q2.5, Q97.5)
+  
+  return(post)
+}
+
+# apply to all vars and bind results
+interaction_summaries <- map_dfr(vars, extract_interaction_info)
+
+int_order <- interaction_summaries %>%
+  mutate(var = reorder(var, abs(Estimate)))
+
+ggplot(int_order, aes(x = Estimate, y = var)) +
+    geom_vline(xintercept = 0) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5), height = 0.2) +
+  theme_bw(base_size=20) +
+  labs(
+    x = "Estimate (with 95% cred)",
+    y = "Variable",
+    title = "Interaction Effects for all sites"
+  )
+
+
+```
+
+### 1 fire
+
+```{r}
+
+# extract just etf sites
+stage_etf <- response %>%
+  filter(fire == 'etf') %>%
+  select(-c(lag2peak_halfP, 
+            lag2peak_Pstart,
+            fire_no)) %>% # remove lag to peak
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+
+# vars
+vars <- c('SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge')
+
+# function to run model and extract summary info
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("stage_rise_cm ~ 
+    MI60_mmhr*", var, " + 
+    sp_cat + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  )
+  
+  interaction <- stan_glmer(
+    formula,
+    data = stage_etf,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior summary
+  post <- posterior_summary(interaction, probs = c(0.025, 0.975)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    filter(str_detect(term, paste0("MI60_mmhr:", var))) %>%
+    mutate(var = var) %>%
+    select(var, term, Estimate, Est.Error, Q2.5, Q97.5)
+  
+  return(post)
+}
+
+# apply to all vars and bind results
+interaction_etf <- map_dfr(vars, extract_interaction_info)
+
+inter_etf <- interaction_etf %>%
+  mutate(var = reorder(var, abs(Estimate)))
+
+ggplot(inter_etf, aes(x = Estimate, y = var)) +
+    geom_vline(xintercept = 0) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5), height = 0.2) +
+  theme_bw(base_size=20) +
+  labs(
+    x = "Estimate (with 95% cred)",
+    y = "Variable",
+    title = "Interaction Effects for ETF"
+  )
+
+```
+
+# Lag to peak
+
+```{r}
+
+lag <- response %>%
+  select(-c(lag2peak_Pstart,
+            stage_rise_cm,
+            fire_no)) %>% # remove lag to peak
+  filter(!lag2peak_halfP <= 0) %>%
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+  
+
+ggplot(lag,
+       aes(x=lag2peak_halfP)) + 
+  geom_density()
+
+```
+
+## Large bayes model
+
+```{r}
+
+global <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr + 
+    fire + 
+    sp_cat + 
+    yearCont +       
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains =3, # switched to 5 when ready for final results
+  cores = 8,
+  iter = 3000, # switch to 5k when ready for final results
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(global)
+check_model(global)
+r2(global)
+
+summary <- posterior_summary(global, 
+                             probs = c(0.025, 0.975))
+
+as_draws(global) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
+  melt() %>%
+  ggplot(., aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1, scales = 'free_y') +
+  theme(legend.position = 'none') #+
+  #xlim(c(-1,10))
+
+
+```
+
+## Bayes for NDVI
+
+```{r}
+
+# include three way interaction between MI60, NDVI, and year to assess those time varying effects
+ndviYear <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr*yearCont*NDVI + 
+    fire + 
+    sp_cat +       
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0,1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(ndviYear)
+check_model(ndviYear)
+r2(ndviYear)
+
+summary <- posterior_summary(ndviYear, 
+                             probs = c(0.025, 0.975))
+
+as_draws(ndviYear) %>% 
+  data.frame() %>%
+  select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  ggplot(., aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) + 
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1) +
+  theme(legend.position = 'none')
+
+```
+
+## Interaction loop
+
+### All sites
+
+```{r}
+
+vars <- c('SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge')
+
+# function to run model and extract summary info
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("lag2peak_halfP ~ 
+    MI60_mmhr*", var, " + 
+    fire + 
+    sp_cat + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  )
+  
+  interaction <- stan_glmer(
+    formula,
+    data = lag,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior summary
+  post <- posterior_summary(interaction, probs = c(0.025, 0.975)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    filter(str_detect(term, paste0("MI60_mmhr:", var))) %>%
+    mutate(var = var) %>%
+    select(var, term, Estimate, Est.Error, Q2.5, Q97.5)
+  
+  return(post)
+}
+
+# apply to all vars and bind results
+interaction_summaries <- map_dfr(vars, extract_interaction_info)
+
+int_order <- interaction_summaries %>%
+  mutate(var = reorder(var, abs(Estimate)))
+
+ggplot(int_order, aes(x = Estimate, y = var)) +
+    geom_vline(xintercept = 0) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = Q2.5, xmax = Q97.5), height = 0.2) +
+  theme_bw(base_size=20) +
+  labs(
+    x = "Estimate (with 95% cred)",
+    y = "Variable",
+    title = "L2P Interaction Effects for all sites"
+  )
+
+
+```
