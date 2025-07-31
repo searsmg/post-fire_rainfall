@@ -497,6 +497,8 @@ Following are needed:
 -DEM
 -Downstream flow length
 
+**Note, this ended up being off and I got IC from Arc**
+
 ```{r}
 
 # 1. add 0.005 to slope so no zeroes
