@@ -65,6 +65,10 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          mulch_frac) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
   select(-site)
+  
+  connec <- response %>%
+    select(site, IC) %>%
+    distinct(site, .keep_all = T)
 
 ```
 
@@ -72,24 +76,26 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
 
 ```{r, echo = FALSE, message = FALSE, warning = FALSE, fig.width=10, fig.height=6}
 
-vars <- c('SP_mean',
+vars <- c('terrain_connec',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_elongation',
+          'terrain_recharge',
+          'mean_dnbr',
+          'SP_mean',
           'terrain_glacial',
           'terrain_vall_holl',
           'soil_clay',
-          'mean_dnbr',
-          'terrain_slope30',
-          'terrain_hypso75',
-          'terrain_connec',
-          'terrain_elongation',
           'terrain_flowlength',
-          'soil_ksat',
-          'terrain_recharge')
+          'soil_ksat'
+)
 
 # plot for each var
 plot_var_color <- function(var_name) {
   ggplot(response, aes(x = MI60_mmhr, 
                        y = stage_rise_cm, 
-                       color = .data[[var_name]])) +
+                       color = .data[[var_name]],
+                       shape=fire)) +
     geom_point(size = 3, alpha = 0.8) +
     scale_color_viridis(option = "D", direction = -1, name = var_name,
                         guide = guide_colorbar(barwidth = 1.5, barheight = 10))
@@ -100,23 +106,9 @@ stage_plots <- map(vars, plot_var_color)
 
 stage_plots
 
-# plot for each var
-plot_var_color <- function(var_name) {
-  ggplot(response, aes(x = MI60_mmhr, 
-                       y = lag2peak_halfP, 
-                       color = .data[[var_name]])) +
-    geom_point(size = 3, alpha = 0.8) +
-    scale_color_viridis(option = "D", direction = -1, name = var_name,
-                        guide = guide_colorbar(barwidth = 1.5, barheight = 10))
-}
-
-# Apply the function to each variable and return a list of plots
-lag_plots <- map(vars, plot_var_color)
-
-lag_plots
-
 ```
 
+# MI60 vs stage rise by fire
 
 ```{r}
 
@@ -136,7 +128,64 @@ stage_plots <- map(vars, plot_var_color)
 
 stage_plots
 
+```
 
+# MI60 vs stage rise by SZ
+
+```{r}
+
+# plot for each var
+plot_var_color <- function(var_name) {
+  # ggplot(response, aes(x = MI60_mmhr, 
+  #                      y = stage_rise_cm, 
+  #                      color = .data[[var_name]],
+  #                      shape=fire)) +
+  #   geom_point(size = 3, alpha = 0.8) +
+  #   scale_color_viridis(option = "D", direction = -1, name = var_name,
+  #                       guide = guide_colorbar(barwidth = 1.5, barheight = 10)) +
+  #   facet_wrap(~sp_cat)
+  
+quintile_labels <- c("Very Low", "Low", "Medium", "High", "Very High")
+
+  response %>%
+    mutate(color_group = ntile(.data[[var_name]], 5),
+           color_group = factor(color_group,
+                                levels = 1:5,
+                                labels = quintile_labels)) %>%
+    ggplot(aes(x = MI60_mmhr,
+               y = stage_rise_cm,
+               color = color_group,
+               shape = fire)) +
+    geom_point(size = 5, alpha = 0.65) +
+    geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) + 
+    scale_color_viridis_d(option = "viridis",
+                          name = paste0(var_name, " (quintiles)")) +
+    facet_wrap(~sp_cat)
+}
+
+plot_var_color <- function(var_name) {
+  tertile_labels <- c("Low", "Medium", "High")
+
+  response %>%
+    mutate(color_group = ntile(.data[[var_name]], 3),
+           color_group = factor(color_group,
+                                levels = 1:3,
+                                labels = tertile_labels)) %>%
+    ggplot(aes(x = MI60_mmhr,
+               y = stage_rise_cm)) +
+    geom_point(aes(color = color_group, shape=sp_cat), size = 5, alpha = 0.65) +
+    #geom_smooth(aes(color = color_group, fill = color_group), 
+    #            method = "lm", se = TRUE, linewidth = 1.2, alpha = 0.2) +
+    scale_color_viridis_d(option = "viridis",
+                          name = paste0(var_name, " (tertiles)")) +
+    #cale_fill_viridis_d(option = "viridis", guide = "none") +  # hide duplicate fill legend
+    facet_wrap(~fire )
+}
+
+# Apply the function to each variable and return a list of plots
+stage_plots <- map(vars, plot_var_color)
+
+stage_plots
 
 ```
 
@@ -148,10 +197,56 @@ stage_plots
 plot_var_color <- function(var_name) {
   ggplot(response, aes(x = MI60_mmhr, 
                        y = lag2peak_halfP, 
-                       color = .data[[var_name]])) +
+                       color = .data[[var_name]],
+                       shape=fire)) +
     geom_point(size = 3, alpha = 0.8) +
     scale_color_viridis(option = "D", direction = -1, name = var_name,
                         guide = guide_colorbar(barwidth = 1.5, barheight = 10))
+}
+
+# Apply the function to each variable and return a list of plots
+lag_plots <- map(vars, plot_var_color)
+
+lag_plots
+
+```
+
+# MI60 vs lag to peak by fire
+
+```{r}
+
+# plot for each var
+plot_var_color <- function(var_name) {
+  ggplot(response, aes(x = MI60_mmhr, 
+                       y = lag2peak_halfP, 
+                       color = .data[[var_name]])) +
+    geom_point(size = 3, alpha = 0.8) +
+    scale_color_viridis(option = "D", direction = -1, name = var_name,
+                        guide = guide_colorbar(barwidth = 1.5, barheight = 10)) +
+    facet_wrap(~fire)
+}
+
+# Apply the function to each variable and return a list of plots
+lag_plots <- map(vars, plot_var_color)
+
+lag_plots
+
+```
+
+# MI60 vs lag to peak by SZ
+
+```{r}
+
+# plot for each var
+plot_var_color <- function(var_name) {
+  ggplot(response, aes(x = MI60_mmhr, 
+                       y = lag2peak_halfP, 
+                       color = .data[[var_name]],
+                       shape=fire)) +
+    geom_point(size = 3, alpha = 0.8) +
+    scale_color_viridis(option = "D", direction = -1, name = var_name,
+                        guide = guide_colorbar(barwidth = 1.5, barheight = 10)) +
+    facet_wrap(~sp_cat)
 }
 
 # Apply the function to each variable and return a list of plots
