@@ -1,0 +1,64 @@
+---
+title: "Bayes figures"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, include = F}
+
+library(pacman)
+
+p_load(tidyverse, 
+       bayesplot,
+       here,
+       posterior)
+
+# Set a basic ggplot theme
+theme_set(theme_bw(base_size = 20))
+
+```
+
+# Global bayes figure
+
+```{r}
+
+stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_final.rds"))
+
+var_levels <- c(
+  "MI60 (mm/hr)", 
+  "Fire (ETF)", 
+  "Snow zone (intermittent)", 
+  "Year"
+)
+
+stageRise_df <- as_draws(stageRise) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
+  melt() %>%
+  mutate(variable = case_match(variable,
+    "MI60_mmhr"   ~ "MI60 (mm/hr)",
+    "fireetf"     ~ "Fire (ETF)",
+    "sp_catlow"   ~ "Snow zone (intermittent)",
+    "yearCont"    ~ "Year")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+  
+  
+    
+ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(family = "Helvetica")) +
+  facet_wrap(~variable, ncol = 1, scales = 'free_y') +
+  labs(x = 'Posterior estimate',
+       y = NULL) +
+  ggtitle(label='Stage rise (cm)')
+
+```
+
