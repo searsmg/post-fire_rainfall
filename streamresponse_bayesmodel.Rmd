@@ -127,9 +127,9 @@ global <- stan_glmer(
   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
   prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
-  chains =3, # switched to 5 when ready for final results
+  chains = 5, # switched to 5 when ready for final results
   cores = 8,
-  iter = 3000, # switch to 5k when ready for final results
+  iter = 5000, # switch to 5k when ready for final results
   adapt_delta = 0.99,
   init = 0
 )
@@ -137,6 +137,9 @@ global <- stan_glmer(
 summary(global)
 check_model(global)
 r2(global)
+
+saveRDS(global, "./data/bayes_interaction_outputs/global_stageRise_final.rds")
+
 
 summary <- posterior_summary(global, 
                              probs = c(0.025, 0.975)) %>%
@@ -532,7 +535,7 @@ ggplot(inter_etf, aes(x = Estimate, y = var)) +
 lag <- response %>%
   select(-c(lag2peak_Pstart,
             stage_rise_cm,
-            fire_no)) %>% # remove lag to peak
+            fire_no)) %>%
   filter(!lag2peak_halfP <= 0) %>%
   relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
   mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
@@ -564,9 +567,9 @@ global <- stan_glmer(
   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
   prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
-  chains =3, # switched to 5 when ready for final results
+  chains =5, # switched to 5 when ready for final results
   cores = 8,
-  iter = 3000, # switch to 5k when ready for final results
+  iter = 5000, # switch to 5k when ready for final results
   adapt_delta = 0.99,
   init = 0
 )
@@ -574,6 +577,8 @@ global <- stan_glmer(
 summary(global)
 check_model(global)
 r2(global)
+
+saveRDS(interaction, "./data/bayes_interaction_outputs/global_l2p_final.rds")
 
 summary <- posterior_summary(global, 
                              probs = c(0.025, 0.975))
