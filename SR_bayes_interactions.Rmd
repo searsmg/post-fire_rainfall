@@ -2256,3 +2256,171 @@ nsData %>%
 
 
 ```
+
+# PWD
+
+## Interaction
+
+Model output
+
+```{r, fig.width=12, fig.height=10}
+
+# include linear interactions with static watershed characteristics
+# interaction <- stan_glmer(
+#   stage_rise_cm ~ MI60_mmhr*lag_pwd +
+#     fire +
+#     sp_cat +
+#     yearCont +
+#     (1 + MI60_mmhr | site_number) +
+#     (1|yearFact),
+#   data = stage,
+#   family = Gamma(link = "log"),
+#   prior = normal(0, 1),
+#   prior_intercept = normal(0, 1),
+#   prior_covariance = decov(regularization = 2),
+#   chains = 3,
+#   cores = 8,
+#   iter = 3000,
+#   adapt_delta = 0.99,
+#   init = 0
+# )
+
+# saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_pwd.rds")
+# from the model above - need to update chains and iter 
+interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_pwd.rds"))
+
+# already checked from above model & good
+summary(interaction)
+check_model(interaction)
+
+# get r2 for marginal and conditional
+r2Vals <- r2(interaction)
+r2_df <- data.frame(r2Vals)
+knitr::kable(r2_df, caption = "Conditional and Marginal R2")
+
+
+```
+
+Posterior draws
+
+```{r, fig.width=12, fig.height=10}
+
+as_draws(interaction) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, lag_pwd, MI60_mmhr.lag_pwd) %>%
+  melt() %>%
+  ggplot(., aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1) +
+  theme(legend.position = 'none')
+
+```
+
+## Conditional effects
+
+```{r, fig.width=12, fig.height=10}
+
+var <- 'lag_pwd'
+var_title <- "PWD"
+
+mi60levels <- quantile(stage$MI60_mmhr,
+                       probs = c(.05, .5, .95), 
+                       na.rm = T) # group MI60 into 10, 50, and 90th percentile
+
+terrainLevels <- quantile(stage[[var]], 
+                          probs = c(.1, .5, .9), # get groups for catchment var
+                          na.rm = T)
+
+newData <- expand.grid(
+  var = seq(min(stage[[var]]), max(stage[[var]]), length.out = 50),
+  MI60_mmhr = mi60levels,
+  yearCont = 0,
+  sp_cat = c('low', 'high'),
+  fire = c('cpf', 'etf'))
+
+# rename the var column to the above
+names(newData)[names(newData) == "var"] <- var
+
+# predict out model output over expanded grid of data
+predict <- posterior_linpred(interaction, 
+                             newdata = newData, 
+                             re.form = NA) 
+
+# estimate model predicted mean for each level of mi60 plus 90% credible interval
+predSummar <- apply(predict, 2, function(x) { 
+  c(
+    mean = mean(x),
+    lower = quantile(x, 0.10),
+    upper = quantile(x, 0.90)
+  )
+})
+
+
+predictDF <- cbind(newData, t(predSummar)) %>%
+  mutate(MI60 = factor(MI60_mmhr, 
+                       labels = c("Low", "Mean", "High"))) %>%
+  dplyr::rename(lower = `lower.10%`,
+                upper = `upper.90%`)
+
+# show low, med, high groups
+ggplot(predictDF, 
+       aes(x = .data[[var]], 
+                      y = mean, 
+           color = MI60, 
+           fill = MI60)) +
+  geom_line(size = 2) +
+  geom_ribbon(aes(ymin = lower, 
+                  ymax = upper), 
+              alpha = 0.4, 
+              color = NA) +
+  labs(x = var_title, 
+       y = 'Stage Rise',
+       color = 'MI60', 
+       fill = 'MI60') +
+  paletteer::scale_fill_paletteer_d("ggthemes::wsj_dem_rep") +
+  paletteer::scale_color_paletteer_d("ggthemes::wsj_dem_rep") +
+  theme_bw(base_size = 25) +
+  facet_grid(sp_cat ~ fire)
+
+```
+
+## Raw data
+
+```{r, fig.width=12, fig.height=10}
+
+# low, med, high bins for catchment var
+nsData <- response %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+# scatter plot
+ggplot(nsData, aes(x = MI60_mmhr, 
+                   y = stage_rise_cm, 
+                   fill = bin, 
+                   color = bin)) + 
+  theme_bw(base_size = 25) +
+  geom_point(shape = 21, size = 5) + 
+  geom_smooth(method = 'lm') +
+  labs(fill = var_title, 
+       color = var_title) +
+  theme(legend.position = c(0.7, 0.8))
+
+# boxplot
+nsData %>%
+  mutate(bin = cut(.data[[var]], 
+                   breaks = 5)) %>%
+  ggplot(., aes(x = bin, 
+                y = MI60_mmhr, 
+                fill = bin)) + 
+  geom_boxplot() +
+  labs(fill = var_title)
+
+```
+
