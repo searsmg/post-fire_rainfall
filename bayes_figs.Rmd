@@ -19,7 +19,9 @@ theme_set(theme_bw(base_size = 20))
 
 ```
 
-# Global bayes figure
+# Stage rise
+
+## Global
 
 ```{r}
 
@@ -62,3 +64,8 @@ ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20)
 
 ```
 
+## NDVI
+
+## Interactions
+
+# Lag to peak
