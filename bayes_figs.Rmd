@@ -68,4 +68,21 @@ ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20)
 
 ## Interactions
 
+```{r}
+
+inter <- read_csv('./data/bayes_interaction_outputs/stageRiseInterac_summary_final.csv') %>%
+  arrange(-abs(mean))
+
+```
+
 # Lag to peak
+
+## Interactions
+
+```{r}
+
+inter <- read_csv('./data/bayes_interaction_outputs/lag2peakInterac_summary_final.csv') %>%
+  arrange(-abs(mean))
+
+```
+
