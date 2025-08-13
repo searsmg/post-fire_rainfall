@@ -75,7 +75,7 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          fire_no,
          mulch_frac) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
-  select(-site) %>% 
+  select(-site)
   
 
 lag <- response %>%
@@ -458,9 +458,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_sp.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_sp.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_sp.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_sp.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -626,9 +626,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_recharge.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_recharge.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_recharge.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_recharge.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -794,9 +794,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_clay.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_clay.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_clay.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_clay.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -932,6 +932,31 @@ nsData %>%
   geom_boxplot() +
   labs(fill = var_title)
 
+## look by site groupings
+sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         fire,
+         lag2peak_halfP,
+         soil_clay = AVG_CLAY,
+         sp_cat,
+         MI60_mmhr) 
+
+site_cat <- sites %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+ggplot(site_cat, aes(x=MI60_mmhr,
+                  y=lag2peak_halfP,
+                  color=bin,
+                  fill=bin)) +
+  geom_point() +
+  facet_wrap(~fire+sp_cat) +
+  geom_smooth(method = 'lm') 
+
 ```
 
 # Ksat
@@ -962,9 +987,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_ksat.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_ksat.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_ksat.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_ksat.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -1130,12 +1155,12 @@ Model output
 #   init = 0
 # )
 
-# saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_pwd.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_pwd.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_pwd.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_pwd.rds"))
 
 # already checked from above model & good
-summary(interaction)
+#summary(interaction)
 check_model(interaction)
 
 # get r2 for marginal and conditional
@@ -1298,9 +1323,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_valleyhollows.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_valleyhollows.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_valleyhollows.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_valleyhollows.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -1437,6 +1462,7 @@ nsData %>%
   labs(fill = var_title)
 
 ```
+
 # Fraction of slopes > 30
 
 ## Interaction
@@ -1465,9 +1491,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_slope30.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_slope30.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_slope30.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_slope30.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -1633,9 +1659,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_glacial.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_glacial.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_glacial.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_glacial.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -1797,9 +1823,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_mulch.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_mulch.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_mulch.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_mulch.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -1934,6 +1960,7 @@ nsData %>%
 
 
 ```
+
 # Flow length
 
 ## Interaction
@@ -1962,9 +1989,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_flowlength.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_flowlength.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_flowlength.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_flowlength.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -2130,9 +2157,9 @@ Model output
 #   init = 0
 # )
 
-#saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_elong.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_elong.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_elong.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_elong.rds"))
 
 # already checked from above model & good
 #summary(interaction)
@@ -2280,12 +2307,12 @@ Model output
 
 # # include linear interactions with static watershed characteristics
 # interaction <- stan_glmer(
-#   lag2peak_halfP ~ MI60_mmhr*terrain_connec + 
-#     fire + 
-#     sp_cat + 
-#     yearCont +     
-#     (1 + MI60_mmhr | site_number) + 
-#     (1|yearFact),                          
+#   lag2peak_halfP ~ MI60_mmhr*terrain_connec +
+#     fire +
+#     sp_cat +
+#     yearCont +
+#     (1 + MI60_mmhr | site_number) +
+#     (1|yearFact),
 #   data = lag,
 #   family = Gamma(link = "log"),
 #   prior = normal(0, 1),
@@ -2298,9 +2325,9 @@ Model output
 #   init = 0
 # )
 
-# saveRDS(interaction, "./data/bayes_interaction_outputs/interaction_connec.rds")
+#saveRDS(interaction, "./data/bayes_interaction_outputs/l2p_interaction_connec.rds")
 # from the model above - need to update chains and iter 
-interaction <- readRDS(here("./data/bayes_interaction_outputs/interaction_connec.rds"))
+interaction <- readRDS(here("./data/bayes_interaction_outputs/l2p_interaction_connec.rds"))
 
 # already checked from above model & good
 #summary(interaction)
