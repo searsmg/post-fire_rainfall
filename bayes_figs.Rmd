@@ -12,7 +12,9 @@ library(pacman)
 p_load(tidyverse, 
        bayesplot,
        here,
-       posterior)
+       posterior,
+       viridis,
+       cowplot)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -27,10 +29,11 @@ theme_set(theme_bw(base_size = 20))
 
 stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_final.rds"))
 
+
 var_levels <- c(
   "MI60 (mm/hr)", 
-  "Fire (ETF)", 
-  "Snow zone (intermittent)", 
+  "Fire", 
+  "Snow zone", 
   "Year"
 )
 
@@ -40,14 +43,24 @@ stageRise_df <- as_draws(stageRise) %>%
   melt() %>%
   mutate(variable = case_match(variable,
     "MI60_mmhr"   ~ "MI60 (mm/hr)",
-    "fireetf"     ~ "Fire (ETF)",
-    "sp_catlow"   ~ "Snow zone (intermittent)",
+    "fireetf"     ~ "Fire",
+    "sp_catlow"   ~ "Snow zone",
     "yearCont"    ~ "Year")) %>%
    mutate(variable = factor(variable, levels = var_levels))
 
+sr_summary <- stageRise_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
   
-  
-    
 ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
   geom_vline(xintercept = 0) +
   stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
@@ -58,7 +71,7 @@ ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20)
         strip.text = element_text(hjust = 0),
         text = element_text(family = "Helvetica")) +
   facet_wrap(~variable, ncol = 1, scales = 'free_y') +
-  labs(x = 'Posterior estimate',
+  labs(x = 'Scaled coefficient',
        y = NULL) +
   ggtitle(label='Stage rise (cm)')
 
@@ -66,23 +79,226 @@ ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20)
 
 ## NDVI
 
+```{r}
+
+srNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_stageRise_final.rds')
+
+SRndviPlot <- as_draws(srNDVI) %>% 
+  data.frame() %>%
+  select(NDVI, 
+         MI60_mmhr.NDVI, 
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  ggplot(., aes(x = value, 
+                fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) + 
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none') +
+  theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(family = "Helvetica")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  ggtitle('Stage rise')
+
+```
+
+
 ## Interactions
 
 ```{r}
 
-inter <- read_csv('./data/bayes_interaction_outputs/stageRiseInterac_summary_final.csv') %>%
-  arrange(-abs(mean))
+sr_inter <- read_csv('./data/bayes_interaction_outputs/stageRiseInterac_summary_final.csv') %>%
+  mutate(variable = dplyr::recode(variable,
+    "MI60_mmhr.terrain_connec"    = "Connectivity",
+    "MI60_mmhr.soil_clay"         = "Clay",
+    "MI60_mmhr.terrain_slope30"   = "Slope > 30",
+    "MI60_mmhr.terrain_vall_holl" = "Valleys & hollows",
+    "MI60_mmhr.lag_pwd"           = "PWD",
+    "MI60_mmhr.mean_dnbr"         = "dNBR",
+    "MI60_mmhr.terrain_elongation" = "Elongation",
+    "MI60_mmhr.terrain_recharge" = 'Recharge areas',
+    "MI60_mmhr.terrain_glacial" = "Glacial deposits",
+    "MI60_mmhr.mulch_frac" = "Mulched areas",
+    "MI60_mmhr.SP_mean" = 'Snow persistence',
+    "MI60_mmhr.terrain_hypso75" = ">75% elevation",
+    "MI60_mmhr.terrain_flowlength" = 'Flow length',
+    "MI60_mmhr.soil_ksat" = 'Ksat')) %>%
+    arrange(abs(mean)) %>%
+    mutate(variable = factor(variable, levels = variable))
+
+srInt_plot <- ggplot(sr_inter, aes(y = variable)) +
+  geom_vline(xintercept = 0) +
+  # min to max (lightest)
+  geom_linerange(aes(xmin = min, xmax = max), linewidth = 0.6, color = "steelblue1") +
+  # 95% interval (medium)
+  geom_linerange(aes(xmin = lower_95, xmax = upper_95), linewidth = 1, color = "steelblue3") +
+  # 66% interval (darkest)
+  geom_linerange(aes(xmin = lower_66, xmax = upper_66), linewidth = 2, color = "steelblue4") +
+  # mean point
+  geom_point(aes(x = mean), size = 4, shape = 21, fill = "white", color = "black") +
+  labs(x = "Scaled coefficient", y = NULL) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black")) +
+  ggtitle('Stage rise')
 
 ```
 
 # Lag to peak
 
+## Global
+
+```{r}
+lag <- readRDS(here("./data/bayes_interaction_outputs/global_l2p_final.rds"))
+
+
+var_levels <- c(
+  "MI60 (mm/hr)", 
+  "Fire", 
+  "Snow zone", 
+  "Year"
+)
+
+lag_df <- as_draws(lag) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
+  melt() %>%
+  mutate(variable = case_match(variable,
+    "MI60_mmhr"   ~ "MI60 (mm/hr)",
+    "fireetf"     ~ "Fire",
+    "sp_catlow"   ~ "Snow zone",
+    "yearCont"    ~ "Year")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+lag_summary <- lag_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
+  
+    
+ggplot(lag_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(family = "Helvetica")) +
+  facet_wrap(~variable, ncol = 1, scales = 'free_y') +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  ggtitle(label='Lag to peak (hr)')
+
+```
+
+## NDVI
+
+```{r}
+
+lpNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_l2p_final.rds')
+
+LPndviPlot <- as_draws(lpNDVI) %>% 
+  data.frame() %>%
+  select(NDVI, 
+         MI60_mmhr.NDVI, 
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  ggplot(., aes(x = value, 
+                fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) + 
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none') +
+  theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(family = "Helvetica")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  ggtitle('Lag to peak')
+
+plot_grid(SRndviPlot, LPndviPlot)
+
+
+
+```
+
+
 ## Interactions
 
 ```{r}
 
-inter <- read_csv('./data/bayes_interaction_outputs/lag2peakInterac_summary_final.csv') %>%
-  arrange(-abs(mean))
+l2p_inter <- read_csv('./data/bayes_interaction_outputs/lag2peakInterac_summary_final.csv') %>%
+  arrange(-abs(mean)) %>% 
+    mutate(variable = dplyr::recode(variable,
+    "MI60_mmhr.terrain_connec"    = "Connectivity",
+    "MI60_mmhr.soil_clay"         = "Clay",
+    "MI60_mmhr.terrain_slope30"   = "Slope > 30",
+    "MI60_mmhr.terrain_vall_holl" = "Valleys & hollows",
+    "MI60_mmhr.lag_pwd"           = "PWD",
+    "MI60_mmhr.mean_dnbr"         = "dNBR",
+    "MI60_mmhr.terrain_elongation" = "Elongation",
+    "MI60_mmhr.terrain_recharge" = 'Recharge areas',
+    "MI60_mmhr.terrain_glacial" = "Glacial deposits",
+    "MI60_mmhr.mulch_frac" = "Mulched areas",
+    "MI60_mmhr.SP_mean" = 'Snow persistence',
+    "MI60_mmhr.terrain_hypso75" = ">75% elevation",
+    "MI60_mmhr.terrain_flowlength" = 'Flow length',
+    "MI60_mmhr.soil_ksat" = 'Ksat')) %>%
+    arrange(abs(mean)) %>%
+    mutate(variable = factor(variable, levels = variable))
+
+l2pInt_plot <- ggplot(l2p_inter, aes(y = variable)) +
+  geom_vline(xintercept = 0) +
+  # min to max (lightest)
+  geom_linerange(aes(xmin = min, xmax = max), linewidth = 0.6, color = "steelblue1") +
+  # 95% interval (medium)
+  geom_linerange(aes(xmin = lower_95, xmax = upper_95), linewidth = 1, color = "steelblue3") +
+  # 66% interval (darkest)
+  geom_linerange(aes(xmin = lower_66, xmax = upper_66), linewidth = 2, color = "steelblue4") +
+  # mean point
+  geom_point(aes(x = mean), size = 4, shape = 21, fill = "white", color = "black") +
+  labs(x = "Scaled coefficient", y = NULL) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black")) +
+  ggtitle('Lag to peak')
+
+plot_grid(srInt_plot,l2pInt_plot)
 
 ```
 
