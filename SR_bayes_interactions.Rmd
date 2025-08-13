@@ -87,8 +87,6 @@ stage <- response %>%
          yearFact = factor(year), # year factor for random effect
          yearCont = year - 2022) # centered year for fixed effect
 
-# will need to redo the above for lag to peak response var eventually
-
 ```
 
 Response variable: stage rise
@@ -249,6 +247,18 @@ ggplot(nsData, aes(x = MI60_mmhr,
        color = var_title) +
   theme(legend.position = c(0.7, 0.8))
 
+ggplot(nsData, aes(x = MI60_mmhr, 
+                   y = stage_rise_cm,
+                   fill=bin,
+                   color=bin)) + 
+  theme_bw(base_size = 25) +
+  geom_point(shape = 21, size = 5) + 
+  geom_smooth(method = 'lm') +
+  labs(fill = var_title, 
+       color = var_title) +
+  facet_wrap(~fire+sp_cat,
+             scales='free_y')
+
 # boxplot
 nsData %>%
   mutate(bin = cut(.data[[var]], 
@@ -258,6 +268,33 @@ nsData %>%
                 fill = bin)) + 
   geom_boxplot() +
   labs(fill = var_title)
+
+## look by site groupings
+sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         fire,
+         stage_rise_cm,
+         terrain_connec = IC,
+         sp_cat,
+         MI60_mmhr) 
+
+site_cat <- sites %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+ggplot(site_cat, aes(x=MI60_mmhr,
+                  y=stage_rise_cm,
+                  color=bin,
+                  fill=bin)) +
+  geom_point() +
+  facet_wrap(~fire+sp_cat) +
+  geom_smooth(method = 'lm') 
+  
+
 
 ```
 
@@ -583,6 +620,18 @@ ggplot(nsData, aes(x = MI60_mmhr,
        color = var_title) +
   theme(legend.position = c(0.7, 0.8))
 
+ggplot(nsData, aes(x = MI60_mmhr, 
+                   y = stage_rise_cm, 
+                   fill = bin, 
+                   color = bin)) + 
+  theme_bw(base_size = 25) +
+  geom_point(shape = 21, size = 5) + 
+  geom_smooth(method = 'lm') +
+  labs(fill = var_title, 
+       color = var_title) +
+  facet_wrap(~fire+sp_cat,
+             scales='free_y')
+
 # boxplot
 nsData %>%
   mutate(bin = cut(.data[[var]], 
@@ -592,6 +641,31 @@ nsData %>%
                 fill = bin)) + 
   geom_boxplot() +
   labs(fill = var_title)
+
+## look by site groupings
+sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         fire,
+         stage_rise_cm,
+         terrain_slope30 = slope30_frac,
+         sp_cat,
+         MI60_mmhr) 
+
+site_cat <- sites %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+ggplot(site_cat, aes(x=MI60_mmhr,
+                  y=stage_rise_cm,
+                  color=bin,
+                  fill=bin)) +
+  geom_point() +
+  facet_wrap(~fire+sp_cat) +
+  geom_smooth(method = 'lm') 
 
 ```
 
@@ -722,6 +796,31 @@ ggplot(predictDF,
   paletteer::scale_color_paletteer_d("ggthemes::wsj_dem_rep") +
   theme_bw(base_size = 25) +
   facet_grid(sp_cat ~ fire)
+
+## look by site groupings
+sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         fire,
+         stage_rise_cm,
+         terrain_vall_holl = frac_valley,
+         sp_cat,
+         MI60_mmhr) 
+
+site_cat <- sites %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+ggplot(site_cat, aes(x=MI60_mmhr,
+                  y=stage_rise_cm,
+                  color=bin,
+                  fill=bin)) +
+  geom_point() +
+  facet_wrap(~fire+sp_cat) +
+  geom_smooth(method = 'lm') 
 
 ```
 
@@ -926,6 +1025,32 @@ nsData %>%
                 fill = bin)) + 
   geom_boxplot() +
   labs(fill = var_title)
+
+
+## look by site groupings
+sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         fire,
+         stage_rise_cm,
+         lag_pwd,
+         sp_cat,
+         MI60_mmhr) 
+
+site_cat <- sites %>%
+  mutate(bin = cut(.data[[var]], 
+                        breaks = quantile(.data[[var]], 
+                                          probs = seq(0, 1, length.out = 4), 
+                                          na.rm = TRUE),
+                        include.lowest = TRUE,
+                        labels = c("Low", "Medium", "High")))
+
+ggplot(site_cat, aes(x=MI60_mmhr,
+                  y=stage_rise_cm,
+                  color=bin,
+                  fill=bin)) +
+  geom_point() +
+  facet_wrap(~fire+sp_cat) +
+  geom_smooth(method = 'lm') 
 
 ```
 
