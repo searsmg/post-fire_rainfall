@@ -785,8 +785,8 @@ write_csv(int_summary,
 
 ```{r}
 
-lag_cpf <- response %>%
-  filter(fire == 'cpf') %>%
+lag_etf <- response %>%
+  filter(fire == 'etf') %>%
   select(-c(lag2peak_Pstart,
             stage_rise_cm,
             fire_no)) %>%
@@ -826,7 +826,7 @@ extract_interaction_info <- function(var) {
   
   interaction <- stan_glmer(
     formula,
-    data = lag_cpf,
+    data = lag_etf,
     family = Gamma(link = "log"),
     prior = normal(0, 1),
     prior_intercept = normal(0, 1),
@@ -871,7 +871,7 @@ ggplot(interaction_draws,
   theme(legend.position = 'none')
 
 write_csv(interaction_draws,
-          './data/bayes_interaction_outputs/cpf_lag2peakInterac_prelim.csv')
+          './data/bayes_interaction_outputs/etf_lag2peakInterac_prelim.csv')
 
 # summary stats of above
 int_summary <- interaction_draws %>%
@@ -887,7 +887,7 @@ int_summary <- interaction_draws %>%
             percent_positive = mean(value > 0) * 100)
 
 write_csv(int_summary,
-          './data/bayes_interaction_outputs/cpf_lag2peakInterac_summary_prelim.csv')
+          './data/bayes_interaction_outputs/etf_lag2peakInterac_summary_prelim.csv')
 
 ```
 
