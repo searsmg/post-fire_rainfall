@@ -270,7 +270,7 @@ extract_interaction_info <- function(var) {
   formula <- as.formula(
     paste0("stage_rise_cm ~ 
     MI60_mmhr*", var, " + 
-    fire + 
+    fire +
     sp_cat + 
     yearCont + 
     (1 + MI60_mmhr | site_number) + 
@@ -347,9 +347,9 @@ write_csv(int_summary,
 
 ```{r}
 
-# extract just etf sites
-stage_etf <- response %>%
-  filter(fire == 'etf') %>%
+# extract just 1 fire
+stage_cpf <- response %>%
+  filter(fire == 'cpf') %>%
   select(-c(lag2peak_halfP, 
             lag2peak_Pstart,
             fire_no)) %>% # remove lag to peak
@@ -359,7 +359,209 @@ stage_etf <- response %>%
          yearFact = factor(year), # year factor for random effect
          yearCont = year - 2022) # centered year for fixed effect
 
+
+# vars for interaction w/ MI60
+vars <- c('SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'mulch_frac',
+          'lag_pwd')
+
+# function to run model and extract draws for each var interaction
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("stage_rise_cm ~ 
+    MI60_mmhr*", var, " + 
+    sp_cat + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  ) # removed fire from above when testing specific fires
+  
+  interaction <- stan_glmer(
+    formula,
+    data = stage_cpf,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior draws
+df <- as_draws(interaction) %>% 
+  data.frame() %>%
+  select(6) %>% ### 7 when using ALL sites, 6 when using fire specific
+  melt()
+  
+  return(df)
+}
+
+# apply to all vars and bind results
+interaction_draws <- map_dfr(vars, 
+                             extract_interaction_info)
+
+beep(sound = 8)
+
+# look at interaction posterior draws
+ggplot(interaction_draws, 
+       aes(x = value, 
+           fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1) +
+  theme(legend.position = 'none')
+
+write_csv(interaction_draws,
+          './data/bayes_interaction_outputs/cpf_stageRiseInterac_prelim.csv')
+
+# summary stats of above
+int_summary <- interaction_draws %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
+write_csv(int_summary,
+          './data/bayes_interaction_outputs/cpf_stageRiseInterac_summary_prelim.csv')
+
 ```
+
+### 1 SZ
+
+```{r}
+# extract just 1 fire
+stage_high <- response %>%
+  filter(sp_cat == 'high') %>%
+  select(-c(lag2peak_halfP, 
+            lag2peak_Pstart,
+            fire_no)) %>% # remove lag to peak
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+
+
+# vars for interaction w/ MI60
+vars <- c('SP_mean',
+          'terrain_glacial', # for low sz there is no glacial vals 
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'mulch_frac',
+          'lag_pwd')
+
+# function to run model and extract draws for each var interaction
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("stage_rise_cm ~ 
+    MI60_mmhr*", var, " + 
+    fire + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  ) # removed sp_cat from above when testing specific SZ
+  
+  interaction <- stan_glmer(
+    formula,
+    data = stage_high,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior draws
+df <- as_draws(interaction) %>% 
+  data.frame() %>%
+  select(6) %>% ### 7 when using ALL sites, 6 when using SZ specific
+  melt()
+  
+  return(df)
+}
+
+# apply to all vars and bind results
+interaction_draws <- map_dfr(vars, 
+                             extract_interaction_info)
+
+beep(sound = 8)
+
+# look at interaction posterior draws
+ggplot(interaction_draws, 
+       aes(x = value, 
+           fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1) +
+  theme(legend.position = 'none')
+
+write_csv(interaction_draws,
+          './data/bayes_interaction_outputs/high_stageRiseInterac_prelim.csv')
+
+# summary stats of above
+int_summary <- interaction_draws %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
+write_csv(int_summary,
+          './data/bayes_interaction_outputs/high_stageRiseInterac_summary_prelim.csv')
+
+```
+
 
 # Lag to peak
 
@@ -576,6 +778,226 @@ int_summary <- interaction_draws %>%
 
 write_csv(int_summary,
           './data/bayes_interaction_outputs/lag2peakInterac_summary_final.csv')
+
+```
+
+### 1 fire
+
+```{r}
+
+lag_cpf <- response %>%
+  filter(fire == 'cpf') %>%
+  select(-c(lag2peak_Pstart,
+            stage_rise_cm,
+            fire_no)) %>%
+  filter(!lag2peak_halfP <= 0) %>%
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+
+# vars for interaction w/ MI60
+vars <- c('SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'mulch_frac',
+          'lag_pwd')
+
+# function to run model and extract summary info
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("lag2peak_halfP ~ 
+    MI60_mmhr*", var, " + 
+    sp_cat + 
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  )
+  
+  interaction <- stan_glmer(
+    formula,
+    data = lag_cpf,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior draws
+df <- as_draws(interaction) %>% 
+  data.frame() %>%
+  select(6) %>%
+  melt()
+  
+  return(df)
+}
+
+# apply to all vars and bind results
+interaction_draws <- map_dfr(vars, 
+                             extract_interaction_info)
+
+beep(sound = 8)
+
+ggplot(interaction_draws, 
+       aes(x = value, 
+           fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none')
+
+write_csv(interaction_draws,
+          './data/bayes_interaction_outputs/cpf_lag2peakInterac_prelim.csv')
+
+# summary stats of above
+int_summary <- interaction_draws %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
+write_csv(int_summary,
+          './data/bayes_interaction_outputs/cpf_lag2peakInterac_summary_prelim.csv')
+
+```
+
+### 1 SZ
+
+```{r}
+
+lag_high <- response %>%
+  filter(sp_cat == 'high') %>%
+  select(-c(lag2peak_Pstart,
+            stage_rise_cm,
+            fire_no)) %>%
+  filter(!lag2peak_halfP <= 0) %>%
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+
+# vars for interaction w/ MI60
+vars <- c('SP_mean',
+          'terrain_glacial', # can't run this on low sites
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'mulch_frac',
+          'lag_pwd')
+
+# function to run model and extract summary info
+extract_interaction_info <- function(var) {
+  formula <- as.formula(
+    paste0("lag2peak_halfP ~ 
+    MI60_mmhr*", var, " + 
+    fire +
+    yearCont + 
+    (1 + MI60_mmhr | site_number) + 
+    (1 | yearFact)")
+  )
+  
+  interaction <- stan_glmer(
+    formula,
+    data = lag_high,
+    family = Gamma(link = "log"),
+    prior = normal(0, 1),
+    prior_intercept = normal(0, 1),
+    prior_covariance = decov(regularization = 2),
+    chains = 3,
+    cores = 8,
+    iter = 3000,
+    adapt_delta = 0.99,
+    init = 0
+  )
+  
+  # extract posterior draws
+df <- as_draws(interaction) %>% 
+  data.frame() %>%
+  select(6) %>%
+  melt()
+  
+  return(df)
+}
+
+# apply to all vars and bind results
+interaction_draws <- map_dfr(vars, 
+                             extract_interaction_info)
+
+beep(sound = 8)
+
+ggplot(interaction_draws, 
+       aes(x = value, 
+           fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none')
+
+write_csv(interaction_draws,
+          './data/bayes_interaction_outputs/high_lag2peakInterac_prelim.csv')
+
+# summary stats of above
+int_summary <- interaction_draws %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = mean(value > 0) * 100)
+
+write_csv(int_summary,
+          './data/bayes_interaction_outputs/high_lag2peakInterac_summary_prelim.csv')
 
 ```
 
