@@ -934,6 +934,7 @@ nsData %>%
 
 ## look by site groupings
 sites <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  filter(!lag2peak_halfP <= 0) %>% 
   select(site,
          fire,
          lag2peak_halfP,
