@@ -31,7 +31,7 @@ stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_fin
 
 
 var_levels <- c(
-  "MI60 (mm/hr)", 
+  "MI60", 
   "Fire", 
   "Snow zone", 
   "Year"
@@ -42,7 +42,7 @@ stageRise_df <- as_draws(stageRise) %>%
   select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
   melt() %>%
   mutate(variable = case_match(variable,
-    "MI60_mmhr"   ~ "MI60 (mm/hr)",
+    "MI60_mmhr"   ~ "MI60",
     "fireetf"     ~ "Fire",
     "sp_catlow"   ~ "Snow zone",
     "yearCont"    ~ "Year")) %>%
@@ -63,17 +63,17 @@ sr_summary <- stageRise_df %>%
   
 ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
   geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color='grey') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = '#3B3A3EFF', interval_size_domain = c(5,7,10)) +
+  paletteer::scale_fill_paletteer_d("MetBrewer::Kandinsky") +
+  ylim(0,1) +
     theme(legend.position = 'none',
         strip.background = element_rect(fill = "white", color = NA),
         strip.text = element_text(hjust = 0),
-        text = element_text(family = "Helvetica")) +
-  facet_wrap(~variable, ncol = 1, scales = 'free_y') +
+        text = element_text(color = "black")) +
+  facet_wrap(~variable, ncol = 2, scales = 'free_y') +
   labs(x = 'Scaled coefficient',
-       y = NULL) +
-  ggtitle(label='Stage rise (cm)')
+       y = NULL)
 
 ```
 
@@ -380,6 +380,8 @@ ggplot(lag_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
   labs(x = 'Scaled coefficient',
        y = NULL) +
   ggtitle(label='Lag to peak (hr)')
+
+plot_grid()
 
 ```
 
