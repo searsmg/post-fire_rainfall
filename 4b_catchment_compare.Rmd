@@ -4965,6 +4965,11 @@ write.csv(kappa, './data/final/stage_YN_response/kappa_eventsum_wmean.csv')
 
 kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean.csv')
 
+# get some summary stats for manuscript
+kappaSummary <- kappa %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kappa_value))
+
 burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
   dplyr::select(site, mean_dnbr) %>% 
   mutate(site = tolower(site))
