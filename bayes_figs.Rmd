@@ -14,7 +14,9 @@ p_load(tidyverse,
        here,
        posterior,
        viridis,
-       cowplot)
+       cowplot,
+       reshape,
+       ggdist)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -29,6 +31,21 @@ theme_set(theme_bw(base_size = 20))
 
 stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_final.rds"))
 
+sr_summary <- stageRise_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
 
 var_levels <- c(
   "MI60", 
@@ -46,34 +63,38 @@ stageRise_df <- as_draws(stageRise) %>%
     "fireetf"     ~ "Fire",
     "sp_catlow"   ~ "Snow zone",
     "yearCont"    ~ "Year")) %>%
-   mutate(variable = factor(variable, levels = var_levels))
-
-sr_summary <- stageRise_df %>%
-  group_by(variable) %>%
-  summarize(mean = mean(value),
-            median = median(value),
-            min = min(value),
-            max = max(value),
-            lower_66 = quantile(value, 0.17),
-            upper_66 = quantile(value, 0.83),
-            lower_95 = quantile(value, 0.025),
-            upper_95 = quantile(value, 0.975),
-            percent_positive = mean(value > 0) * 100)
+   mutate(variable = fct_relevel(variable, var_levels))
 
   
-ggplot(stageRise_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+globalStage <- ggplot(stageRise_df, 
+                      aes(x = value,
+                          y=variable)) +
+                          #fill = variable)) + 
   geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color='grey') +
-  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = '#3B3A3EFF', interval_size_domain = c(5,7,10)) +
-  paletteer::scale_fill_paletteer_d("MetBrewer::Kandinsky") +
-  ylim(0,1) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  scale_y_discrete(limits = rev(var_levels)) +
+  #ylim(-.01,1) +
+  #coord_cartesian(ylim = c(0, NA)) +
     theme(legend.position = 'none',
         strip.background = element_rect(fill = "white", color = NA),
         strip.text = element_text(hjust = 0),
         text = element_text(color = "black")) +
-  facet_wrap(~variable, ncol = 2, scales = 'free_y') +
+  #facet_wrap(~variable, ncol = 2, scales = 'free_y') +
   labs(x = 'Scaled coefficient',
        y = NULL)
+
+globalStage
+
+
+
 
 ```
 
@@ -334,9 +355,8 @@ plot_grid(low_srInt_plot,
 ```{r}
 lag <- readRDS(here("./data/bayes_interaction_outputs/global_l2p_final.rds"))
 
-
 var_levels <- c(
-  "MI60 (mm/hr)", 
+  "MI60", 
   "Fire", 
   "Snow zone", 
   "Year"
@@ -347,7 +367,7 @@ lag_df <- as_draws(lag) %>%
   select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
   melt() %>%
   mutate(variable = case_match(variable,
-    "MI60_mmhr"   ~ "MI60 (mm/hr)",
+    "MI60_mmhr"   ~ "MI60",
     "fireetf"     ~ "Fire",
     "sp_catlow"   ~ "Snow zone",
     "yearCont"    ~ "Year")) %>%
@@ -363,25 +383,141 @@ lag_summary <- lag_df %>%
             upper_66 = quantile(value, 0.83),
             lower_95 = quantile(value, 0.025),
             upper_95 = quantile(value, 0.975),
-            percent_positive = mean(value > 0) * 100)
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
 
-  
-    
-ggplot(lag_df, aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+globalLag <- ggplot(lag_df, 
+                    aes(x = value,
+                        y = as.factor(variable))) +
   geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-    theme(legend.position = 'none',
-        strip.background = element_rect(fill = "white", color = NA),
-        strip.text = element_text(hjust = 0),
-        text = element_text(family = "Helvetica")) +
-  facet_wrap(~variable, ncol = 1, scales = 'free_y') +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'sans',
+                        #size=100
+                        ),
+    axis.text = element_text(color = "black"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()
+    #panel.border = element_blank(),
+    #axis.line.x = element_line(color = "black"),  # add bottom line
+    #axis.line.y = element_line(color = "black")   # add left line
+  ) +
   labs(x = 'Scaled coefficient',
        y = NULL) +
-  ggtitle(label='Lag to peak (hr)')
+   geom_text(
+    data = lag_summary, 
+    aes(
+      x = 2,  #max(lag_df$value) * 0.95,  # place near the right edge
+      y = as.factor(variable),
+      label = percent_positive_label
+    ),
+    inherit.aes = FALSE,  # don't inherit x/y from the main plot
+    hjust = 1,             # right-align the text
+    size = 3,
+    nudge_y = 0.12 # adjust text size
+  )
 
-plot_grid()
+
+globalLag
+
+# combine the two globals
+stageRise_df <- stageRise_df %>%
+  mutate(response = 'Stage rise')
+
+lag_df <- lag_df %>%
+  mutate(response = 'Lag to peak')
+
+summary <- bind_rows(sr_summary,
+                     lag_summary) %>%
+    mutate(response = factor(response, 
+                           levels = c("Stage rise", "Lag to peak")))
+
+global <- bind_rows(stageRise_df,
+                    lag_df) %>%
+  mutate(variable = factor(variable, levels = var_levels)) %>%
+  mutate(response = factor(response, 
+                           levels = c("Stage rise", "Lag to peak")))
+  
+library(showtext)
+
+# Add Google or system font
+font_add_google('DM Sans')  # example: use Lato font
+showtext_auto()  # automatically use showtext for all plots
+
+  
+globalPlot <- ggplot(global, 
+                    aes(x = value,
+                        y = variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #paletteer::scale_fill_paletteer_d("nord::frost") + #nord::frost
+  #scale_y_discrete(limits = rev(var_levels)) +
+  scale_y_discrete(limits = rev(var_levels), expand = expansion(mult = c(0, 0.05))) +
+  facet_wrap(~response) +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'sans',
+                        size=140
+                        ),
+    axis.text = element_text(color = "black"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()
+    #panel.border = element_blank(),
+    #axis.line.x = element_line(color = "black"),  # add bottom line
+    #axis.line.y = element_line(color = "black")   # add left line
+  ) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  geom_text(
+    data = summary, 
+    aes(
+      x = 2,  #max(lag_df$value) * 0.95,  # place near the right edge
+      y = as.factor(variable),
+      label = percent_positive_label
+    ),
+    inherit.aes = FALSE,  # don't inherit x/y from the main plot
+    #hjust = 1,             # right-align the text
+    size = 30,
+    nudge_y = -0.12 # adjust text size
+  )
+
+globalPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/global.png',
+       dpi=600,
+       width=12,
+       height=8)
 
 ```
 
