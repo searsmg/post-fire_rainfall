@@ -69,7 +69,6 @@ stageRise_df <- as_draws(stageRise) %>%
 globalStage <- ggplot(stageRise_df, 
                       aes(x = value,
                           y=variable)) +
-                          #fill = variable)) + 
   geom_vline(xintercept = 0) +
   stat_slab(aes(fill = after_stat(level)), 
             .width = c(.66, .95, 1),
@@ -81,22 +80,35 @@ globalStage <- ggplot(stageRise_df,
                      color = '#D50032FF') +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
   scale_y_discrete(limits = rev(var_levels)) +
-  #ylim(-.01,1) +
-  #coord_cartesian(ylim = c(0, NA)) +
     theme(legend.position = 'none',
         strip.background = element_rect(fill = "white", color = NA),
         strip.text = element_text(hjust = 0),
         text = element_text(color = "black")) +
-  #facet_wrap(~variable, ncol = 2, scales = 'free_y') +
   labs(x = 'Scaled coefficient',
        y = NULL)
 
 globalStage
 
+```
+
+## NDVI over time
+
+```{r}
+
+ndvi <- read_csv('./data/final_model_inputs/inputs_combine.csv') %>%
+  select(site,
+         burn_cat,
+         fire,
+         NDVI_2021.x,
+         NDVI_2022.x,
+         NDVI_2023.x)
+
+
 
 
 
 ```
+
 
 ## NDVI
 
@@ -133,6 +145,8 @@ SRndviPlot <- as_draws(srNDVI) %>%
   labs(x = 'Scaled coefficient',
        y = NULL) +
   ggtitle('Stage rise')
+
+SRndviPlot
 
 ```
 
@@ -415,27 +429,29 @@ globalLag <- ggplot(lag_df,
     axis.text = element_text(color = "black"),
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank()
-    #panel.border = element_blank(),
-    #axis.line.x = element_line(color = "black"),  # add bottom line
-    #axis.line.y = element_line(color = "black")   # add left line
   ) +
   labs(x = 'Scaled coefficient',
        y = NULL) +
    geom_text(
     data = lag_summary, 
     aes(
-      x = 2,  #max(lag_df$value) * 0.95,  # place near the right edge
+      x = 2,
       y = as.factor(variable),
       label = percent_positive_label
     ),
-    inherit.aes = FALSE,  # don't inherit x/y from the main plot
-    hjust = 1,             # right-align the text
+    inherit.aes = FALSE,
+    hjust = 1,
     size = 3,
-    nudge_y = 0.12 # adjust text size
-  )
+    nudge_y = 0.12)
 
 
 globalLag
+
+```
+
+## Combine - global fig
+
+```{r}
 
 # combine the two globals
 stageRise_df <- stageRise_df %>%
@@ -455,30 +471,24 @@ global <- bind_rows(stageRise_df,
   mutate(response = factor(response, 
                            levels = c("Stage rise", "Lag to peak")))
   
-library(showtext)
 
-# Add Google or system font
-font_add_google('DM Sans')  # example: use Lato font
-showtext_auto()  # automatically use showtext for all plots
 
-  
 globalPlot <- ggplot(global, 
                     aes(x = value,
-                        y = variable)) +
+                        y=variable)) +
   geom_vline(xintercept = 0) +
   stat_slab(aes(fill = after_stat(level)), 
             .width = c(.66, .95, 1),
             color = 'grey',
             linewidth = 0.3) +
-  stat_pointinterval(.width = c(.66, .95, 1), 
+  stat_pointinterval(.width = c(.66, .95, 1),
                      fatten_point = 2,
                      interval_size_domain = c(2,5,10),
                      color = '#D50032FF') +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
-  #paletteer::scale_fill_paletteer_d("nord::frost") + #nord::frost
-  #scale_y_discrete(limits = rev(var_levels)) +
-  scale_y_discrete(limits = rev(var_levels), expand = expansion(mult = c(0, 0.05))) +
-  facet_wrap(~response) +
+  scale_y_discrete(limits = rev(var_levels)) + # expand = expansion(mult = c(0, 0.05))) +
+  #facet_wrap(~response) +
+  facet_grid(cols = vars(response)) +
   theme(
     legend.position = 'none',
     strip.background = element_rect(fill = "white", color = NA),
@@ -487,27 +497,22 @@ globalPlot <- ggplot(global,
                               face='bold'),
     text = element_text(color = "black",
                         family = 'sans',
-                        size=140
+                        #size=140
                         ),
     axis.text = element_text(color = "black"),
     panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank()
-    #panel.border = element_blank(),
-    #axis.line.x = element_line(color = "black"),  # add bottom line
-    #axis.line.y = element_line(color = "black")   # add left line
-  ) +
+    panel.grid.minor.x = element_blank()) +
   labs(x = 'Scaled coefficient',
        y = NULL) +
   geom_text(
-    data = summary, 
+    data = summary,
     aes(
-      x = 2,  #max(lag_df$value) * 0.95,  # place near the right edge
+      x = 2,
       y = as.factor(variable),
       label = percent_positive_label
     ),
-    inherit.aes = FALSE,  # don't inherit x/y from the main plot
-    #hjust = 1,             # right-align the text
-    size = 30,
+    inherit.aes = FALSE,
+    #size = 30,
     nudge_y = -0.12 # adjust text size
   )
 
@@ -515,11 +520,14 @@ globalPlot
 
 ggsave(
   '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/global.png',
-       dpi=600,
+       dpi=800,
        width=12,
        height=8)
 
+
+
 ```
+
 
 ## NDVI
 
