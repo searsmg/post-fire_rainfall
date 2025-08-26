@@ -96,16 +96,111 @@ globalStage
 ```{r}
 
 ndvi <- read_csv('./data/final_model_inputs/inputs_combine.csv') %>%
+  mutate(sp_cat = if_else(SP_mean > 60,
+                          'persistent',
+                          'intermittent')) %>%
   select(site,
          burn_cat,
          fire,
+         sp_cat,
          NDVI_2021.x,
          NDVI_2022.x,
-         NDVI_2023.x)
+         NDVI_2023.x) %>%
+  pivot_longer(!c(site,
+                  burn_cat,
+                  fire,
+                  sp_cat),
+                  names_to = 'year', 
+                  values_to = 'NDVI') %>%
+  mutate(year = str_remove(year, "NDVI_"),
+         year = str_remove(year, "\\.x$")) %>% 
+  drop_na()
 
+ndvi_summary <- ndvi %>%
+  group_by(fire, burn_cat, year, sp_cat) %>%
+  summarise(
+    NDVI_mean = mean(NDVI, na.rm = TRUE),
+    NDVI_sd = sd(NDVI, na.rm = TRUE),
+    .groups = "drop"
+  )
 
+fire_labels <- c(
+  "cpf" = "CPF",
+  "etf" = "ETF")
 
+burn_labels <- c(
+  'burned' = 'Burned',
+  'unburned' = 'Unburned')
 
+ggplot(ndvi_summary, aes(
+  x = year,
+  y = NDVI_mean,
+  color = sp_cat,
+  group = interaction(sp_cat, burn_cat)
+)) +
+  geom_point(position = position_dodge(width = 0.2),
+             size=3) +
+  geom_errorbar(aes(ymin = NDVI_mean - NDVI_sd, ymax = NDVI_mean + NDVI_sd),
+                position = position_dodge(width = 0.2), width = 0.1) +
+  #geom_line(position = position_dodge(width = 0.2)) +
+  paletteer::scale_color_paletteer_d("ggsci::alternating_igv") +
+  facet_grid(rows = vars(burn_cat), cols = vars(fire),
+              labeller = labeller(
+      burn_cat = burn_labels,
+      fire = fire_labels
+    )) +  # burn_cat on rows
+  theme_bw() +
+  theme(
+    legend.position = c(0.87, .09),
+    strip.background = element_rect(fill = "white", color = NA),
+    strip.text = element_text(color='black', face='bold'),
+    text = element_text(color = "black", family = 'sans'),
+    axis.text = element_text(color = "black"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank()
+  ) +
+  xlab(NULL) +
+  ylab('NDVI') +
+  labs(color = 'Snow persistence')
+
+ggplot(ndvi_summary, aes(
+  x = year,
+  y = NDVI_mean,
+  color = sp_cat,
+  shape = burn_cat
+)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(
+    aes(ymin = NDVI_mean - NDVI_sd, ymax = NDVI_mean + NDVI_sd),
+    position = position_dodge(width = 0.5),  # same dodge as points
+    width = 0.1
+  ) +
+  paletteer::scale_color_paletteer_d("ggsci::alternating_igv") +
+  scale_shape_manual(values = c(16, 17)) +
+  facet_wrap(~fire,
+             labeller = labeller(
+      fire = fire_labels)) +
+  theme_bw() +
+  theme(
+    legend.position = 'bottom',
+    legend.justification = c("right","bottom"),
+    legend.background = element_rect(fill = scales::alpha('white', 0.8), color = NA),
+    strip.background = element_rect(fill = "white", color = NA),
+    strip.text = element_text(hjust = 0, color='black', face='bold'),
+    text = element_text(color = "black", family = 'sans'),
+    axis.text = element_text(color = "black"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_blank()
+  ) +
+  xlab(NULL) +
+  labs(
+    x= NULL,
+    y='NDVI',
+    color = "Snow persistence",
+    shape = "Burn category"
+  )
 
 ```
 
