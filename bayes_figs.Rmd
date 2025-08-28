@@ -16,10 +16,16 @@ p_load(tidyverse,
        viridis,
        cowplot,
        reshape,
-       ggdist)
+       ggdist,
+       showtext,
+       ggtext)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
+
+# Add google font
+font_add_google("Open Sans", "os")
+showtext_auto()
 
 ```
 
@@ -30,22 +36,6 @@ theme_set(theme_bw(base_size = 20))
 ```{r}
 
 stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_final.rds"))
-
-sr_summary <- stageRise_df %>%
-  group_by(variable) %>%
-  summarize(mean = mean(value),
-            median = median(value),
-            min = min(value),
-            max = max(value),
-            lower_66 = quantile(value, 0.17),
-            upper_66 = quantile(value, 0.83),
-            lower_95 = quantile(value, 0.025),
-            upper_95 = quantile(value, 0.975),
-            percent_positive = round(mean(value > 0) * 100, 1)) %>%
-  mutate(percent_positive_label = paste0("P>0 = ", 
-                                         sprintf("%.1f", 
-                                                 percent_positive), "%")) %>%
-  mutate(response = 'Stage rise')
 
 var_levels <- c(
   "MI60", 
@@ -64,6 +54,22 @@ stageRise_df <- as_draws(stageRise) %>%
     "sp_catlow"   ~ "Snow zone",
     "yearCont"    ~ "Year")) %>%
    mutate(variable = fct_relevel(variable, var_levels))
+
+sr_summary <- stageRise_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
 
   
 globalStage <- ggplot(stageRise_df, 
@@ -555,18 +561,26 @@ stageRise_df <- stageRise_df %>%
 lag_df <- lag_df %>%
   mutate(response = 'Lag to peak')
 
+var_levels <- c("Year",
+                "Snow zone",
+                "Fire",
+                "MI60")
+
 summary <- bind_rows(sr_summary,
                      lag_summary) %>%
     mutate(response = factor(response, 
-                           levels = c("Stage rise", "Lag to peak")))
+                           levels = c("Stage rise", 
+                                      "Lag to peak")),
+           variable = factor(variable,
+                             levels = var_levels))
 
 global <- bind_rows(stageRise_df,
                     lag_df) %>%
-  mutate(variable = factor(variable, levels = var_levels)) %>%
-  mutate(response = factor(response, 
-                           levels = c("Stage rise", "Lag to peak")))
-  
-
+  mutate(variable = factor(variable, 
+                           levels = var_levels),
+         response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")))
 
 globalPlot <- ggplot(global, 
                     aes(x = value,
@@ -581,20 +595,19 @@ globalPlot <- ggplot(global,
                      interval_size_domain = c(2,5,10),
                      color = '#D50032FF') +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
-  scale_y_discrete(limits = rev(var_levels)) + # expand = expansion(mult = c(0, 0.05))) +
-  #facet_wrap(~response) +
-  facet_grid(cols = vars(response)) +
+  facet_wrap(~response) +
   theme(
     legend.position = 'none',
-    strip.background = element_rect(fill = "white", color = NA),
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
     strip.text = element_text(hjust = 0,
                               color='black',
                               face='bold'),
     text = element_text(color = "black",
-                        family = 'sans',
-                        #size=140
-                        ),
-    axis.text = element_text(color = "black"),
+                        family = 'os',
+                        size=180),
+    axis.text = element_text(color = "black",
+                             face='bold'),
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank()) +
   labs(x = 'Scaled coefficient',
@@ -603,13 +616,11 @@ globalPlot <- ggplot(global,
     data = summary,
     aes(
       x = 2,
-      y = as.factor(variable),
-      label = percent_positive_label
-    ),
+      y = variable,
+      label = percent_positive_label),
     inherit.aes = FALSE,
-    #size = 30,
-    nudge_y = -0.12 # adjust text size
-  )
+    size = 45,
+    nudge_y = -0.12) 
 
 globalPlot
 
@@ -618,8 +629,6 @@ ggsave(
        dpi=800,
        width=12,
        height=8)
-
-
 
 ```
 
