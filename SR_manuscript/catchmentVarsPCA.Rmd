@@ -1,0 +1,187 @@
+---
+title: "Catchment variables PCA"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, include = F}
+
+library(pacman)
+
+p_load(tidyverse, 
+       here, 
+       reshape, 
+       car, 
+       performance, 
+       corrplot, 
+       lme4, 
+       bootSVD, 
+       ggfortify, 
+       psych,
+       ggeffects)
+
+# Set a basic ggplot theme
+theme_set(theme_bw(base_size = 20))
+
+# Add google font
+# font_add_google("Open Sans", "os")
+# showtext_auto()
+
+```
+
+# Prep
+
+```{r}
+
+response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         sp_cat, # categorical
+         fire, # categorical
+         stage_rise_cm,
+         lag2peak_halfP,
+         lag2peak_Pstart,
+         MI60_mmhr,
+         lag_pwd,
+         terrain_hypso75 = hypso75,
+         terrain_hypso25 = hypso25,
+         terrain_hypso50 = hypso50,
+         terrain_connec = IC,
+         terrain_conn_dnbr = hydraulic_func_conn,
+         area_km2 = area_km2.x,
+         terrain_rc_circle = RC_CIRCLE.x,
+         terrain_slope40 = slope40_frac,
+         soil_brockdepmin = brockdepmin,
+         terrain_recharge = frac_recharge_area,
+         #terrain_vbw = avg_vbw_m,
+         soil_sand = AVG_SAND,
+         mean_dnbr, 
+         soil_clay = AVG_CLAY,
+         soil_ksat = AVG_KSAT, 
+         terrain_elongation = ELONGATION.x, 
+         soil_availwaterstor = aws0150wta, 
+         NDVI, 
+         terrain_vall_holl = frac_valley,
+         terrain_flowlength = flow_length_m, 
+         terrain_slope30 = slope30_frac, 
+         SP_mean,
+         terrain_hypsoint = hypso_integral,
+         year,
+         terrain_glacial = frac_glacial,
+         fire_no,
+         mulch_frac) %>%
+  mutate(site_number = as.integer(factor(site))) %>% # give each site a number
+  select(-site)
+
+# prep df for stage rise
+pcaDataIn <- response %>%
+  relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+  mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+         site_number = factor(site_number),
+         yearFact = factor(year), # year factor for random effect
+         yearCont = year - 2022) # centered year for fixed effect
+
+```
+
+# PCA
+
+```{r}
+# prep PCA data
+pcaData <- pcaDataIn %>%
+  # select(-c(NDVI,
+  #           MI60_mmhr,
+  #           sp_cat,
+  #           fire,
+  #           yearFact,
+  #           year,
+  #           yearCont,
+  #           site_number)) %>%
+  select(#SP_mean,
+          terrain_glacial,
+          terrain_vall_holl, # keep
+          soil_clay, # keep
+          #mean_dnbr,
+          #terrain_slope30,
+          terrain_hypso75,
+          #terrain_connec,
+          #terrain_elongation,
+          terrain_flowlength)
+          #soil_ksat,
+          #terrain_recharge,
+          #mulch_frac,
+          #lag_pwd)
+
+# run PCA
+pca1 <- prcomp(pcaData, 
+               scale = T, 
+               center = T) 
+
+# pca summary
+summary(pca1) # view proportion variance explained
+
+# get PCA stability
+bootOut <- bootSVD(as.matrix(pcaData), 
+                   K=4, 
+                   B = 100)
+bootOut
+
+# plot PCA 
+autoplot(prcomp(pcaData), 
+         label = FALSE, 
+         loadings = TRUE, 
+         loadings.label = TRUE) + 
+  theme_bw(base_size = 20)
+
+loadings <- pca1$rotation
+
+# Calculate length of each variable's arrow in the first 2 PCs
+arrow_lengths <- sqrt(loadings[,1]^2 + loadings[,2]^2)
+
+arrow_lengths_sorted <- sort(arrow_lengths, decreasing = TRUE)
+
+arrow_lengths_sorted
+
+loadings
+
+
+```
+
+# Model
+
+```{r}
+
+# add PCA axes to main data frame for modeling
+bindData <- bind_cols(pcaDataIn, 
+                      pca1$x[,c(1,2)])
+
+
+
+# model stage rise as function of NMDS axes
+stageRise <- glmer(stage_rise_cm ~ MI60_mmhr * PC1 + MI60_mmhr * PC2 + yearCont + (1|site_number),
+                   data = bindData,
+                   family = Gamma(link = 'log'),
+                   control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1000000)))
+
+summary(stageRise)
+
+# conditional effects plot for PC1 x MI60
+ggeffect(stageRise, terms = c("MI60_mmhr", "PC1"), bias_correction = TRUE) %>% 
+  plot + theme_bw(base_size = 20)
+
+# conditional effects plot for PC2 x MI60
+ggeffect(stageRise, terms = c("MI60_mmhr", "PC2"), bias_correction = TRUE) %>% 
+  plot + theme_bw(base_size = 20)
+
+
+
+# model lag2peak
+l2p <- glmer(lag2peak_halfP ~ MI60_mmhr * PC1 + MI60_mmhr * PC2 + yearCont + (1|site_number),
+             data = bindData %>% subset(lag2peak_halfP > 0),
+             family = Gamma(link = 'log'),
+             control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 1000000)))
+summary(l2p)
+
+
+
+```
+
