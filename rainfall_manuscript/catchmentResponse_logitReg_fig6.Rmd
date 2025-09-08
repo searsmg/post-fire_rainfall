@@ -1,0 +1,5226 @@
+---
+title: "Response analysis"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+knitr::opts_chunk$set(echo = F,
+                      message = F,
+                      fig.width = 12,
+                      fig.height = 6)
+
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(here)
+library(ggplot2); theme_set(theme_bw(base_size = 20,
+                                     base_family = "Arial"))
+library(zoo)
+library(caret)
+library(ggpubr)
+library(terra)
+library(cowplot)
+library(ggrepel)
+
+source('./R/mrms_metrics.R')
+
+```
+
+# Functions
+
+```{r}
+
+# Generate event ID function
+generate_event_ids <- function(event_def) {
+  event_ids <- integer(length(event_def)) # create vector
+  current_id <- 1 # start at 1
+  
+  for (i in seq_along(event_def)) {
+    if (is.na(event_def[i])) {
+      event_ids[i] <- NA # Keep NA if event_def is NA
+    } else if (i == 1) {
+      event_ids[i] <- current_id
+    } else {
+      prev <- event_def[i - 1]
+      curr <- event_def[i]
+      
+      if ((prev == "diff" & curr == "same") | (prev == "same" & curr == "same")) {
+        event_ids[i] <- event_ids[i - 1] # Keep the same event ID as before
+      } else {
+        current_id <- current_id + 1 # Assign a new event ID
+        event_ids[i] <- current_id
+      }
+    }
+  }
+  
+  event_ids
+}
+
+```
+
+# ETF stream events
+
+```{r}
+
+et_stage <- read_csv('./data/stage/et_stage_corrected.csv') %>%
+  dplyr::select(datetime, Stage_fix, site) %>%
+  mutate(datetime = with_tz(datetime, tzone = "MST"))
+
+et_stage_plot <- ggplot(et_stage, aes(datetime, Stage_fix,
+                                      color = site)) +
+  geom_line()
+
+ggplotly(et_stage_plot)
+
+```
+
+## HUM 
+
+```{r}
+
+# Stage adjust based on manual measurements
+hum_stage <- et_stage %>%
+  filter(site == 'hum') %>% 
+  mutate(month = month(datetime))
+
+# Stage plot
+hum_stage_plot <- ggplot(hum_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(hum_stage_plot)
+
+################################################################################
+# filter out unwanted months
+hum_stage <- hum_stage %>%
+  filter(month %in% c(6:9))
+
+# find stage events pt 1
+filter_hum_stage_events <- hum_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_hum_stage <- hum_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_hum_stage_events$start_time, 
+        filter_hum_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_hum_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+hum_stage_summ <- filtered_hum_stage %>%
+  group_by(event_id) %>%
+summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id == 13) # this is from a download spike
+
+write_csv(hum_stage_summ,
+          './data/final/stage_YN_response/hum_stage_events.csv')
+
+```
+
+## P1
+
+```{r}
+
+# Stage adjust based on manual measurements
+p1_stage <- et_stage %>%
+  filter(site == 'p1') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) 
+
+################################################################################
+# stage plot
+p1_stage_plot <- ggplot(p1_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(p1_stage_plot)
+
+################################################################################
+# stage events pt 1
+filter_p1_stage_events <- p1_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(2),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_p1_stage <- p1_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_p1_stage_events$start_time, 
+        filter_p1_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_p1_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+p1_stage_summ <- filtered_p1_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 4) 
+# used 4 here to include one event that is def a response
+
+write_csv(p1_stage_summ,
+          './data/final/stage_YN_response/p1_stage_events.csv')
+
+```
+
+## HM
+
+```{r}
+# Offset stage based on manual measurements
+hm_stage <- et_stage %>%
+  filter(site == 'hm') %>% 
+  mutate(month = month(datetime))
+
+################################################################################
+# stage plot
+hm_stage_plot <- ggplot(hm_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(hm_stage_plot)
+
+################################################################################
+# remove unwanted months
+hm_stage <- hm_stage %>%
+  filter(month %in% c(6:9))
+
+# process stage events pt 1
+filter_hm_stage_events <- hm_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_hm_stage <- hm_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_hm_stage_events$start_time, 
+        filter_hm_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_hm_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+hm_stage_summ <- filtered_hm_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id == 18) # sensor download spike
+
+write_csv(hm_stage_summ,
+          './data/final/stage_YN_response/hm_stage_events.csv')
+
+```
+
+## MPM
+
+```{r}
+
+# Stage offset based on manual measurements
+mpm_stage <- et_stage %>%
+  filter(site == 'mpm') %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) 
+
+################################################################################
+# stage plot
+mpm_stage_plot <- ggplot(mpm_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(mpm_stage_plot)
+
+################################################################################
+# Process stage events pt 1
+filter_mpm_stage_events <- mpm_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mpm_stage <- mpm_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mpm_stage_events$start_time, 
+        filter_mpm_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mpm_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+mpm_stage_summ <- filtered_mpm_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(12,17)) # weird stage offsets
+ 
+write_csv(mpm_stage_summ,
+          './data/final/stage_YN_response/mpm_stage_events.csv')
+
+```
+
+## MUM
+
+```{r}
+
+# Stage offsets based on manual measurements
+mum_stage <- et_stage %>%
+  filter(site == 'mum') %>% 
+  mutate(month = month(datetime))
+
+################################################################################
+mum_stage_plot <- ggplot(mum_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(mum_stage_plot)
+
+################################################################################
+# remove unwanted months
+mum_stage <- mum_stage %>%
+  filter(month %in% c(6:9))
+
+# Process stage events - pt 1
+filter_mum_stage_events <- mum_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mum_stage <- mum_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mum_stage_events$start_time, 
+        filter_mum_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mum_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+mum_stage_summ <- filtered_mum_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+write_csv(mum_stage_summ,
+          './data/final/stage_YN_response/mum_stage_events.csv')
+
+```
+
+## MUB
+
+```{r}
+
+# Stage offsets based on manual measurements
+mub_stage <- et_stage %>%
+  filter(site == 'mub') %>% 
+  mutate(month = month(datetime))
+
+################################################################################
+mub_stage_plot <- ggplot(mub_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(mub_stage_plot)
+
+################################################################################
+# remove unwanted months
+mub_stage <- mub_stage %>%
+  filter(month %in% c(6:9))
+
+# Process stage events - pt 1
+filter_mub_stage_events <- mub_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mub_stage <- mub_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mub_stage_events$start_time, 
+        filter_mub_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mub_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+mub_stage_summ <- filtered_mub_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id == 8) # this is from 2024
+
+write_csv(mub_stage_summ,
+          './data/final/stage_YN_response/mub_stage_events.csv')
+
+```
+
+## P2
+
+```{r}
+
+# Stage offsets based on manual measurements
+p2_stage <- et_stage %>%
+  filter(site == 'p2') %>% 
+  mutate(month = month(datetime)) 
+
+################################################################################
+p2_stage_plot <- ggplot(p2_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(p2_stage_plot)
+
+################################################################################
+# remove unwanted months
+p2_stage <- p2_stage %>%
+  filter(month %in% c(6:9)) %>%
+  arrange(datetime)
+
+# Processing stage events - pt 1
+filter_p2_stage_events <- p2_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 0.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(4))
+
+# pt 2
+filtered_p2_stage <- p2_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_p2_stage_events$start_time, 
+        filter_p2_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_p2_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+p2_stage_summ <- filtered_p2_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+# manually adding 7/13/22 event into the csv
+# 2022-07-13 14:30, 17.9
+# 2022-07-13 16:45, 41.0
+
+write_csv(p2_stage_summ,
+          './data/final/stage_YN_response/p2_stage_events.csv')
+
+```
+
+## Cameras
+
+lm, lpm, lum, mm
+
+```{r}
+
+# lm2 = lm (lm1 is the one that is pointed down the steep hill)
+camera <- read_csv('./data/stage/et_camera_stream_data.csv') %>%
+  dplyr::select(date = Date, 
+                site = Site, 
+                datetime_min = Time_first_water,
+                datetime_peak = Time_peak_water, 
+                stage_rise_cm) %>%
+  drop_na(stage_rise_cm) %>% 
+  mutate(datetime_min = mdy_hm(paste(date, datetime_min), 
+                                 tz = 'MST'),
+         datetime_peak = mdy_hm(paste(date, datetime_peak), 
+                                tz = 'MST')) %>%
+  filter(stage_rise_cm > 5) %>%
+  mutate(site = if_else(site == 'mm', 'mm_et', site)) %>%
+  mutate(site = if_else(site == 'lm2', 'lm', site)) %>%
+  filter(!site == 'lm1') 
+  
+
+write_csv(camera,
+          './data/final/stage_YN_response/et_camera_events.csv')
+
+```
+
+# CPF
+
+## Aspen
+
+No events
+
+```{r}
+# manual stage measurements
+manual <- read_csv('./data/field_notes/cpf_fieldnotes.csv') %>%
+  filter(site == 'aspen') %>% 
+  mutate(datetime = mdy_hms(paste(date, arrival_time),
+                            tz='MST')) %>%
+  mutate(channel_bed_stage_cm = as.numeric(channel_bed_stage_cm)) %>%
+  mutate(channel_bed_stage_cm = if_else(is.na(channel_bed_stage_cm),
+                                        0, channel_bed_stage_cm),
+         manual_stage_use = as.numeric(manual_stage_cm) - 
+           as.numeric(channel_bed_stage_cm))
+
+# aspen raw stage data
+aspen <- read_csv('./data/stage/Aspen_stage_composite.CSV') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  mutate(Stage_cm = Stage_mm / 10)
+
+# Offset stage data based on manual measurements
+aspen_stage <- aspen %>%
+  mutate(Stage_fix = Stage_cm + 4) %>% # annual adjustment
+  filter(!datetime == ymd_hms('2021-06-14 13:15:00',
+                               tz='MST')) %>%
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2021-06-14 13:30:00',
+                                                tz='MST'),
+                             Stage_fix + 5,
+                             Stage_fix)) %>% # download
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2022-01-01 14:00:00',
+                                                tz='MST'),
+                             Stage_fix - 8,
+                             Stage_fix)) %>% # annual adjustment
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2023-01-01 14:00:00',
+                                                tz='MST'),
+                             Stage_fix + 6,
+                             Stage_fix)) %>% # annual adjustment
+  filter(!datetime == ymd_hms('2023-05-25 10:00:00'))
+  
+################################################################################
+# stage plot
+aspen_stage_plot <- ggplot() +
+  geom_line(data = aspen_stage, 
+            aes(x = datetime, y = Stage_fix)) +
+  geom_point(data = manual,
+             aes(x = datetime, 
+                 y = as.numeric(manual_stage_use)),
+             color = 'red')
+
+
+ggplotly(aspen_stage_plot)
+
+################################################################################
+# remove unwanted months and years
+aspen_stage <- aspen_stage %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
+  
+# Process stage events pt 1
+filter_aspen_stage_events <- aspen_stage %>%
+  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 2) > 1.5,
+                            'increase', 'none')) %>% 
+   # mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1.5,
+   #                          'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_aspen_stage <- aspen_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_aspen_stage_events$start_time, 
+        filter_aspen_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_aspen_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3 - summary
+aspen_stage_summ <- filtered_aspen_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+```
+
+## Bighorn
+
+```{r}
+
+bighorn_stage <- read_csv('./data/stage/bighorn_stage_composite_new.csv') %>%
+  mutate(datetime = mdy_hm(DateTime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  dplyr::rename(Pw_kPa = 2)
+
+bighorn_baro <- read_csv('./data/stage/bighorn_baro_composite_new.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  dplyr::rename(Pa_kPa = 2)
+
+bighorn_stage <- left_join(bighorn_stage, bighorn_baro, by = 'datetime') %>%
+  mutate(stage_kPa = Pw_kPa - Pa_kPa) %>%
+  mutate(stage_cm = (stage_kPa*101.97162129779)/10) %>%
+  select(datetime, stage_cm)
+
+# Quinn's stage adjustments below
+#correct stage based on manual stage measurements
+bighorn_stage<-mutate(bighorn_stage, stage_corr_cm = stage_cm-1)
+
+#offset adjust break in the data
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2021-05-07 12:00:00'),
+                                   bighorn_stage$stage_corr_cm+3,bighorn_stage$stage_corr_cm)
+
+##### new adjustments under this line #####
+
+#offset adjust for download
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2022-05-03 14:00:00'),
+                                   bighorn_stage$stage_corr_cm+1.5,bighorn_stage$stage_corr_cm)
+
+#offset adjust for download
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2022-05-19 12:45:00'),
+                                   bighorn_stage$stage_corr_cm+2,bighorn_stage$stage_corr_cm)
+
+#offset adjust for download
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2022-07-26 13:15:00'),
+                                   bighorn_stage$stage_corr_cm-5.5,bighorn_stage$stage_corr_cm)
+
+#offset adjust between 2022 -2023
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2022-12-22 05:00:00'),
+                                    bighorn_stage$stage_corr_cm+1.5,bighorn_stage$stage_corr_cm)
+
+#bed elevation adjustment after storm peak
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2023-06-08 09:30:00'),
+                                   bighorn_stage$stage_corr_cm-3.3,bighorn_stage$stage_corr_cm)
+
+#offset adjust for download
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2023-06-16 10:15:00'),
+                                   bighorn_stage$stage_corr_cm-0.5,bighorn_stage$stage_corr_cm)
+
+# #offset adjust for download
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2023-06-27 10:45:00'),
+                                    bighorn_stage$stage_corr_cm-1.2,bighorn_stage$stage_corr_cm)
+
+#bed appears to aggrade after rain on 8/24/23, move stage down
+bighorn_stage$stage_corr_cm=ifelse(bighorn_stage$datetime >ymd_hms('2023-08-24 13:45:00'),
+                                   bighorn_stage$stage_corr_cm-1,bighorn_stage$stage_corr_cm)
+
+#delete sensor spikes
+bighorn_stage$stage_corr_cm = ifelse(bighorn_stage$datetime == ymd_hms('2022-05-19 12:30:00'),
+                                     NA, bighorn_stage$stage_corr_cm)
+
+bighorn_stage$stage_corr_cm = ifelse(bighorn_stage$datetime == ymd_hms('2023-06-27 11:00:00'),
+                                     NA, bighorn_stage$stage_corr_cm)
+
+################################################################################
+
+bighorn_stage_plot <- ggplot(bighorn_stage, aes(datetime, stage_corr_cm)) +
+  geom_line()
+
+ggplotly(bighorn_stage_plot)
+
+################################################################################
+# Remove unwanted months
+bighorn_stage <- bighorn_stage %>% 
+  rename(Stage_fix = stage_corr_cm) %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9))
+
+## Processing stage events - pt 1
+filter_bighorn_stage_events <- bighorn_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 2) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_bighorn_stage <- bighorn_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_bighorn_stage_events$start_time, 
+        filter_bighorn_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_bighorn_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+bighorn_stage_summ <- filtered_bighorn_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+write_csv(bighorn_stage_summ,
+          './data/final/stage_YN_response/bighorn_stage_events.csv')
+
+
+```
+
+## BL4
+
+```{r}
+
+bl4_stage <- read_csv('./data/stage/bl4_stage_composite.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  mutate(Stage_cm = Stage_mm / 10)
+
+## Code below is Quinn's offsets
+bl4_stage$Stage_corr_cm = bl4_stage$Stage_cm + 4.5
+
+#offset adjust for download
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2021-06-11 12:30:00'),
+  bl4_stage$Stage_corr_cm + 7.9,
+  bl4_stage$Stage_corr_cm
+)
+
+#offset adjust for download
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2021-08-06 08:30:00'),
+  bl4_stage$Stage_corr_cm + 0.5,
+  bl4_stage$Stage_corr_cm
+)
+
+#delete sensor spike
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime == ymd_hms('2021-08-06 08:45:00'),
+  NA,
+  bl4_stage$Stage_corr_cm
+)
+
+#offset adjust for download
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2021-08-27 09:00:00'),
+  bl4_stage$Stage_corr_cm - 0.3,
+  bl4_stage$Stage_corr_cm
+)
+
+##### new adjustments under this line #####
+
+#2021-2022 year adjustment
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2021-10-25 11:00:00'),
+  bl4_stage$Stage_corr_cm + 2,
+  bl4_stage$Stage_corr_cm
+)
+
+# disturbance between 5/28/22 and 6/10/22, adjust stage to manual after
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-06-10 14:00:00'),
+  bl4_stage$Stage_corr_cm - 15,
+  bl4_stage$Stage_corr_cm
+)
+
+#delete sensor spike
+bl4_stage$Stage_corr_cm = ifelse((
+  bl4_stage$datetime >= ymd_hms('2022-07-08 10:45:00') &
+    bl4_stage$datetime <= ymd_hms('2022-07-08 11:00:00')
+),
+NA,
+bl4_stage$Stage_corr_cm
+)
+
+# 7/8/22, offset adjust download
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-07-08 11:00:00'),
+  bl4_stage$Stage_corr_cm + 2.5,
+  bl4_stage$Stage_corr_cm
+)
+
+# #between 7/8/22 and 10/7/22 (maybe on 8/10/22, 9/15/22, 9/21/22, and 9/29), bed aggrades. Move stage down
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-08-10 10:00:00'),
+  bl4_stage$Stage_corr_cm - 1,
+  bl4_stage$Stage_corr_cm
+)
+
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-09-16 12:15:00'),
+  bl4_stage$Stage_corr_cm - 1,
+  bl4_stage$Stage_corr_cm
+)
+
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-09-21 16:15:00'),
+  bl4_stage$Stage_corr_cm - 1,
+  bl4_stage$Stage_corr_cm
+)
+
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2022-09-29 13:00:00'),
+  bl4_stage$Stage_corr_cm - 1,
+  bl4_stage$Stage_corr_cm
+)
+# #2022-2023 year adjustment
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2023-01-01 01:00:00'),
+  bl4_stage$Stage_corr_cm + 3,
+  bl4_stage$Stage_corr_cm
+)
+
+#6/26/23 offset adjust for download
+bl4_stage$Stage_corr_cm = ifelse(
+  bl4_stage$datetime > ymd_hms('2023-06-26 12:00:00'),
+  bl4_stage$Stage_corr_cm - 0.8,
+  bl4_stage$Stage_corr_cm
+)
+
+#delete data between 5/28/22 and 6/10/22-- mass movement of sediment
+bl4_stage$Stage_corr_cm = ifelse((
+  bl4_stage$datetime > ymd_hms('2022-05-28 00:00:00') &
+    bl4_stage$datetime <= ymd_hms('2022-06-10 14:00:00')
+),
+NA,
+bl4_stage$Stage_corr_cm
+)
+
+#delete sensor spike
+bl4_stage$Stage_corr_cm = ifelse((
+  bl4_stage$datetime >= ymd_hms('2023-08-03 00:00:00') &
+    bl4_stage$datetime <= ymd_hms('2023-08-03 00:45:00')
+),
+NA,
+bl4_stage$Stage_corr_cm
+)
+
+################################################################################
+
+bl4_stage_plot <- ggplot(bl4_stage, aes(datetime, Stage_corr_cm)) +
+  geom_line()
+
+ggplotly(bl4_stage_plot)
+
+################################################################################
+# Remove unwanted months
+bl4_stage <- bl4_stage %>% 
+  rename(Stage_fix = Stage_corr_cm) %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9))
+
+## Processing stage events - pt 1
+filter_bl4_stage_events <- bl4_stage %>%
+  mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix, 4) > 1.5,
+                            'increase', 'none')) %>% 
+   # mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 1,
+   #                          'increase', 'none')) %>% # if it increases by XX amount
+  filter(pos_diff == 'increase') %>% # keep only the increases
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>% # find the diff between current and i-1
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>% # if the diff is > 360 per row then diff event
+  mutate(event_id = generate_event_ids(event_def)) %>% # create the event IDs, give new # based on diff and same
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>% # use the smallest timestep between in the event
+  mutate(start_time = filter_time - hours(4), # go back 4 hours
+         end_time = filter_time + hours(3)) # add 3 hours
+
+# pt 2 - filter based on start and end times above
+filtered_bl4_stage <- bl4_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_bl4_stage_events$start_time, 
+        filter_bl4_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_bl4_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+bl4_stage_summ <- filtered_bl4_stage %>%
+  group_by(event_id) %>% 
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(1:11,18,30))
+
+write_csv(bl4_stage_summ,
+          './data/final/stage_YN_response/bl4_stage_events.csv')
+
+```
+
+## Dadd
+
+no events
+
+```{r}
+# manual stage measurements
+manual <- read_csv('./data/field_notes/cpf_fieldnotes.csv') %>%
+  filter(site == 'dadd') %>% 
+  mutate(datetime = mdy_hms(paste(date, arrival_time),
+                            tz='MST')) %>%
+  mutate(channel_bed_stage_cm = 
+           as.numeric(channel_bed_stage_cm)) %>%
+  mutate(channel_bed_stage_cm = 
+           if_else(is.na(channel_bed_stage_cm),
+                                        0, channel_bed_stage_cm),
+         manual_stage_use = as.numeric(manual_stage_cm) - 
+           as.numeric(channel_bed_stage_cm))
+
+dadd <- read_csv('./data/stage/Dadd_stage_composite.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023)) %>%
+  mutate(Stage_cm = Stage_mm / 10)
+
+################################################################################
+# Stage offsets
+dadd_stage <- dadd %>%
+  mutate(Stage_fix = Stage_cm + 5) %>% # annual
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2021-04-25 18:45:00',
+                                                tz='MST'),
+                             Stage_fix + 5,
+                             Stage_fix)) %>% # annual 
+  filter(!datetime == ymd_hms('2021-06-14 11:30:00',
+                              tz = 'MST')) %>% 
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2022-02-22 11:00:00',
+                                                tz='MST'),
+                             Stage_fix - 3,
+                             Stage_fix)) # download
+# ignoring 5/26/22 manual stage measurement - seems like too much bed change
+
+################################################################################
+
+dadd_stage_plot <- ggplot() +
+  geom_line(data = dadd_stage, 
+            aes(x = datetime, y = Stage_fix)) +
+  geom_point(data = manual,
+             aes(x = datetime, 
+                 y = as.numeric(manual_stage_use)),
+             color = 'red')
+
+ggplotly(dadd_stage_plot)
+
+################################################################################
+# Filter unwanted data
+dadd_stage <- dadd_stage %>% 
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
+
+## Processing stage events - pt 1
+filter_dadd_stage_events <- dadd_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_dadd_stage <- dadd_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_dadd_stage_events$start_time, 
+        filter_dadd_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_dadd_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+dadd_stage_summ <- filtered_dadd_stage %>%
+  group_by(event_id) %>%  
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+```
+
+## Dry
+
+-Had to change from 1.5 to 2 increase bc it was starting an invite too early
+2022-07-05
+
+```{r}
+
+dry_stage <- read_csv('./data/stage/Dry_stage_composite_pt.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023))
+
+# from Quinn's code
+dry_stage$datetime = round_date(dry_stage$datetime, unit = "5 mins")
+dry_stage <- filter(dry_stage, duplicated(datetime)==FALSE)
+
+dry_baro <- read_csv('./data/stage/Dry_baro_composite.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023))
+
+# below code is from Quinn's offsets
+bighorn_baro <- read_csv('./data/stage/bighorn_baro_composite_new.csv') %>%
+  rename(Pa_kPa = 2) %>%
+  mutate(Pa_psi=(Pa_kPa/6.89476)+0.3) %>% # 0.3 adjustment to match dry
+  mutate(datetime = mdy_hm(datetime, tz = "MST")) %>%
+  filter(datetime >= ymd_hms("2020-12-19 00:00:00"))
+
+dry_stage_pt_before<- dry_stage %>%
+  filter(datetime < ymd_hms('2023-07-13 10:45:00'))
+
+dry_stage_pt_after<- dry_stage %>%
+  filter(datetime > ymd_hms('2023-07-13 10:45:00'))
+
+dry_baro_before <-dry_baro %>%
+  filter(datetime < ymd_hms('2023-07-13 10:45:00'))
+
+dry_baro_after <- bighorn_baro %>%
+  filter(datetime > ymd_hms('2023-07-13 10:45:00'))
+
+merged_data_before <-full_join(dry_stage_pt_before, dry_baro_before, by='datetime') %>%
+  select(datetime, Pa_psi, Pw_psi)
+merged_data_after <- full_join(dry_stage_pt_after,dry_baro_after, by='datetime') %>%
+  select(datetime, Pa_psi, Pw_psi)
+dry_stage=rbind(merged_data_before, merged_data_after)
+
+# fill in baro data where pt was recorded at shorter time interval (from QM code)
+dry_stage$Pa_psi<-na.locf(dry_stage$Pa_psi)
+
+dry_stage <- dry_stage %>%
+  mutate(stage_psi = Pw_psi - Pa_psi) %>%
+  mutate(Stage_cm = stage_psi*70.307) %>%
+  select(datetime, Stage_cm) %>%
+  filter(!is.na(Stage_cm))
+
+# again, all below code is from QM
+#correct stage based on manual stage measurements
+#bed adjustments from SK's code data_processing_all
+dry_stage<-mutate(dry_stage, stage_corr_cm = Stage_cm)
+
+#offset adjust sensor stage to levels of manual stage
+#4/1 data download offset
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-04-01 09:30:00'),
+  dry_stage$stage_corr_cm + 1,
+  dry_stage$stage_corr_cm
+)
+
+#4/4/21, bed incised, move stage up
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-04-03 20:00:00'),
+  dry_stage$stage_corr_cm + 4.5,
+  dry_stage$stage_corr_cm
+)
+
+#4/19/21, scouring, bed incised. move stage up
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-04-19 12:00:00'),
+  dry_stage$stage_corr_cm + 5,
+  dry_stage$stage_corr_cm
+)
+
+#do not see evidence of the scouring for 4/29 and 5/6. or the aggradation before 5/18
+
+#offset adjusting 5/6 for download
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-05-06 12:45:00'),
+  dry_stage$stage_corr_cm - 2.5,
+  dry_stage$stage_corr_cm
+)
+
+# #offset adjusting 5/18 for download
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-05-18 11:30:00'),
+  dry_stage$stage_corr_cm + 4,
+  dry_stage$stage_corr_cm
+)
+
+# #5/23/21, scouring, bed incised, but manual stage after is lower. move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-05-23 00:00:00'),
+  dry_stage$stage_corr_cm - 1,
+  dry_stage$stage_corr_cm
+)
+
+#6/25/21, bed aggrades. move stage down.
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-06-26 00:00:00'),
+  dry_stage$stage_corr_cm - 8,
+  dry_stage$stage_corr_cm
+)
+
+#6/30/21, data download offset. move stage down.
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-06-30 11:30:00'),
+  dry_stage$stage_corr_cm - 8,
+  dry_stage$stage_corr_cm
+)
+
+#7/21/21, bed incises. move stage up
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-07-20 15:00:00'),
+  dry_stage$stage_corr_cm + 6.5,
+  dry_stage$stage_corr_cm
+)
+
+#7/26/21, data download offset. move stage down.
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-07-26 15:00:00'),
+  dry_stage$stage_corr_cm - 6,
+  dry_stage$stage_corr_cm
+)
+
+#7/30/21, bed incises. move stage up
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-07-30 12:00:00'),
+  dry_stage$stage_corr_cm + 10,
+  dry_stage$stage_corr_cm
+)
+
+#8/16/21, data download offset. move stage down.
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2021-08-16 09:00:00'),
+  dry_stage$stage_corr_cm - 2,
+  dry_stage$stage_corr_cm
+)
+
+##### new adjustments under this line #####
+
+#2021-2022 year adjustment
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2022-02-02 12:00:00'),
+  dry_stage$stage_corr_cm - 1,
+  dry_stage$stage_corr_cm
+)
+
+#5/12/22 offset adjust for download
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2022-05-12 11:00:00'),
+  dry_stage$stage_corr_cm + 1,
+  dry_stage$stage_corr_cm
+)
+
+#between 5/18/22 and 5/25/22, bed aggrades. move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2022-05-25 11:00:00'),
+  dry_stage$stage_corr_cm - 1.5,
+  dry_stage$stage_corr_cm
+)
+
+# #after peak flow on 7/6/22, bed aggrades. Move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms("2022-07-06 14:25:00"),
+  dry_stage$stage_corr_cm - 8,
+  dry_stage$stage_corr_cm
+)
+
+# 7/18/22, stage is 3 and offset adjust for download
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms("2022-07-18 11:45:00"),
+  dry_stage$stage_corr_cm - 9,
+  dry_stage$stage_corr_cm
+)
+
+# weird data between 8/522 and 8/15/22, delete
+dry_stage$stage_corr_cm = ifelse((
+  dry_stage$datetime > ymd_hms("2022-08-05 09:05:00") &
+    dry_stage$datetime < ymd_hms("2022-08-15 21:30:00")
+),
+NA,
+dry_stage$stage_corr_cm
+)
+
+#between 8/5/22 and 8/15/22, adjustments to the position of the sensors
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2022-08-15 21:00:00'),
+  dry_stage$stage_corr_cm + 10.5,
+  dry_stage$stage_corr_cm
+)
+
+# 8/29/22 sediment removed from the sensor, adjustment to stage
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2022-08-29 10:00:00'),
+  dry_stage$stage_corr_cm + 6,
+  dry_stage$stage_corr_cm
+)
+
+#2022-2023 year adjustment
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2023-05-04 10:00:00'),
+  dry_stage$stage_corr_cm + 12,
+  dry_stage$stage_corr_cm
+)
+
+# #between 5/4/23 and 5/25/23, bed aggrades. move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2023-05-05 19:30:00'),
+  dry_stage$stage_corr_cm - 5,
+  dry_stage$stage_corr_cm
+)
+
+#between 5/25/23 and 6/7/23, bed aggrades (maybe after peak on 6/6/23). move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2023-06-06 14:25:00'),
+  dry_stage$stage_corr_cm - 1.5,
+  dry_stage$stage_corr_cm
+)
+
+#between 5/25/23 and 6/7/23, bed aggrades after peak on 6/11/23). move stage down
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2023-06-11 15:50:00'),
+  dry_stage$stage_corr_cm - 1.5,
+  dry_stage$stage_corr_cm
+)
+
+
+# 7/13/2023, switch to Bighorn baro. adjust stage
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime == ymd_hms('2023-07-13 10:50:00'),
+  NA,
+  dry_stage$stage_corr_cm
+)
+
+dry_stage$stage_corr_cm = ifelse(
+  dry_stage$datetime > ymd_hms('2023-07-13 10:50:00'),
+  dry_stage$stage_corr_cm - 5.4,
+  dry_stage$stage_corr_cm
+)
+
+#delete sensor spikes
+#data between 8/5/22 and 8/15/22 no good, delete
+
+dry_stage <- dry_stage %>%
+  filter(!(
+    datetime > ymd_hms("2022-02-02 07:00:00") &
+      datetime < ymd_hms("2022-03-20 08:55:00")
+  )) %>%
+  filter(!(
+    datetime > ymd_hms("2022-11-12 16:00:00") &
+      datetime < ymd_hms("2023-05-04 12:00:00")
+  ))
+
+################################################################################
+manual <- read_csv('./data/field_notes/cpf_fieldnotes.csv') %>%
+  filter(site == 'dry') %>% 
+  mutate(datetime = mdy_hms(paste(date, arrival_time),
+                            tz='MST')) %>%
+  mutate(channel_bed_stage_cm = as.numeric(channel_bed_stage_cm)) %>%
+  mutate(channel_bed_stage_cm = if_else(is.na(channel_bed_stage_cm),
+                                        0, channel_bed_stage_cm),
+         manual_stage_use = as.numeric(manual_stage_cm) - 
+           as.numeric(channel_bed_stage_cm))
+
+dry_stage_plot <- ggplot(dry_stage, aes(datetime, stage_corr_cm)) +
+  geom_line() +
+  geom_point(data = manual, aes(datetime, manual_stage_use), color='red')
+
+ggplotly(dry_stage_plot)
+
+################################################################################
+# Remove unwanted months
+dry_stage <- dry_stage %>% 
+  rename(Stage_fix = stage_corr_cm) %>%
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
+
+## Processing stage events - pt 1
+filter_dry_stage_events <- dry_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix) > 2,
+                             # here I'm using 2 bc it starts an event too early (too sensitive)
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_dry_stage <- dry_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_dry_stage_events$start_time, 
+        filter_dry_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_dry_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+dry_stage_summ <- filtered_dry_stage %>%
+  group_by(event_id) %>%  
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(13,16,34,38,46))
+
+write_csv(dry_stage_summ,
+          './data/final/stage_YN_response/dry_stage_events.csv')
+
+```
+
+## Michigan
+
+no events
+
+```{r}
+# from usgs gauge
+mich <- read_csv('./data/stage/michigan_stage.csv') %>%
+  mutate(datetime2 = mdy_hm(dt_use),
+         Stage_cm = stage_ft * 30.48) %>%
+  select(datetime2, Stage_cm) %>%
+  rename(datetime = datetime2)
+
+mich_stage_plot <- ggplot(mich, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(mich_stage_plot)
+
+################################################################################
+# Remove unwanted months
+mich_stage <- mich %>% 
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023))
+
+# Processing stage events - pt 1
+filter_mich_stage_events <- mich_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mich_stage <- mich_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mich_stage_events$start_time, 
+        filter_mich_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mich_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+mich_stage_summ <- filtered_mich_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(2:9, 29:43, 58:61)) 
+
+write_csv(mich_stage_summ,
+          './data/final/stage_YN_response/mich_stage_events.csv')
+
+```
+
+
+## Montgomery
+
+```{r}
+
+mont_stage <- read_csv('./data/stage/montgomery_stage_composite.csv') %>%
+  select(1,4) %>%
+  mutate(datetime = mdy_hm(DateTime, tz='MST')) %>% 
+  mutate(Stage_cm = Stage_mm/10) %>%
+  mutate(month = month(datetime)) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023))
+
+# below is code from QM
+#offset-adjust sensor stage to levels of manual stage
+mont_stage$stage_corr_cm = mont_stage$Stage_cm + 5
+
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2021-06-11 10:00:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm + 9.3,
+  mont_stage$stage_corr_cm
+)
+
+#8/2/21, big storm moves sensor. move stage down.
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2021-08-02 16:45:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm - 11.5,
+  mont_stage$stage_corr_cm
+)
+
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2021-08-05 13:00:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm + 10,
+  mont_stage$stage_corr_cm
+)
+
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2021-08-27 13:30:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm - 2,
+  mont_stage$stage_corr_cm
+)
+
+##### new adjustments under this line #####
+
+#adjustment between 2021 and 2022
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2022-06-01 01:00:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm - 0.5,
+  mont_stage$stage_corr_cm
+)
+
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2022-07-08 09:30:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm + 1,
+  mont_stage$stage_corr_cm
+)
+
+#adjust to bed change after big April 2023 spike
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2023-04-12 13:00:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm - 4.5,
+  mont_stage$stage_corr_cm
+)
+
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2023-06-20 09:30:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm + 0.9,
+  mont_stage$stage_corr_cm
+)
+#offset adjust for download
+mont_stage$stage_corr_cm = ifelse(
+  mont_stage$datetime > ymd_hms('2023-06-26 10:00:00', 
+                                tz = 'MST'),
+  mont_stage$stage_corr_cm + 1.5,
+  mont_stage$stage_corr_cm
+)
+
+#delete sensor spikes
+mont_stage <- mont_stage %>%
+  filter(!(
+    datetime > ymd_hms('2023-08-25 23:45:00', 
+                                tz = 'MST') &
+      datetime < ymd_hms('2023-09-03 01:15:00', 
+                                tz = 'MST')
+  ))
+
+################################################################################
+
+mont_stage_plot <- ggplot(mont_stage, aes(datetime, stage_corr_cm)) +
+  geom_line()
+
+ggplotly(mont_stage_plot)
+
+###########################################
+
+# Remove unwanted months 
+mont_stage <- mont_stage %>% 
+  rename(Stage_fix = stage_corr_cm) %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9)) %>%
+  arrange(datetime)
+
+# Processing stage events - pt 1
+filter_mont_stage_events <- mont_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(5),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mont_stage <- mont_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mont_stage_events$start_time, 
+        filter_mont_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mont_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+mont_stage_summ <- filtered_mont_stage %>%
+  group_by(event_id) %>%  
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(4:11, 27:42, 60, 68, 80))
+
+write_csv(mont_stage_summ,
+          './data/final/stage_YN_response/mont_stage_events.csv')
+
+```
+
+## Mt. Campus
+
+```{r}
+
+mtcamp <- read_csv('./data/stage/mtcampus_stage_composite.csv') %>%
+  mutate(datetime = mdy_hm(Date_time)) %>%
+  rename(Stage_cm = stage_cm) %>%
+  select(-Date_time) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023))
+
+# manual stage measurements - from Kira's google drive spreadsheet
+mtc_manual <- read_csv('./data/stage/mt_camps_manual_stage.csv') %>%
+  mutate(datetime = mdy_hm(datetime, tz='MST')) %>%
+  select(datetime, stage_adjusted_cm) %>%
+  mutate(year = year(datetime)) %>%
+  filter(year %in% c(2021:2023))
+
+mtcamp_stage <- mtcamp %>%
+  mutate(Stage_fix = Stage_cm + 12) %>%  # annual adjustment
+  mutate(Stage_fix = if_else(datetime >= ymd_hms('2021-07-07 15:30:00',
+                                                tz='MST'), # event during snowmelt
+                             Stage_fix + 6,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2022-04-27 01:00:00',
+                                                tz='MST'), # annual adjustment
+                             Stage_fix - 2,
+                             Stage_fix),
+         Stage_fix = if_else(datetime >= ymd_hms('2023-04-26 01:00:00',
+                                                tz='MST'), # annual adjustment, more to match 6/7/23 download
+                             Stage_fix + 2,
+                             Stage_fix))
+
+################################################################################         
+mtcamp_stage_plot <- ggplot(mtcamp_stage, aes(datetime, Stage_fix)) +
+  geom_line() +
+  geom_point(data = mtc_manual,
+             aes(datetime, stage_adjusted_cm),
+             color = 'blue')
+
+
+ggplotly(mtcamp_stage_plot)
+
+################################################################################
+
+# Remove unwanted months
+mtcamp_stage <- mtcamp_stage %>%
+  mutate(month = month(datetime)) %>%
+  filter(month %in% c(6:9))
+
+# Processing stage events - pt 1
+filter_mtcamp_stage_events <- mtcamp_stage %>%
+   mutate(pos_diff = if_else(Stage_fix - lag(Stage_fix,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mtcamp_stage <- mtcamp_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mtcamp_stage_events$start_time, 
+        filter_mtcamp_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mtcamp_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+mtcamp_stage_summ <- filtered_mtcamp_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(1:27, 32:48, 54:70))
+# manully adding 2022-08-14 event in
+# start 2022-08-14 17:00, 26.7
+# peak 2022-08-15 04:45, 32.7
+
+write_csv(mtcamp_stage_summ,
+          './data/final/stage_YN_response/mtcamp_stage_events.csv')
+
+
+```
+
+## Washout
+
+```{r}
+# From Larimer County
+washout <- read_csv('./data/stage/larimer_washout_stage.csv') %>%
+  mutate(datetime = mdy_hm(datetime),
+         Stage_cm = stage_ft * 30.48)
+
+wash_stage <- washout
+
+# Below are QM's Larimer Co Washout stage offsets
+##adjust county data to levels we recorded
+wash_stage$stage_corr_cm = wash_stage$Stage_cm - 8
+
+#bed aggrades after 7/20/21 storm, adjust bed down
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2021-07-20 21:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm - 3,
+  wash_stage$stage_corr_cm
+)
+
+#appears to be data download on 7/29/21, adjust bed down
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2021-07-29 12:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm - 1.5,
+  wash_stage$stage_corr_cm
+)
+
+#adjust between 2021 and 2022
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2022-05-13 19:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm + 0.4,
+  wash_stage$stage_corr_cm
+)
+
+#between 5/26/22 and 7/18/22 bed incises. move stage up on 6/13 and after 7/6 peak
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2022-06-13 12:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm + 1.8,
+  wash_stage$stage_corr_cm
+)
+
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2022-07-06 22:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm + 1.1,
+  wash_stage$stage_corr_cm
+)
+
+#jump in stage on 7/29/22, adjust down
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2022-07-29 11:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm - 3.1,
+  wash_stage$stage_corr_cm
+)
+
+#bed appears to aggrade after 8/2/23 storm, adjust stage down
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime > ymd_hms('2023-08-02 18:00:00',
+                                tz='MST'),
+  wash_stage$stage_corr_cm - 1,
+  wash_stage$stage_corr_cm
+)
+#delete sensor spikes
+wash_stage$stage_corr_cm = ifelse(
+  wash_stage$datetime == ymd_hms('2023-06-19 12:39:00',
+                                 tz='MST'),
+  NA,
+  wash_stage$stage_corr_cm
+)
+
+wash_stage$stage_corr_cm = ifelse((
+  wash_stage$datetime > ymd_hms('2021-10-19 10:00:00',
+                                tz='MST') &
+    wash_stage$datetime < ymd_hms('2021-10-19 21:00:00',
+                                  tz='MST')
+),
+NA,
+wash_stage$stage_corr_cm
+)
+
+
+wash_stage <- wash_stage %>%
+  rename(Stage_fix = stage_corr_cm) %>%
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(year %in% c(2021:2022)) # QM said not to use 2023
+
+################################################################################
+washout_stage_plot <- ggplot(wash_stage, aes(datetime, Stage_fix)) +
+  geom_line()
+
+ggplotly(washout_stage_plot)
+
+################################################################################
+
+# Remove unwanted data
+washout_stage <- washout %>% 
+  mutate(month = month(datetime),
+         year = year(datetime)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2022)) # QM said not to use 2023
+
+# Processing stage events - pt 1
+filter_washout_stage_events <- washout_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_washout_stage <- washout_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_washout_stage_events$start_time, 
+        filter_washout_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_washout_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+washout_stage_summ <- filtered_washout_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_fix),
+          datetime_peak = datetime[which.max(Stage_fix)],
+          # Filter Stage_fix values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_fix[datetime 
+                                    < datetime[which.max(Stage_fix)]]),
+          datetime_min = datetime[which.min(Stage_fix[datetime 
+                                                     < datetime[which.max(Stage_fix)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+write_csv(washout_stage_summ,
+          './data/final/stage_YN_response/washout_stage_events.csv')
+
+```
+
+# Bennett
+
+```{r}
+
+benn <- read_csv('./data/stage/bennett_all_stage.csv') %>%
+  mutate(datetime = mdy_hm(datetime),
+         Stage_cm = Stage_mm/10) %>%
+  select(datetime, Stage_cm, site)
+
+me <- benn %>%
+  filter(site == 'me')
+
+mm <- benn %>%
+  filter(site == 'mm')
+
+mw <- benn %>%
+  filter(site == 'mw')
+
+ue <- benn %>%
+  filter(site == 'ue')
+
+um <- benn %>%
+  filter(site == 'um')
+
+uw <- benn %>%
+  filter(site == 'uw')
+
+```
+
+## ME
+
+```{r}
+
+# filter out times according to Stephanie's email
+# ME: exclude all after 8/15/22 event
+
+me_stage <- me %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9)) %>%
+  filter(datetime < ymd_hms('2022-08-15 15:30:00',
+                            tz = 'MST'))
+
+################################################################################
+
+me_stage_plot <- ggplot(me_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(me_stage_plot)
+################################################################################
+
+# Processing stage events - pt 1
+filter_me_stage_events <- me_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_me_stage <- me_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_me_stage_events$start_time, 
+        filter_me_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_me_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+me_stage_summ <- filtered_me_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(2:3, 17))
+
+write_csv(me_stage_summ,
+          './data/final/stage_YN_response/me_stage_events.csv')
+
+```
+
+## MM
+
+```{r}
+
+# MM: missing data 10/5/22 to 6/22/23. no data after 7/12/23
+mm_stage <- mm %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9)) 
+
+################################################################################
+
+mm_stage_plot <- ggplot(mm_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(mm_stage_plot)
+################################################################################
+
+# Processing stage events - pt 1
+filter_mm_stage_events <- mm_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mm_stage <- mm_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mm_stage_events$start_time, 
+        filter_mm_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mm_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+mm_stage_summ <- filtered_mm_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id == 12)
+
+write_csv(mm_stage_summ,
+          './data/final/stage_YN_response/mm_stage_events.csv')
+
+```
+
+## MW
+
+```{r}
+
+#MW: data looked strange after 7/28/22 event, 
+# but it did pick up 6/11/23 event. 
+# I guess exclude everything between and after those two events
+mw_stage <- mw %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9)) %>%
+  filter(datetime < '2023-06-12 00:00:00')
+
+################################################################################
+
+mw_stage_plot <- ggplot(mw_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(mw_stage_plot)
+################################################################################
+
+# Processing stage events - pt 1
+filter_mw_stage_events <- mw_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_mw_stage <- mw_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_mw_stage_events$start_time, 
+        filter_mw_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_mw_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+mw_stage_summ <- filtered_mw_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id == 8)
+
+write_csv(mw_stage_summ,
+          './data/final/stage_YN_response/mw_stage_events.csv')
+
+```
+
+## UE
+
+```{r}
+
+# UE: looks ok. ends 9/19/23
+ue_stage <- ue %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9)) 
+
+################################################################################
+
+ue_stage_plot <- ggplot(ue_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(ue_stage_plot)
+
+################################################################################
+
+# Processing stage events - pt 1
+filter_ue_stage_events <- ue_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_ue_stage <- ue_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_ue_stage_events$start_time, 
+        filter_ue_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_ue_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+ue_stage_summ <- filtered_ue_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id ==1)
+
+write_csv(ue_stage_summ,
+          './data/final/stage_YN_response/ue_stage_events.csv')
+
+```
+
+## UM
+
+```{r}
+#UM: missing data 8/10-20/21, 10/4-15/21, 5/7/22-6/7/22, 5/22/23-7/12/23
+um_stage <- um %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9))
+
+################################################################################
+
+um_stage_plot <- ggplot(um_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(um_stage_plot)
+################################################################################
+
+# Processing stage events - pt 1 
+filter_um_stage_events <- um_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm, 4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_um_stage <- um_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_um_stage_events$start_time, 
+        filter_um_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_um_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+um_stage_summ <- filtered_um_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5)
+
+write_csv(um_stage_summ,
+          './data/final/stage_YN_response/um_stage_events.csv')
+
+```
+
+## UW
+
+```{r}
+# UW: looks ok, ends 9/6/23
+uw_stage <- uw %>% 
+  mutate(month = month(datetime)) %>% 
+  filter(month %in% c(6:9)) 
+
+################################################################################
+
+uw_stage_plot <- ggplot(uw_stage, aes(datetime, Stage_cm)) +
+  geom_line()
+
+ggplotly(uw_stage_plot)
+
+################################################################################
+
+# Processing stage events - pt 1
+filter_uw_stage_events <- uw_stage %>%
+   mutate(pos_diff = if_else(Stage_cm - lag(Stage_cm,4) > 1.5,
+                            'increase', 'none')) %>%
+  filter(pos_diff == 'increase') %>%
+  mutate(time_diff = as.numeric(difftime(datetime, 
+                                         lag(datetime), units = 'mins'))) %>%
+  mutate(event_def = if_else(time_diff < 360, 'same', 
+                             'diff', missing = 'diff')) %>%
+  mutate(event_id = generate_event_ids(event_def)) %>%
+  group_by(event_id) %>%
+  summarize(filter_time = min(datetime)) %>%
+  mutate(start_time = filter_time - hours(4),
+         end_time = filter_time + hours(3))
+
+# pt 2
+filtered_uw_stage <- uw_stage %>%
+  rowwise() %>%
+  filter(
+    any(
+      purrr::map2_lgl(
+        filter_uw_stage_events$start_time, 
+        filter_uw_stage_events$end_time, 
+        ~ datetime >= .x & datetime <= .y
+      )
+    )
+  ) %>%
+  mutate(
+    event_id = filter_uw_stage_events %>%
+      filter(datetime >= start_time & datetime <= end_time) %>%
+      pluck("event_id", 1)  # Pluck the first matching event_id
+  ) %>%
+  ungroup()
+
+# pt 3
+uw_stage_summ <- filtered_uw_stage %>%
+  group_by(event_id) %>%
+  summarize(max_stage = max(Stage_cm),
+          datetime_peak = datetime[which.max(Stage_cm)],
+          # Filter Stage_cm values to only those before the peak for min_stage and datetime_min
+          min_stage = min(Stage_cm[datetime 
+                                    < datetime[which.max(Stage_cm)]]),
+          datetime_min = datetime[which.min(Stage_cm[datetime 
+                                                     < datetime[which.max(Stage_cm)]])]) %>%
+  mutate(stage_rise_cm = max_stage -  min_stage) %>%
+  filter(stage_rise_cm > 5) %>%
+  filter(!event_id %in% c(13:37, 3))
+
+write_csv(uw_stage_summ,
+          './data/final/stage_YN_response/uw_stage_events.csv')
+
+```
+
+# Rain event datasets
+
+```{r}
+load('./R/rain_metrics.RData')
+
+# ET TB sites are hum, lpm, p1, mub
+et_tb <- read_csv('./data/TB_raw/et_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) %>%
+  #mutate(datetime = force_tz(datetime, tzone='MST')) %>%
+  mutate(site = if_else(site == 'hum2', 'hum', site))
+
+cpf_tb <- read_csv('./data/TB_raw/cpf_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime)) #%>%
+  # mutate(datetime = force_tz(datetime, tzone = 'MST'))
+
+ben_tb <- read_csv('./data/TB_raw/bennett_TB_rain.csv') %>%
+  mutate(datetime = mdy_hm(datetime))
+
+# # mrms catchment events - average
+# mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities.csv') %>%
+#   mutate(start_time = force_tz(start_time, tzone='MST'),
+#          end_time = force_tz(end_time, tzone='MST'))
+
+# trying this analysis with MAX mrms values going into the catchment intensities
+# max for mrms extract and touches = T
+# mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities_MAXtouches.csv') %>%
+#   mutate(start_time = force_tz(start_time, tzone='MST'),
+#          end_time = force_tz(end_time, tzone='MST')) %>%
+#   mutate(ID = tolower(ID))
+
+# try this weight mean EXACT (instead of weights, which is approx)
+mrms_catch_avg <- read_csv('./data/final/mrms/catchment_mrms_intensities_wmean_exact.csv') %>%
+  mutate(start_time = force_tz(start_time, tzone='MST'),
+         end_time = force_tz(end_time, tzone='MST')) %>%
+  mutate(ID = tolower(ID))
+
+```
+
+## HUM
+
+```{r}
+# load in stage
+hum_stage_summ <- read_csv('./data/final/stage_YN_response/hum_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# hum tb events
+hum_tb <- et_tb %>%
+  filter(site == 'hum')
+
+hum_tb <- get_setup(hum_tb, hum_tb$datetime)
+
+hum_tb_events <- get_events(hum_tb, hum_tb$P_mm, hum_tb$datenumeric,
+                          hum_tb$end, hum_tb$rain_start)
+
+hum_tb_events <- get_intensities(hum_tb_events, hum_tb_events$event, hum_tb)
+
+hum_tb_events <- hum_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr,
+         MI30_mmhr = MI30,
+         MI60_mmhr = MI60,
+         start_time = starttime,
+         end_time = endtime,
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+hum_export <- hum_tb_events %>%
+  mutate(site = 'hum')
+
+write_csv(hum_export, './data/final/tb_events/hum_tb_events.csv')
+
+# hum mrms
+hum_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'hum') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+#already exported this and manually assessed
+hum_cross <- hum_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., hum_tb_events,
+            by = 'date') %>%
+  left_join(., hum_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+
+# write.csv(hum_cross,
+#            './data/final/stage_YN_response/cross/hum_cross2.csv') # 2 has data where 0.1 was filtered before summed to 10 min
+
+write.csv(hum_cross,
+           './data/final/stage_YN_response/cross/hum_cross_wmean.csv') # using mrms max extract for each catchment (touches=T)
+
+# hum_cross <- read_csv('./data/final/stage_YN_response/cross/hum_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+hum_tb_noflow <- hum_tb_events %>%
+  filter(!start_time %in% c(hum_cross$start_time.x)) %>%
+  mutate(site = 'hum',
+         source = 'tb')
+
+# write.csv(hum_tb_noflow, 
+#           './data/final/stage_YN_response/noflow_rain/hum_tb_noflow2.csv')
+
+write.csv(hum_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/hum_tb_noflow_wmean.csv')
+
+hum_mrms_noflow <- hum_mrms_events %>%
+  filter(!start_time %in% c(hum_cross$start_time.y)) %>%
+  mutate(site = 'hum',
+         source = 'mrms')
+
+# write.csv(hum_mrms_noflow,
+#           './data/final/stage_YN_response/noflow_rain/hum_mrms_noflow2.csv')
+
+write.csv(hum_mrms_noflow,
+          './data/final/stage_YN_response/noflow_rain/hum_mrms_noflow_wmean.csv')
+
+
+#rain_noflow <- bind_rows(hum_tb_noflow, hum_mrms_noflow)
+
+```
+
+## P1
+
+```{r}
+p1_stage_summ <- read_csv('./data/final/stage_YN_response/p1_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# p1 tb events
+p1_tb <- et_tb %>%
+  filter(site == 'p1')
+
+p1_tb <- get_setup(p1_tb, p1_tb$datetime)
+
+p1_tb_events <- get_events(p1_tb, p1_tb$P_mm, p1_tb$datenumeric,
+                          p1_tb$end, p1_tb$rain_start)
+
+p1_tb_events <- get_intensities(p1_tb_events, p1_tb_events$event, p1_tb)
+
+p1_tb_events <- p1_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+p1_export <- p1_tb_events %>%
+  mutate(site = 'p1')
+
+write_csv(p1_export, './data/final/tb_events/p1_tb_events.csv')
+
+# p1 mrms
+p1_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'p1') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+p1_cross <- p1_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., p1_tb_events,
+            by = 'date') %>%
+  left_join(., p1_mrms_events,
+            by = 'date') # no edits needed (no repeat events or missing MRMS)
+
+# write.csv(p1_cross,
+#           './data/final/stage_YN_response/cross/p1_cross2.csv')
+
+write.csv(p1_cross,
+          './data/final/stage_YN_response/cross/p1_cross_wmean.csv')
+
+# p1_cross <- read_csv('./data/final/stage_YN_response/cross/p1_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+p1_tb_noflow <- p1_tb_events %>%
+  filter(!start_time %in% c(p1_cross$start_time.x)) %>%
+  mutate(site = 'p1',
+         source='tb')
+
+# write.csv(p1_tb_noflow, 
+#           './data/final/stage_YN_response/noflow_rain/p1_tb_noflow2.csv')
+
+write.csv(p1_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/p1_tb_noflow_wmean.csv')
+
+p1_mrms_noflow <- p1_mrms_events %>%
+  filter(!start_time %in% c(p1_cross$start_time.y)) %>%
+  mutate(site = 'p1',
+         source='mrms')
+
+# write.csv(p1_mrms_noflow, 
+#           './data/final/stage_YN_response/noflow_rain/p1_mrms_noflow2.csv')
+
+write.csv(p1_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/p1_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, p1_tb_noflow, p1_mrms_noflow)
+
+```
+
+## HM
+
+HM does not have a TB, use HUM
+
+```{r}
+
+hm_stage_summ <- read_csv('./data/final/stage_YN_response/hm_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# hm mrms
+hm_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'hm') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+hm_cross <- hm_stage_summ %>%
+    mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST")) %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., hum_tb_events,
+            by = 'date') %>%
+  left_join(., hm_mrms_events,
+            by = 'date') %>%
+    mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+
+write.csv(hm_cross,
+          './data/final/stage_YN_response/cross/hm_cross_wmean.csv')
+
+#hm_cross <- read_csv('./data/final/stage_YN_response/cross/hm_cross.csv')
+
+# no flow
+hm_tb_noflow <- hum_tb_events %>%
+  filter(!start_time %in% c(hm_cross$start_time.x)) %>%
+  mutate(site = 'hm',
+         source='tb')
+
+write.csv(hm_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/hm_tb_noflow_wmean.csv')
+
+hm_mrms_noflow <- hm_mrms_events %>%
+  filter(!start_time %in% c(hm_cross$start_time.y)) %>%
+  mutate(site = 'hm',
+         source='mrms')
+
+write.csv(hm_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/hm_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, hm_tb_noflow, hm_mrms_noflow)
+
+```
+
+## MPM
+
+```{r}
+
+mpm_stage_summ <- read_csv('./data/final/stage_YN_response/mpm_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# mub tb events
+mub_tb <- et_tb %>%
+  filter(site == 'mub')
+
+mub_tb <- get_setup(mub_tb, mub_tb$datetime)
+
+mub_tb_events <- get_events(mub_tb, mub_tb$P_mm, mub_tb$datenumeric,
+                          mub_tb$end, mub_tb$rain_start)
+
+mub_tb_events <- get_intensities(mub_tb_events, mub_tb_events$event, mub_tb)
+
+mub_tb_events <- mub_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+# mpm mrms
+mpm_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mpm') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mpm_cross <- mpm_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mub_tb_events,
+            by = 'date') %>%
+  left_join(., mpm_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .))) %>%
+  slice(-c(2,12,21,24))
+
+# 
+write.csv(mpm_cross,
+          './data/final/stage_YN_response/cross/mpm_cross_wmean.csv')
+
+# mpm_cross <- read_csv('./data/final/stage_YN_response/cross/mpm_cross2.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mpm_tb_noflow <- mub_tb_events %>%
+  filter(!start_time %in% c(mpm_cross$start_time.x)) %>%
+  mutate(site = 'mpm',
+         source='tb')
+
+write.csv(mpm_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mpm_tb_noflow_wmean.csv')
+
+mpm_mrms_noflow <- mpm_mrms_events %>%
+  filter(!start_time %in% c(mpm_cross$start_time.y)) %>%
+  mutate(site = 'mpm',
+         source='mrms')
+
+write.csv(mpm_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mpm_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mpm_tb_noflow, mpm_mrms_noflow)
+
+```
+
+## MUB
+
+```{r}
+
+mub_stage_summ <- read_csv('./data/final/stage_YN_response/mub_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# mub mrms
+mub_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mub') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mub_cross <- mub_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mub_tb_events,
+            by = 'date') %>%
+  left_join(., mub_mrms_events,
+            by = 'date') %>%
+    mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+  
+# 
+write.csv(mub_cross,
+          './data/final/stage_YN_response/cross/mub_cross_wmean.csv')
+
+# mub_cross <- read_csv('./data/final/stage_YN_response/cross/mub_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mub_tb_noflow <- mub_tb_events %>%
+  filter(!start_time %in% c(mub_cross$start_time.x)) %>%
+  mutate(site = 'mub',
+         source='tb')
+
+write.csv(mub_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mub_tb_noflow_wmean.csv')
+
+mub_mrms_noflow <- mub_mrms_events %>%
+  filter(!start_time %in% c(mub_cross$start_time.y)) %>%
+  mutate(site = 'mub',
+         source='mrms')
+
+write.csv(mub_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mub_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mub_tb_noflow, mub_mrms_noflow)
+
+```
+
+## MUM
+
+```{r}
+
+mum_stage_summ <- read_csv('./data/final/stage_YN_response/mum_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# mum mrms
+mum_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mum') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mum_cross <- mum_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mub_tb_events,
+            by = 'date') %>%
+  left_join(., mum_mrms_events,
+            by = 'date') %>%
+    mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+  
+write.csv(mum_cross,
+          './data/final/stage_YN_response/cross/mum_cross_wmean.csv')
+
+# mum_cross <- read_csv('./data/final/stage_YN_response/cross/mum_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mum_tb_noflow <- mub_tb_events %>%
+  filter(!start_time %in% c(mum_cross$start_time.x)) %>%
+  mutate(site = 'mum',
+         source='tb')
+
+write.csv(mum_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mum_tb_noflow_wmean.csv')
+
+mum_mrms_noflow <- mum_mrms_events %>%
+  filter(!start_time %in% c(mum_cross$start_time.y)) %>%
+  mutate(site = 'mum',
+         source='mrms')
+
+write.csv(mum_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mum_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mum_tb_noflow, mum_mrms_noflow)
+
+```
+
+## P2
+
+```{r}
+
+p2_stage_summ <- read_csv('./data/final/stage_YN_response/p2_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = ymd_hms(datetime_min, tz = "MST"))
+
+# p1 tb events
+p1_tb <- et_tb %>%
+  filter(site == 'p1')
+
+p1_tb <- get_setup(p1_tb, p1_tb$datetime)
+
+p1_tb_events <- get_events(p1_tb, p1_tb$P_mm, p1_tb$datenumeric,
+                          p1_tb$end, p1_tb$rain_start)
+
+p1_tb_events <- get_intensities(p1_tb_events, p1_tb_events$event, p1_tb)
+
+p1_tb_events <- p1_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+# p2 mrms
+p2_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'p2') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+p2_cross <- p2_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., p1_tb_events,
+            by = 'date') %>%
+  left_join(., p2_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .))) #%>%
+  # slice(-1)
+
+# 
+write.csv(p2_cross,
+          './data/final/stage_YN_response/cross/p2_cross_wmean.csv')
+
+# p2_cross <- read_csv('./data/final/stage_YN_response/cross/p2_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+p2_tb_noflow <- p1_tb_events %>%
+  filter(!start_time %in% c(p2_cross$start_time.x)) %>%
+  mutate(site = 'p2',
+         source='tb')
+
+write.csv(p2_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/p2_tb_noflow_wmean.csv')
+
+p2_mrms_noflow <- p2_mrms_events %>%
+  filter(!start_time %in% c(p2_cross$start_time.y)) %>%
+  mutate(site = 'p2',
+         source='mrms')
+
+write.csv(p2_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/p2_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, p2_tb_noflow, p2_mrms_noflow)
+
+```
+
+## LM
+
+Run camera code in camera etf stream events
+
+```{r}
+# get lm camera data
+lm_stage_summ <- camera %>%
+  filter(site == 'lm') %>%
+  mutate(date = mdy(date))
+
+# lpm tb events
+lpm_tb <- et_tb %>%
+  filter(site == 'lpm')
+
+lpm_tb <- get_setup(lpm_tb, lpm_tb$datetime)
+
+lpm_tb_events <- get_events(lpm_tb, lpm_tb$P_mm, lpm_tb$datenumeric,
+                          lpm_tb$end, lpm_tb$rain_start)
+
+lpm_tb_events <- get_intensities(lpm_tb_events, lpm_tb_events$event, lpm_tb)
+
+lpm_tb_events <- lpm_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+# lm mrms
+lm_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'lm') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+lm_cross <- lm_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., lpm_tb_events,
+            by = 'date') %>%
+  left_join(., lm_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+
+write.csv(lm_cross,
+          './data/final/stage_YN_response/cross/lm_cross_wmean.csv')
+
+# lm_cross <- read_csv('./data/final/stage_YN_response/cross/lm_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+lm_tb_noflow <- lpm_tb_events %>%
+  filter(!start_time %in% c(lm_cross$start_time.x)) %>%
+  mutate(site = 'lm',
+         source='tb')
+
+write.csv(lm_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lm_tb_noflow_wmean.csv')
+
+lm_mrms_noflow <- lm_mrms_events %>%
+  filter(!start_time %in% c(lm_cross$start_time.y)) %>%
+  mutate(site = 'lm',
+         source='mrms')
+
+write.csv(lm_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lm_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, lm_tb_noflow, lm_mrms_noflow)
+
+```
+
+## LPM
+
+```{r}
+# get lpm camera data
+lpm_stage_summ <- camera %>%
+  filter(site == 'lpm') %>%
+  mutate(date = mdy(date))
+
+# lpm mrms
+lpm_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'lpm') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+lpm_cross <- lpm_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., lpm_tb_events,
+            by = 'date') %>%
+  left_join(., lpm_mrms_events,
+            by = 'date') %>%
+    mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+  
+# 
+write.csv(lpm_cross,
+          './data/final/stage_YN_response/cross/lpm_cross_wmean.csv')
+
+# lpm_cross <- read_csv('./data/final/stage_YN_response/cross/lpm_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+lpm_tb_noflow <- lpm_tb_events %>%
+  filter(!start_time %in% c(lpm_cross$start_time.x)) %>%
+  mutate(site = 'lpm',
+         source='tb')
+
+write.csv(lpm_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lpm_tb_noflow_wmean.csv')
+
+lpm_mrms_noflow <- lpm_mrms_events %>%
+  filter(!start_time %in% c(lpm_cross$start_time.y)) %>%
+  mutate(site = 'lpm',
+         source='mrms')
+
+write.csv(lpm_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lpm_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, lpm_tb_noflow, lpm_mrms_noflow)
+
+```
+
+## LUM
+
+```{r}
+
+# get lum camera data
+lum_stage_summ <- camera %>%
+  filter(site == 'lum') %>%
+  mutate(date = mdy(date))
+
+# lum mrms
+lum_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'lum') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+lum_cross <- lum_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., lpm_tb_events,
+            by = 'date') %>%
+  left_join(., lum_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .)))
+# 
+write.csv(lum_cross,
+          './data/final/stage_YN_response/cross/lum_cross_wmean.csv')
+
+# lum_cross <- read_csv('./data/final/stage_YN_response/cross/lum_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+lum_tb_noflow <- lpm_tb_events %>%
+  filter(!start_time %in% c(lum_cross$start_time.x)) %>%
+  mutate(site = 'lum',
+         source='tb')
+
+write.csv(lum_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lum_tb_noflow_wmean.csv')
+
+lum_mrms_noflow <- lum_mrms_events %>%
+  filter(!start_time %in% c(lum_cross$start_time.y)) %>%
+  mutate(site = 'lum',
+         source='mrms')
+
+write.csv(lum_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/lum_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, lum_tb_noflow, lum_mrms_noflow)
+
+```
+
+## MM ET
+
+```{r}
+
+# get mm_et camera data
+mm_et_stage_summ <- camera %>%
+  filter(site == 'mm_et') %>%
+  mutate(date = mdy(date))
+
+# mm_et mrms
+mm_et_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mm_et') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2022:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mm_et_cross <- mm_et_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mub_tb_events,
+            by = 'date') %>%
+  left_join(., mm_et_mrms_events,
+            by = 'date') %>%
+  mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .))) %>%
+  slice(-c(6,8))
+
+write.csv(mm_et_cross,
+          './data/final/stage_YN_response/cross/mm_et_cross_wmean.csv')
+
+# mm_et_cross <- read_csv('./data/final/stage_YN_response/cross/mm_et_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mm_et_tb_noflow <- mub_tb_events %>%
+  filter(!start_time %in% c(mm_et_cross$start_time.x)) %>%
+  mutate(site = 'mm_et',
+         source='tb')
+
+write.csv(mm_et_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mm_et_tb_noflow_wmean.csv')
+
+mm_et_mrms_noflow <- mm_et_mrms_events %>%
+  filter(!start_time %in% c(mm_et_cross$start_time.y)) %>%
+  mutate(site = 'mm_et',
+         source='mrms')
+
+write.csv(mm_et_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mm_et_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mm_et_tb_noflow, mm_et_mrms_noflow)
+
+```
+
+## Bighorn
+
+```{r}
+
+bighorn_stage_summ <- read_csv('./data/final/stage_YN_response/bighorn_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+
+# bighorn tb events from QM
+bighorn_tb_events <- read_csv('./data/TB_raw/events_from_qm/bighorn_precip_events.csv')
+
+bighorn_tb_events <- bighorn_tb_events %>%
+  mutate(start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time)) %>% 
+  mutate(start_time = force_tz(start_time),
+         end_time = force_tz(end_time)) %>%
+  select(duration_hr, 
+         MI30_mmhr, 
+         MI60_mmhr,
+         start_time, 
+         end_time, 
+         event_sum_mm) %>%
+  mutate(date = date(start_time))
+
+# bighorn mrms
+bighorn_mrms_events <- mrms_catch_avg %>%
+  filter(ID %in% c('bighorn', 'Bighorn')) %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+bighorn_cross <- bighorn_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., bighorn_tb_events,
+            by = 'date') %>%
+  left_join(., bighorn_mrms_events,
+            by = 'date')
+# 
+write.csv(bighorn_cross,
+          './data/final/stage_YN_response/cross/bighorn_cross_wmean.csv')
+
+# bighorn_cross <- read_csv('./data/final/stage_YN_response/cross/bighorn_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+bighorn_tb_noflow <- bighorn_tb_events %>%
+  filter(!start_time %in% c(bighorn_cross$start_time.x)) %>%
+  mutate(site = 'bighorn',
+         source='tb')
+
+write.csv(bighorn_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/bighorn_tb_noflow_wmean.csv')
+
+bighorn_mrms_noflow <- bighorn_mrms_events %>%
+  filter(!start_time %in% c(bighorn_cross$start_time.y)) %>%
+  mutate(site = 'bighorn',
+         source='mrms')
+
+write.csv(bighorn_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/bighorn_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, bighorn_tb_noflow, bighorn_mrms_noflow)
+
+```
+
+## BL4
+
+```{r}
+
+bl4_stage_summ <- read_csv('./data/final/stage_YN_response/bl4_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# bl4 tb events
+bl4_tb <- cpf_tb %>%
+  filter(site == 'bl4')
+
+bl4_tb <- get_setup(bl4_tb, bl4_tb$datetime)
+
+bl4_tb_events <- get_events(bl4_tb, bl4_tb$P_mm, bl4_tb$datenumeric,
+                          bl4_tb$end, bl4_tb$rain_start)
+
+bl4_tb_events <- get_intensities(bl4_tb_events, bl4_tb_events$event, bl4_tb)
+
+bl4_tb_events <- bl4_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+bl4_export <- bl4_tb_events %>%
+  mutate(site = 'bl4')
+
+write_csv(bl4_export, './data/final/tb_events/bl4_tb_events.csv')
+
+# bl4 mrms
+bl4_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'bl4') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+bl4_cross <- bl4_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., bl4_tb_events,
+            by = 'date') %>%
+  left_join(., bl4_mrms_events,
+            by = 'date')
+# 
+write.csv(bl4_cross,
+          './data/final/stage_YN_response/cross/bl4_cross_wmean.csv')
+
+#bl4_cross <- read_csv('./data/final/stage_YN_response/cross/bl4_cross2.csv') 
+
+# no flow
+bl4_tb_noflow <- bl4_tb_events %>%
+  filter(!start_time %in% c(bl4_cross$start_time.x)) %>%
+  mutate(site = 'bl4',
+         source='tb')
+
+write.csv(bl4_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/bl4_tb_noflow_wmean.csv')
+
+bl4_mrms_noflow <- bl4_mrms_events %>%
+  filter(!start_time %in% c(bl4_cross$start_time.y)) %>%
+  mutate(site = 'bl4',
+         source='mrms')
+
+write.csv(bl4_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/bl4_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, bl4_tb_noflow, bl4_mrms_noflow)
+
+```
+
+## Dry
+
+```{r}
+
+dry_stage_summ <- read_csv('./data/final/stage_YN_response/dry_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+## dry tb events from QM
+dry_tb_events <- read_csv('./data/TB_raw/events_from_qm/dry_precip_events.csv')
+
+dry_tb_events <- dry_tb_events %>%
+  mutate(start_time = mdy_hm(start_time),
+         end_time = mdy_hm(end_time)) %>% 
+  mutate(start_time = force_tz(start_time),
+         end_time = force_tz(end_time)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr, 
+         MI60_mmhr,
+         start_time, 
+         end_time, 
+         event_sum_mm) %>%
+  mutate(date = date(start_time))
+
+# dry mrms
+dry_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'dry') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+dry_cross <- dry_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., dry_tb_events,
+            by = 'date') %>%
+  left_join(., dry_mrms_events,
+            by = 'date') %>%
+  # slice(-c(7,8,9,13)) # check
+  slice(-c(7,11))
+# 
+write.csv(dry_cross,
+          './data/final/stage_YN_response/cross/dry_cross_wmean.csv')
+
+# dry_cross <- read_csv('./data/final/stage_YN_response/cross/dry_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+dry_tb_noflow <- dry_tb_events %>%
+  filter(!start_time %in% c(dry_cross$start_time.x)) %>%
+  mutate(site = 'dry',
+         source='tb')
+
+write.csv(dry_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/dry_tb_noflow_wmean.csv')
+
+dry_mrms_noflow <- dry_mrms_events %>%
+  filter(!start_time %in% c(dry_cross$start_time.y)) %>%
+  mutate(site = 'dry',
+         source='mrms')
+
+write.csv(dry_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/dry_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, dry_tb_noflow, dry_mrms_noflow)
+
+```
+
+## Michigan
+
+```{r}
+
+mich_stage_summ <- read_csv('./data/final/stage_YN_response/mich_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# mich tb events
+mich_tb <- cpf_tb %>%
+  filter(site == 'michigan')
+
+mich_tb <- get_setup(mich_tb, mich_tb$datetime)
+
+mich_tb_events <- get_events(mich_tb, mich_tb$P_mm, mich_tb$datenumeric,
+                          mich_tb$end, mich_tb$rain_start)
+
+mich_tb_events <- get_intensities(mich_tb_events, mich_tb_events$event, mich_tb)
+
+mich_tb_events <- mich_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+michigan_export <- mich_tb_events %>%
+  mutate(site = 'michigan')
+
+write_csv(michigan_export, './data/final/tb_events/michigan_tb_events.csv')
+
+# mich mrms
+mich_mrms_events <- mrms_catch_avg %>%
+  filter(ID %in% c('michigan',
+                   'michigan_river')) %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mich_cross <- mich_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mich_tb_events,
+            by = 'date') %>%
+  left_join(., mich_mrms_events,
+            by = 'date')
+
+write.csv(mich_cross,
+          './data/final/stage_YN_response/cross/mich_cross_wmean.csv')
+
+#mich_cross <- read_csv('./data/final/stage_YN_response/cross/mich_cross2.csv')
+
+# no flow
+michigan_tb_noflow <- mich_tb_events %>%
+  filter(!start_time %in% c(mich_cross$start_time.x)) %>%
+  mutate(site = 'michigan',
+         source='tb')
+
+write.csv(michigan_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/michigan_tb_noflow_wmean.csv')
+
+michigan_mrms_noflow <- mich_mrms_events %>%
+  filter(!start_time %in% c(mich_cross$start_time.y)) %>%
+  mutate(site = 'michigan',
+         source='mrms')
+
+write.csv(michigan_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/michigan_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, michigan_tb_noflow, michigan_mrms_noflow)
+
+```
+
+## Montgomery
+
+```{r}
+
+mont_stage_summ <- read_csv('./data/final/stage_YN_response/mont_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# mont tb events
+mont_tb <- cpf_tb %>%
+  filter(site == 'montgomery')
+
+mont_tb <- get_setup(mont_tb, mont_tb$datetime)
+
+mont_tb_events <- get_events(mont_tb, mont_tb$P_mm, mont_tb$datenumeric,
+                          mont_tb$end, mont_tb$rain_start)
+
+mont_tb_events <- get_intensities(mont_tb_events, mont_tb_events$event, mont_tb)
+
+mont_tb_events <- mont_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+# mont mrms
+mont_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'montgomery') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mont_cross <- mont_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mont_tb_events,
+            by = 'date') %>%
+  left_join(., mont_mrms_events,
+            by = 'date') %>%
+  slice(-c(9,11,12)) %>% # FIX THIS MANUALLY bc rain tb even starts on 8/1 in all cross 2
+  mutate(start_time.x = if_else(event_id == 90, 
+                                NA, start_time.x),
+         end_time.x = if_else(event_id == 90, 
+                                NA, end_time.x),
+         duration_hr.x = if_else(event_id == 90,
+                                 0, duration_hr.x),
+         event_sum_mm.x = if_else(event_id == 90,
+                                 0, event_sum_mm.x),
+         MI60_mmhr.x =  if_else(event_id == 90,
+                                 0, MI60_mmhr.x),
+         MI30_mmhr.x =  if_else(event_id == 90,
+                                 0, MI30_mmhr.x))
+
+# 
+write.csv(mont_cross,
+          './data/final/stage_YN_response/cross/mont_cross_wmean.csv')
+
+# mont_cross <- read_csv('./data/final/stage_YN_response/cross/mont_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mont_tb_noflow <- mont_tb_events %>%
+  filter(!start_time %in% c(mont_cross$start_time.x)) %>%
+  mutate(site = 'montgomery',
+         source='tb')
+
+write.csv(mont_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mont_tb_noflow_wmean.csv')
+
+mont_mrms_noflow <- mont_mrms_events %>%
+  filter(!start_time %in% c(mont_cross$start_time.y)) %>%
+  mutate(site = 'montgomery',
+         source='mrms')
+
+write.csv(mont_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mont_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mont_tb_noflow, mont_mrms_noflow)
+
+```
+
+## Mt. Campus
+
+```{r}
+
+mtcamp_stage_summ <- read_csv('./data/final/stage_YN_response/mtcamp_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+mtcampus_tb <- cpf_tb %>%
+  filter(site == 'mtcampus') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'),
+         p_mm = tip * 0.254) %>%
+  dplyr::select(-tip)
+
+# get events for tb_filter
+mtc_tb <- mtcampus_tb %>%
+  mutate(timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+  group_by(site, timestamps_10min) %>%
+  summarize(rain_mm = sum(p_mm)) %>%
+  rename(datetime = timestamps_10min) 
+
+# get events for all sites
+mtc_tb_events <- get_mrms_all_events(mtc_tb, 'mtcampus')
+
+mtc_tb_events <- get_mrms_intensities(mtc_tb_events, 'mtcampus')
+
+mtc_tb_events <- mtc_tb_events %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr, 
+         MI60_mmhr,
+         start_time, 
+         end_time, 
+         event_sum_mm) %>%
+  mutate(date = date(start_time))
+
+mtcampus_export <- mtc_tb_events %>%
+  mutate(site = 'mtcampus')
+
+write_csv(mtcampus_export, './data/final/tb_events/mtcampus_tb_events.csv')
+
+# mtcampus mrms
+mtcamp_mrms_events <- mrms_catch_avg %>%
+  filter(ID %in% c('mtcampus',
+                   'mt_campus')) %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mtcamp_cross <- mtcamp_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mtc_tb_events,
+            by = 'date') %>%
+  left_join(., mtcamp_mrms_events,
+            by = 'date') %>%
+  slice(-c(5,7,8,9,12))
+# 
+write.csv(mtcamp_cross,
+          './data/final/stage_YN_response/cross/mtcamp_cross_wmean.csv')
+
+# mtcamp_cross <- read_csv('./data/final/stage_YN_response/cross/mtcamp_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mtcamp_tb_noflow <- mtc_tb_events %>%
+  filter(!start_time %in% c(mtcamp_cross$start_time.x)) %>%
+  mutate(site = 'mtcampus',
+         duration_hr = as.numeric(duration_hr),
+         source='tb')
+
+write.csv(mtcamp_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mtcamp_tb_noflow_wmean.csv')
+
+mtcamp_mrms_noflow <- mtcamp_mrms_events %>%
+  filter(!start_time %in% c(mtcamp_cross$start_time.y)) %>%
+  mutate(site = 'mtcampus',
+         source='mrms')
+
+write.csv(mtcamp_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mtcamp_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mtcamp_tb_noflow, mtcamp_mrms_noflow)
+
+```
+
+## Washout
+
+Use Dry Creek TB b/c Larimer Co Washout TB is off (negative cum sum in 2021, no 2022, 150 in in 2023)
+
+```{r}
+
+washout_stage_summ <- read_csv('./data/final/stage_YN_response/washout_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# washout mrms
+washout_mrms_events <- mrms_catch_avg %>%
+  filter(ID %in% c('washout')) %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+washout_cross <- washout_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., dry_tb_events,
+            by = 'date') %>%
+  left_join(., washout_mrms_events,
+            by = 'date') %>%
+  slice(-c(3)) %>%
+   mutate(start_time.y = if_else(event_id == 9,
+                                NA, start_time.y),
+         end_time.y = if_else(event_id == 9,
+                                NA, end_time.y),
+         duration_hr.y = if_else(event_id == 9,
+                                 0, duration_hr.y),
+         event_sum_mm.y = if_else(event_id == 9,
+                                 0, event_sum_mm.y),
+         MI60_mmhr.y =  if_else(event_id == 9,
+                                 0, MI60_mmhr.y),
+         MI30_mmhr.y =  if_else(event_id == 9,
+                                 0, MI30_mmhr.y))
+  
+
+write.csv(washout_cross,
+          './data/final/stage_YN_response/cross/washout_cross_wmean.csv')
+
+# washout_cross <- read_csv('./data/final/stage_YN_response/cross/washout_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+washout_tb_noflow <- dry_tb_events %>%
+  filter(!start_time %in% c(washout_cross$start_time.x)) %>%
+  mutate(site = 'washout',
+         source='tb')
+
+write.csv(washout_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/washout_tb_noflow_wmean.csv')
+
+washout_mrms_noflow <- washout_mrms_events %>%
+  filter(!start_time %in% c(washout_cross$start_time.y)) %>%
+  mutate(site = 'washout',
+         source='mrms')
+
+write.csv(washout_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/washout_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, washout_tb_noflow, washout_mrms_noflow)
+
+```
+
+## ME
+
+```{r}
+
+me_stage_summ <- read_csv('./data/final/stage_YN_response/me_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# me tb events
+me_tb <- ben_tb %>%
+  filter(site == 'me')
+
+me_tb <- get_setup(me_tb, me_tb$datetime)
+
+me_tb_events <- get_events(me_tb, me_tb$P_mm, me_tb$datenumeric,
+                          me_tb$end, me_tb$rain_start)
+
+me_tb_events <- get_intensities(me_tb_events, me_tb_events$event, me_tb)
+
+me_tb_events <- me_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+me_export <- me_tb_events %>%
+  mutate(site = 'me')
+
+write_csv(me_export, './data/final/tb_events/me_tb_events.csv')
+
+# me mrms
+me_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'me') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+me_cross <- me_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., me_tb_events,
+            by = 'date') %>%
+  left_join(., me_mrms_events,
+            by = 'date') %>%
+  slice(-c(2,3))
+
+# 
+write.csv(me_cross,
+          './data/final/stage_YN_response/cross/me_cross_wmean.csv')
+
+# me_cross <- read_csv('./data/final/stage_YN_response/cross/me_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+me_tb_noflow <- me_tb_events %>%
+  filter(!start_time %in% c(me_cross$start_time.x)) %>%
+  mutate(site = 'me',
+         source='tb')
+
+write.csv(me_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/me_tb_noflow_wmean.csv')
+
+me_mrms_noflow <- me_mrms_events %>%
+  filter(!start_time %in% c(me_cross$start_time.y)) %>%
+  mutate(site = 'me',
+         source='mrms')
+
+write.csv(me_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/me_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, me_tb_noflow, me_mrms_noflow)
+
+```
+
+## MM
+
+```{r}
+
+mm_stage_summ <- read_csv('./data/final/stage_YN_response/mm_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# MM tb events
+mm_tb <- ben_tb %>%
+  filter(site == 'mm')
+
+mm_tb <- get_setup(mm_tb, mm_tb$datetime)
+
+mm_tb_events <- get_events(mm_tb, mm_tb$P_mm, mm_tb$datenumeric,
+                          mm_tb$end, mm_tb$rain_start)
+
+mm_tb_events <- get_intensities(mm_tb_events, mm_tb_events$event, mm_tb)
+
+mm_tb_events <- mm_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+mm_export <- mm_tb_events %>%
+  mutate(site = 'mm')
+
+write_csv(mm_export, './data/final/tb_events/mm_tb_events.csv')
+
+# mm mrms
+mm_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mm') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mm_cross <- mm_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mm_tb_events,
+            by = 'date') %>%
+  left_join(., mm_mrms_events,
+            by = 'date') %>%
+  slice(-2)
+# 
+write.csv(mm_cross,
+          './data/final/stage_YN_response/cross/mm_cross_wmean.csv')
+
+# mm_cross <- read_csv('./data/final/stage_YN_response/cross/mm_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mm_tb_noflow <- mm_tb_events %>%
+  filter(!start_time %in% c(mm_cross$start_time.x)) %>%
+  mutate(site = 'mm',
+         source='tb')
+
+write.csv(mm_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mm_tb_noflow_wmean.csv')
+
+mm_mrms_noflow <- mm_mrms_events %>%
+  filter(!start_time %in% c(mm_cross$start_time.y)) %>%
+  mutate(site = 'mm',
+         source='mrms')
+
+write.csv(mm_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mm_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mm_tb_noflow, mm_mrms_noflow)
+
+```
+
+## MW
+
+```{r}
+
+mw_stage_summ <- read_csv('./data/final/stage_YN_response/mw_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# MW tb events
+mw_tb <- ben_tb %>%
+  filter(site == 'mw')
+
+mw_tb <- get_setup(mw_tb, mw_tb$datetime)
+
+mw_tb_events <- get_events(mw_tb, mw_tb$P_mw, mw_tb$datenumeric,
+                          mw_tb$end, mw_tb$rain_start)
+
+mw_tb_events <- get_intensities(mw_tb_events, mw_tb_events$event, mw_tb)
+
+mw_tb_events <- mw_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+mw_export <- mw_tb_events %>%
+  mutate(site = 'mw')
+
+write_csv(mw_export, './data/final/tb_events/mw_tb_events.csv')
+
+# mw mrms
+mw_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'mw') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+mw_cross <- mw_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., mw_tb_events,
+            by = 'date') %>%
+  left_join(., mw_mrms_events,
+            by = 'date') %>%
+  slice(-2)
+# 
+write.csv(mw_cross,
+          './data/final/stage_YN_response/cross/mw_cross_wmean.csv')
+
+# mw_cross <- read_csv('./data/final/stage_YN_response/cross/mw_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+mw_tb_noflow <- mw_tb_events %>%
+  filter(!start_time %in% c(mw_cross$start_time.x)) %>%
+  mutate(site = 'mw',
+         source='tb')
+
+write.csv(mw_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mw_tb_noflow_wmean.csv')
+
+mw_mrms_noflow <- mw_mrms_events %>%
+  filter(!start_time %in% c(mw_cross$start_time.y)) %>%
+  mutate(site = 'mw',
+         source='mrms')
+
+write.csv(mw_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/mw_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, mw_tb_noflow, mw_mrms_noflow)
+
+```
+
+## UE
+
+```{r}
+
+ue_stage_summ <- read_csv('./data/final/stage_YN_response/ue_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# ue tb events
+ue_tb <- ben_tb %>%
+  filter(site == 'ue')
+
+ue_tb <- get_setup(ue_tb, ue_tb$datetime)
+
+ue_tb_events <- get_events(ue_tb, ue_tb$P_ue, ue_tb$datenumeric,
+                          ue_tb$end, ue_tb$rain_start)
+
+ue_tb_events <- get_intensities(ue_tb_events, ue_tb_events$event, ue_tb)
+
+ue_tb_events <- ue_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+ue_export <- ue_tb_events %>%
+  mutate(site = 'ue')
+
+write_csv(ue_export, './data/final/tb_events/ue_tb_events.csv')
+
+# ue mrms
+ue_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'ue') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+ue_cross <- ue_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., ue_tb_events,
+            by = 'date') %>%
+  left_join(., ue_mrms_events,
+            by = 'date')
+# 
+write.csv(ue_cross,
+          './data/final/stage_YN_response/cross/ue_cross_wmean.csv')
+
+# ue_cross <- read_csv('./data/final/stage_YN_response/cross/ue_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+ue_tb_noflow <- ue_tb_events %>%
+  filter(!start_time %in% c(ue_cross$start_time.x)) %>%
+  mutate(site = 'ue',
+         source='tb')
+
+write.csv(ue_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/ue_tb_noflow_wmean.csv')
+
+ue_mrms_noflow <- ue_mrms_events %>%
+  filter(!start_time %in% c(ue_cross$start_time.y)) %>%
+  mutate(site = 'ue',
+         source='mrms')
+
+write.csv(ue_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/ue_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, ue_tb_noflow, ue_mrms_noflow)
+
+```
+
+## UM
+
+```{r}
+
+um_stage_summ <- read_csv('./data/final/stage_YN_response/um_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# um tb events -- UM TB NEVER RAN SO USE UW
+uw_tb <- ben_tb %>%
+  filter(site == 'uw')
+
+uw_tb <- get_setup(uw_tb, uw_tb$datetime)
+
+uw_tb_events <- get_events(uw_tb, uw_tb$P_uw, uw_tb$datenuweric,
+                          uw_tb$end, uw_tb$rain_start)
+
+uw_tb_events <- get_intensities(uw_tb_events, uw_tb_events$event, uw_tb)
+
+uw_tb_events <- uw_tb_events %>%
+    mutate(starttime = force_tz(starttime),
+         endtime = force_tz(endtime)) %>%
+  dplyr::select(duration_hr, 
+         MI30_mmhr = MI30, 
+         MI60_mmhr = MI60,
+         start_time = starttime, 
+         end_time = endtime, 
+         event_sum_mm = P) %>%
+  mutate(date = date(start_time))
+
+uw_export <- uw_tb_events %>%
+  mutate(site = 'uw')
+
+write_csv(uw_export, './data/final/tb_events/uw_tb_events.csv')
+
+# um mrms
+um_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'um') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+um_cross <- um_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., uw_tb_events,
+            by = 'date') %>%
+  left_join(., um_mrms_events,
+            by = 'date')
+# 
+write.csv(um_cross,
+          './data/final/stage_YN_response/cross/um_cross_wmean.csv')
+
+# um_cross <- read_csv('./data/final/stage_YN_response/cross/um_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+um_tb_noflow <- uw_tb_events %>%
+  filter(!start_time %in% c(um_cross$start_time.x)) %>%
+  mutate(site = 'um',
+         source='tb')
+
+write.csv(um_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/um_tb_noflow_wmean.csv')
+
+um_mrms_noflow <- um_mrms_events %>%
+  filter(!start_time %in% c(um_cross$start_time.y)) %>%
+  mutate(site = 'um',
+         source='mrms')
+
+write.csv(um_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/um_mrms_noflow_wmean.csv')
+
+#rain_noflow <- bind_rows(rain_noflow, um_tb_noflow, um_mrms_noflow)
+
+```
+
+## UW
+
+```{r}
+uw_stage_summ <- read_csv('./data/final/stage_YN_response/uw_stage_events.csv') %>%
+  mutate(datetime_peak = with_tz(datetime_peak, tzone = "MST"),
+          datetime_min = with_tz(datetime_min, tzone = "MST"))
+
+# uw mrms
+uw_mrms_events <- mrms_catch_avg %>%
+  filter(ID == 'uw') %>%
+  arrange(start_time) %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9),
+         year %in% c(2021:2023)) %>%
+  select(start_time, end_time, event_sum_mm,
+         MI30_mmhr, MI60_mmhr, duration_hr) %>%
+  mutate(date = date(start_time))
+
+uw_cross <- uw_stage_summ %>%
+  mutate(date = date(datetime_min)) %>%
+  left_join(., uw_tb_events,
+            by = 'date') %>%
+  left_join(., uw_mrms_events,
+            by = 'date') %>%
+    mutate(across(event_sum_mm.y:duration_hr.y,
+              ~ if_else(is.na(.), 0, .))) #%>%
+  # slice(-2)
+# 
+write.csv(uw_cross,
+          './data/final/stage_YN_response/cross/uw_cross_wmean.csv')
+
+# uw_cross <- read_csv('./data/final/stage_YN_response/cross/uw_cross.csv') %>%
+#   mutate(start_time.x = mdy_hm(start_time.x),
+#          start_time.y = mdy_hm(start_time.y))
+
+# no flow
+uw_tb_noflow <- uw_tb_events %>%
+  filter(!start_time %in% c(uw_cross$start_time.x)) %>%
+  mutate(site = 'uw',
+         source='tb')
+
+write.csv(uw_tb_noflow, 
+          './data/final/stage_YN_response/noflow_rain/uw_tb_noflow_wmean.csv')
+
+uw_mrms_noflow <- uw_mrms_events %>%
+  filter(!start_time %in% c(uw_cross$start_time.y)) %>%
+  mutate(site = 'uw',
+         source='mrms')
+
+write.csv(uw_mrms_noflow, 
+          './data/final/stage_YN_response/noflow_rain/uw_mrms_noflow_wmean.csv')
+
+```
+
+# No flow x Rain
+
+```{r}
+# just bind all rows here instead
+# Define the folder path
+folder_path <- "./data/final/stage_YN_response/noflow_rain"
+
+# List all files in the folder
+# file_list <- list.files(folder_path, 
+#                         pattern = "\\.csv$",
+#                         full.names = TRUE)
+
+file_list <- list.files(folder_path, 
+                        pattern = "wmean\\.csv$", 
+                        full.names = TRUE)
+
+# Read and combine all files
+rain_noflow <- file_list %>%
+  map_dfr(read_csv) 
+
+# filter out when no stage data
+rain_noflow1 <- rain_noflow %>%
+  mutate(
+    condition = case_when(
+      site == 'lpm' &
+        start_time > ymd_hms('2023-06-01 00:00:00') &
+        start_time < ymd_hms('2023-06-05 23:00:00') ~ 'remove',
+      site == 'lpm' &
+        start_time > ymd_hms('2023-07-18 00:00:00') &
+        start_time < ymd_hms('2023-08-09 23:00:00') ~ 'remove',
+      site == 'lum' &
+        start_time > ymd_hms('2023-08-08 00:00:00') &
+        start_time < ymd_hms('2023-08-09 23:00:00') ~ 'remove',
+      site == 'mm_et' &
+        start_time > ymd_hms('2023-06-01 00:00:00') &
+        start_time < ymd_hms('2023-06-05 23:00:00') ~ 'remove',
+      site == 'lpm' &
+      start_time > ymd_hms('2023-09-28 00:00:00') ~ 'remove',
+            site == 'lum' &
+      start_time > ymd_hms('2023-09-28 00:00:00') ~ 'remove',
+            site == 'mm_et' &
+      start_time > ymd_hms('2023-09-28 00:00:00') ~ 'remove',
+            site == 'lm' &
+      start_time > ymd_hms('2023-09-28 00:00:00') ~ 'remove',
+      site == 'bl4' &
+        start_time > ymd_hms('2022-06-01 00:00:00') &
+        start_time < ymd_hms('2022-06-10 23:00:00') ~ 'remove',
+      site == 'dry' &
+        start_time > ymd_hms('2022-08-05 00:00:00') &
+        start_time < ymd_hms('2022-08-15 23:00:00') ~ 'remove',
+      site == 'mtcampus' &
+        start_time > ymd_hms('2023-08-13 00:00:00') &
+        start_time < ymd_hms('2023-09-28 23:00:00') ~ 'remove',
+      site == 'washout' &
+        start_time > ymd_hms('2023-05-31 23:00:00') ~ 'remove',
+      site == 'me' &
+        start_time > ymd_hms('2022-08-15 15:30:00') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2023-06-01 00:00:00') &
+        start_time < ymd_hms('2023-06-22 23:00:00') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2023-07-12 00:00:00') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2022-07-29 00:00:00') &
+        start_time < ymd_hms('2023-06-10 23:00:00') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2023-06-12 00:00:00') ~ 'remove',
+      site == 'ue' &
+        start_time > ymd_hms('2023-09-19 00:00:00') ~ 'remove',
+      site == 'uw' &
+        start_time > ymd_hms('2023-09-06 00:00:00') ~ 'remove',
+      site == 'um' &
+        start_time > ymd_hms('2021-08-10 00:00:00') &
+        start_time < ymd_hms('2021-08-20 23:00:00') ~ 'remove',
+      site == 'um' &
+        start_time > ymd_hms('2022-06-01 00:00:00') &
+        start_time < ymd_hms('2022-06-07 23:00:00') ~ 'remove',
+       site == 'um' &
+        start_time > ymd_hms('2023-06-01 00:00:00') &
+        start_time < ymd_hms('2023-07-12 23:00:00') ~ 'remove',
+       site == 'um' &
+        start_time > ymd_hms('2023-09-19 00:00:00') ~ 'remove',
+        TRUE ~ 'keep')) %>%
+  filter(condition == 'keep')
+
+#######
+# write all sites no flow rain csv
+write.csv(rain_noflow1,
+          './data/final/stage_YN_response/noflow_rain/all_noflow_wmean.csv')
+
+```
+
+# Flow x Rain
+
+```{r}
+
+# Define the folder path
+folder_path <- "./data/final/stage_YN_response/cross"
+
+# # List all CSV files with 'cross2' in the name
+# file_list <- list.files(folder_path, pattern = "cross2.*\\.csv$", full.names = TRUE)
+
+file_list <- list.files(folder_path, pattern = "wmean\\.csv$", full.names = TRUE)
+
+
+# Function to read and add site name
+read_and_add_site <- function(file) {
+  site_name <- str_extract(basename(file), "^[^_]+")  # Extract text before the first '_'
+  read_csv(file) %>%
+    mutate(site = site_name)
+}
+
+# Read and combine all matching files
+flow <- file_list %>%
+  map_dfr(read_and_add_site)
+
+flow <- flow %>%
+  mutate(site = if_else(site == 'mm' & is.na(max_stage),
+                        'mm_et', 
+                        site))
+
+# filter out missing tb
+flow1 <- flow %>% 
+  mutate(
+    condition = case_when(
+      site == 'hum' &
+        date > ymd('2022-08-04') ~ 'remove',
+      site == 'hm' &
+        date > ymd('2022-08-04') ~ 'remove',
+      site == 'p1' &
+        date > ymd('2022-07-12') &
+        date < ymd('2022-07-21') ~ 'remove',
+      site == 'p1' &
+        date > ymd('2023-07-21') ~ 'remove',
+      site == 'p2' &
+        date > ymd('2022-07-12') &
+        date < ymd('2022-07-21') ~ 'remove',
+      site == 'p2' &
+        date > ymd('2023-07-21') ~ 'remove',
+      site == 'lpm' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lpm' &
+        date > ymd('2023-06-11') ~ 'remove',
+      site == 'lm' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lm' &
+        date > ymd('2023-06-11') ~ 'remove',
+      site == 'lum' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lum' &
+        date > ymd('2023-06-11') ~ 'remove',
+      site == 'aspen' &
+        date < ymd('2021-05-18') ~ 'remove',
+      site == 'aspen' &
+        date > ymd('2021-06-28') &
+        date < ymd('2021-10-7') ~ 'remove',
+      site == 'aspen' &
+        date > ymd('2023-09-21') ~ 'remove',
+      site == 'bighorn' &
+        date < ymd('2021-05-07') ~ 'remove',
+      site == 'bl4' &
+        date < ymd('2021-06-11') ~ 'remove',
+      site == 'bl4' &
+        date > ymd('2023-09-04') ~ 'remove',
+      site == 'dadd' &
+        date > ymd('2022-05-12') ~ 'remove',
+      site == 'dry' &
+        date < ymd('2021-05-18') ~ 'remove',
+      site == 'michigan' &
+        date > ymd('2021-10-24') ~ 'remove',
+      site == 'montgomery' &
+        date < ymd('2021-06-11') ~ 'remove',
+      site == 'montgomery' &
+        date > ymd('2023-09-19') ~ 'remove',
+      site == 'me' &
+        date < ymd('2021-07-19') ~ 'remove',
+      site == 'me' &
+        date > ymd('2021-10-21') &
+        date < ymd('2022-06-16') ~ 'remove',
+      site == 'me' & 
+        date > ymd('2023-09-07') ~ 'remove',
+      site == 'mm' &
+        date < ymd('2021-09-06') ~ 'remove',
+      site == 'mm' &
+        date > ymd('2021-10-12') &
+        date < ymd('2022-05-22') ~ 'remove',
+      site == 'mm' &
+        date > ymd('2022-06-07') &
+        date < ymd('2022-08-10') ~ 'remove',
+      site == 'mm' &
+        date > ymd('2022-12-15') &
+        date < ymd('2023-06-09') ~ 'remove',
+      site == 'mm' & 
+        date > ymd('2023-09-28') ~ 'remove',
+      site == 'mw' &
+        date < ymd('2021-08-20') ~ 'remove',
+      site == 'mw' &
+        date > ymd('2021-10-14') &
+        date < ymd('2022-05-06') ~ 'remove',
+      site == 'mw' &
+        date > ymd('2022-07-07') &
+        date < ymd('2022-08-03') ~ 'remove',
+      site == 'mw' & 
+        date > ymd('2023-09-19') ~ 'remove',
+      site == 'ue' &
+        date < ymd('2021-09-06') ~ 'remove',
+      site == 'ue' & 
+        date > ymd('2021-10-12') &
+        date < ymd('2022-05-07') ~ 'remove',
+      site == 'ue' &
+        date > ymd('2023-05-01') ~ 'remove',
+      site == 'mw' & 
+        date > ymd('2023-06-23') ~ 'remove',
+      site == 'um' & 
+        date < ymd('2021-07-19') ~ 'remove',
+      site == 'um' & 
+        date > ymd('2023-09-07') ~ 'remove', # um stage sensor uses uw tb so have same dates
+      site == 'uw' & 
+        date < ymd('2021-07-19') ~ 'remove',
+      site == 'uw' & 
+        date > ymd('2023-09-07') ~ 'remove',
+      TRUE ~ 'keep')) %>%
+  filter(condition == 'keep') %>%
+  filter(!(site == 'mich' & date > ymd('2022-05-31')))
+
+write.csv(flow1, './data/final/stage_YN_response/cross/all_cross_wmean.csv')
+# manully fixed mont event 90 and fixed some NA mrms that should havce been 0
+# also added fire column
+# mt camp event 8/1-8/3/23 for mrms needs to be manually added -- only for max dataset
+# double check all missing events for tb and mrms
+
+#flow1 <- read_csv('./data/final/stage_YN_response/cross/all_cross_max.csv')
+
+```
+
+# Logistic regression
+
+etf_tb, etf_mrms, cpf_tb, cpf_mrms were manually copied from all cross csv and rain_no flow csv
+
+```{r}
+
+# metric we are looking at
+metric <- 'event_sum_mm'
+
+```
+
+
+## ETF TB
+
+```{r}
+
+etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
+  drop_na(MI60_mmhr) %>%
+  mutate(date = mdy(date)) %>%
+  mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>%
+  mutate(month = month(date)) %>%
+  filter(month %in% c(6:9))
+
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
+
+etf_tb <- left_join(etf_tb,
+                    burn,
+                    by = 'site')
+
+# cumulative potenital water deficit
+pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
+  rename(date = Date)
+
+# join pwd to etf_tb
+etf_tb <- left_join(etf_tb,
+                    pwd,
+                    by = c('site', 'date'))
+
+# model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
+#               data=etf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_tb <- etf_tb %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
+# conf_matrix
+
+# Group by site and calculate kappa value for each site
+site_kappa_values <- etf_tb %>%
+  group_by(site) %>%
+  #filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use), factor(flow))$overall["Kappa"])
+
+
+et_tb_kappa <- site_kappa_values %>%
+  mutate(fire = 'etf',
+         source = 'tb')
+
+# site count for 1s
+etf_tb_count <- etf_tb %>%
+  group_by(site) %>%
+  summarize(sum = sum(flow),
+            count = n())
+
+```
+
+## ETF MRMS
+
+```{r}
+
+etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_wmean.csv') %>%
+  mutate(date = mdy(date),
+         start_time = mdy_hm(start_time)) %>%
+  filter(date > ymd('2022-06-20')) %>%
+  mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>% 
+  mutate(
+    condition = case_when(
+      site == 'hum' &
+        date > ymd('2022-08-04') ~ 'remove',
+      site == 'hm' &
+        date > ymd('2022-08-04') ~ 'remove',
+      site == 'p1' &
+        date > ymd('2022-07-12') &
+        date < ymd('2022-07-21') ~ 'remove',
+      site == 'p1' &
+        date > ymd('2023-07-21') ~ 'remove',
+      site == 'p2' &
+        date > ymd('2022-07-12') &
+        date < ymd('2022-07-21') ~ 'remove',
+      site == 'p2' &
+        date > ymd('2023-07-21') ~ 'remove',
+      site == 'lpm' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lpm' &
+        date > ymd('2023-06-11') ~ 'remove',
+      site == 'lm' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lm' &
+        date > ymd('2023-06-11') ~ 'remove',
+      site == 'lum' &
+        date > ymd('2022-10-18') &
+        date < ymd('2023-05-24') ~ 'remove',
+      site == 'lum' &
+        date > ymd('2023-06-11') ~ 'remove',
+      TRUE ~ 'keep'
+    )
+  ) %>%
+  filter(condition == 'keep')
+
+etf_mrms <- left_join(etf_mrms,
+                    burn,
+                    by = 'site')
+
+# join pwd to etf_tb
+etf_mrms <- left_join(etf_mrms,
+                    pwd,
+                    by = c('site', 'date'))
+
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=etf_mrms,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# etf_mrms <- etf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
+
+# by site
+site_kappa_values <- etf_mrms %>%
+  group_by(site) %>%
+  #filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
+                                      + lag_pwd,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
+
+
+et_mrms_kappa <- site_kappa_values %>%
+  mutate(fire = 'etf',
+         source = 'mrms')
+
+# site count for 1s
+etf_mrms_count <- etf_mrms %>%
+  group_by(site) %>%
+  summarize(sum = sum(flow),
+            count = n())
+
+```
+
+## CPF TB
+
+- Remove Michigan in both bc no stream events
+
+
+```{r}
+
+cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
+  drop_na(MI60_mmhr) %>%
+  mutate(date = mdy(date)) %>%
+  filter(!site %in% c('michigan', 'mich')) %>%
+  mutate(site = if_else(site == 'mont',
+                        'montgomery',
+                        site)) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site)) %>%
+  filter(!(site == 'bighorn' & date > ymd('2023-10-01'))) %>%
+  filter(!(site == 'dry' & date > ymd('2023-10-01'))) %>%
+  filter(!(site == 'mtcampus' & date < ymd('2021-06-01'))) %>%
+  mutate(month = month(date)) %>%
+  filter(month %in% c(6:9))
+  
+
+cpf_tb <- left_join(cpf_tb,
+                    burn,
+                    by = 'site')
+
+# cumulative potenital water deficit
+pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
+  rename(date = Date) %>%
+  mutate(site = tolower(site))
+
+# join pwd to cpf_tb
+cpf_tb <- left_join(cpf_tb,
+                    pwd,
+                    by = c('site', 'date'))
+
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_tb,
+#               family='binomial')
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_tb <- cpf_tb %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# conf_matrix
+
+# by site
+site_kappa_values <- cpf_tb %>%
+  group_by(site) %>%
+  #filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
+                                      + lag_pwd,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
+
+cp_tb_kappa <- site_kappa_values %>%
+  mutate(fire = 'cpf',
+         source = 'tb')
+
+
+site_kappa_values
+
+# site count for 1s
+cpf_tb_count <- cpf_tb %>%
+  group_by(site) %>%
+  summarize(sum = sum(flow),
+            count = n())
+
+```
+
+## CPF MRMS
+
+```{r}
+
+cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_wmean.csv') %>%
+  filter(!site %in% c('michigan', 'mich')) %>%
+  mutate(site = if_else(site == 'mont',
+                        'montgomery',
+                        site)) %>%
+  mutate(site = if_else(site == 'mtcamp',
+                        'mtcampus',
+                        site)) %>%
+  mutate(date = mdy(date),
+         start_time = mdy_hm(start_time)) %>%
+  mutate(
+    condition = case_when(
+      site == 'aspen' &
+        start_time < ymd_hms('2021-05-18 14:30:00') ~ 'remove',
+      site == 'aspen' &
+        start_time > ymd_hms('2021-06-28 11:56:00') &
+        start_time < ymd_hms('2021-10-7 15:00:00') ~ 'remove',
+      site == 'aspen' &
+        start_time > ymd_hms('2023-09-21 12:45:00') ~ 'remove',
+      site == 'bighorn' &
+        start_time < ymd_hms('2021-05-07 11:20:00') ~ 'remove',
+      site == 'bl4' &
+        start_time < ymd_hms('2021-06-11 13:00:00') ~ 'remove',
+      site == 'bl4' &
+        start_time > ymd_hms('2023-09-04 14:15:00') ~ 'remove',
+      site == 'dadd' &
+        start_time > ymd_hms('2022-05-12 15:00:00') ~ 'remove',
+      site == 'dry' &
+        start_time < ymd_hms('2021-05-18 11:15:00') ~ 'remove',
+      site == 'michigan' &
+        start_time > ymd_hms('2021-10-24 11:15:00') ~ 'remove',
+      site == 'montgomery' &
+        start_time < ymd_hms('2021-06-11 10:00:00') ~ 'remove',
+      site == 'montgomery' &
+        start_time > ymd_hms('2023-09-19 19:00:00') ~ 'remove',
+      site == 'me' &
+        start_time < ymd_hms('2021-07-19 15:45:00') ~ 'remove',
+      site == 'me' &
+        start_time > ymd_hms('2021-10-21 14:00:00') &
+        start_time < ymd_hms('2022-06-16 11:00:00') ~ 'remove',
+      site == 'me' & 
+        start_time > ymd_hms('2023-09-07 15:45:00') ~ 'remove',
+      site == 'mm' &
+        start_time < ymd_hms('2021-09-06 13:30:00') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2021-10-12 15:35:00') &
+        start_time < ymd_hms('2022-05-22 10:00:00') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2022-06-07 01:25:00') &
+        start_time < ymd_hms('2022-08-10 10:00:00') ~ 'remove',
+      site == 'mm' &
+        start_time > ymd_hms('2022-12-15 19:55:00') &
+        start_time < ymd_hms('2023-06-09 09:15:00') ~ 'remove',
+      site == 'mm' & 
+        start_time > ymd_hms('2023-09-28 13:10:00') ~ 'remove',
+      site == 'mw' &
+        start_time < ymd_hms('2021-08-20 10:50:00') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2021-10-14 12:42:00') &
+        start_time < ymd_hms('2022-05-06 12:00:00') ~ 'remove',
+      site == 'mw' &
+        start_time > ymd_hms('2022-07-07 12:10:00') &
+        start_time < ymd_hms('2022-08-03 10:15:00') ~ 'remove',
+      site == 'mw' & 
+        start_time > ymd_hms('2023-09-19 15:05:00') ~ 'remove',
+      site == 'ue' &
+        start_time < ymd_hms('2021-09-06 13:00:00') ~ 'remove',
+      site == 'ue' &
+        start_time > ymd_hms('2021-10-12 13:17:00') &
+        start_time < ymd_hms('2022-05-07 12:00:00') ~ 'remove',
+      site == 'mw' & 
+        start_time > ymd_hms('2023-06-23 11:33:00') ~ 'remove',
+      site == 'um' & 
+        start_time < ymd_hms('2021-07-19 14:00:00') ~ 'remove',
+      site == 'um' & 
+        start_time > ymd_hms('2023-09-07 14:05:00') ~ 'remove', # um stage sensor uses uw tb so have same dates
+      site == 'uw' & 
+        start_time < ymd_hms('2021-07-19 14:00:00') ~ 'remove',
+      site == 'uw' & 
+        start_time > ymd_hms('2023-09-07 14:05:00') ~ 'remove',
+      TRUE ~ 'keep')) %>%
+  filter(condition == 'keep') 
+  
+cpf_mrms <- left_join(cpf_mrms,
+                    burn,
+                    by = 'site')
+
+# join pwd to cpf_tb
+cpf_mrms <- left_join(cpf_mrms,
+                    pwd,
+                    by = c('site', 'date'))
+
+# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
+#               data=cpf_mrms,
+#               family= binomial(link = "logit"))
+# model1
+# 
+# pred1 <- predict(model1,
+#                  type='response')
+# 
+# cpf_mrms <- cpf_mrms %>%
+#   mutate(predicted_prob = pred1) %>%
+#   mutate(predict_use = if_else(predicted_prob < 0.5,
+#                                0, 1))
+# 
+# conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
+# kappa_value <- conf_matrix$overall["Kappa"]
+# kappa_value
+
+# by site
+site_kappa_values <- cpf_mrms %>%
+  group_by(site) %>%
+  #filter(n_distinct(flow) > 1, n() > 5) %>% 
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+                                      data = pick(everything()), 
+                                      family = 'binomial'), 
+                                  type = 'response')) %>%
+  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
+  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
+                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
+
+cp_mrms_kappa <- site_kappa_values %>%
+  mutate(fire = 'cpf',
+         source = 'mrms')
+
+
+# me_predict <- site_kappa_values %>%
+#   filter(site == 'me')
+
+# site count for 1s
+cpf_mrms_count <- cpf_mrms %>%
+  group_by(site) %>%
+  summarize(sum = sum(flow),
+            count = n())
+
+
+```
+
+## Join kappa values
+Figure 6
+
+```{r}
+
+kappa <- bind_rows(et_tb_kappa,
+                   et_mrms_kappa,
+                   cp_tb_kappa,
+                   cp_mrms_kappa) %>%
+  mutate(source = toupper(source))
+
+# write the joined kappa to csv so don't need to run above anymore
+write.csv(kappa, './data/final/stage_YN_response/kappa_eventsum_wmean.csv')
+
+##########################################################################
+
+kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean.csv')
+
+# get some summary stats for manuscript
+kappaSummary <- kappa %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kappa_value))
+
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
+
+new_facet_titles <- c(
+  "cpf" = "East",
+  "etf" = "West"
+)
+
+# look at distribution 
+ggplot(kappa, aes(x = kappa_value, fill = source)) +
+  geom_density(alpha = 0.5) +
+  theme_minimal()
+
+##
+
+kappa$fire <- factor(kappa$fire, levels = c("etf", "cpf"))
+
+p1<-ggplot(kappa, aes(x = source, y = kappa_value, fill = source)) + 
+  #geom_violin(scale='width') +
+  geom_boxplot(position = position_dodge(0.9),
+               outlier.size = 2) +
+  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
+                     method = "wilcox.test", 
+                     label = "p.signif",    # Display significance levels (*, **, ***)
+                     hide.ns = T,        # Hide non-significant results
+                     label.y = .8,
+                     label.x = 1.4,
+                     size = 15) +  # Adjust label position
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.text = element_text(color = "black")) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'MI60 kappa values', x = NULL)
+##
+
+p1
+
+#ggsave('./figures/eventsum_wmean_kappa_boxplots.png', dpi=600)
+
+kappa_burn <- left_join(kappa, burn, by = 'site') %>%
+  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned'))
+
+kappa_burn$fire <- factor(kappa_burn$fire, levels = c("etf", "cpf"))
+
+p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) + 
+  #geom_violin(scale='width') +
+  geom_boxplot(position = position_dodge(0.8),
+               outlier.size = 2) +
+  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
+                     method = 'wilcox.test', 
+                     label = "p.signif",    # Display significance levels (*, **, ***)
+                     hide.ns = T,        # Hide non-significant results
+                     label.y = 0.8,
+                     label.x = 1.4,
+                     size = 15) +  # Adjust label position
+  theme(
+    legend.position = c(.75, 1.01),
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),         # Adjust legend text size
+    legend.title = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.text = element_blank()
+  ) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'MI60 kappa values',
+       x=NULL)
+
+p2
+
+#ggsave('./figures/eventsum_wmean_kappa_burn_boxplots.png', dpi=600)
+
+combined_plot <- plot_grid(p1, p2, ncol = 1)
+combined_plot
+
+# ggsave('./figures/eventsum_wmean_kappa_boxplots_combine.png', 
+#        combined_plot,
+#        dpi=600)
+
+
+################################################################################
+
+# make kappa 1:1 plots
+kappa_flip <- kappa %>%
+  dplyr::select(-1) %>%
+  pivot_wider(names_from = 'source',
+              values_from = 'kappa_value')
+  
+ggplot(kappa_flip) +
+  geom_point(aes(TB, MRMS, color = fire)) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black")
+
+```
+
+# Mean elev w/ kappa
+
+Figure 6 pt. 2
+
+```{r}
+
+# bring in catchments
+catch <- vect('./data/GIS/catchments_all/catchments_all_lidar.shp')
+dem <- rast('./data/GIS/dem_10m.tif')
+
+mean_elev <- dem %>%
+  terra::extract(catch, fun = mean, ID = T) %>%
+  mutate(site = catch$site) %>%
+  mutate(site = if_else(site == 'mm',
+                        'mm_et',
+                        site)) %>%
+  mutate(site = tolower(site)) %>%
+  rename(mean_elev_m = 2) %>%
+  dplyr::select(-1)
+
+kappa_elev <- left_join(kappa_flip,
+                        mean_elev,
+                        by = 'site') %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'))
+
+kappa_elev_plot <- ggplot(kappa_elev) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 color = mean_elev_m),
+                 size = 5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black") +
+  scale_color_gradientn(colours = terrain.colors(15)) +
+  geom_text_repel(aes(x = MRMS, y = TB, label = site),
+                  size = 5,
+                  color = "black") +
+  labs(x = 'MRMS MI60 kappa',
+       y = 'TB MI60 kappa',
+       color = 'Elevation (m)',
+       shape = element_blank()) +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = 'bottom',
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size=12),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")) +
+  guides(color = guide_colorbar(barwidth = 10))
+
+ggsave('./figures/kappa_tb_mrms_elevmi60.png',
+       dpi=600)
+
+white_spacer <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "white", color = NA))
+
+# Stack white spacer and kappa plot
+adjusted_kappa <- plot_grid(
+  white_spacer,
+  kappa_elev_plot,
+  ncol = 1,
+  rel_heights = c(0.043, 1)
+)
+
+# Combine horizontally
+combined_plot2 <- plot_grid(
+  combined_plot,
+  adjusted_kappa,
+  ncol = 2,
+  labels = c("a", "b"),
+  label_size = 18
+)
+
+ggsave('./figures/kappa_combine2_updatelabels.png',
+       width=16,
+       height=10,
+       dpi=600)
+
+##
+# by dnbr
+kappa_flip <- left_join(kappa_flip, burn, by = 'site')
+
+ggplot(kappa_flip) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 color=mean_dnbr),
+                 size=5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black") +
+   scale_color_continuous(type = "viridis") +
+    geom_text(aes(x = MRMS, y = TB, label = site),
+            size = 5, vjust = -1, hjust = -0.1,
+            color = "black") +
+  labs(x='MRMS MI60',
+       y='TB MI60') +
+  theme_bw(base_size=20)
+
+ggsave('./figures/kappa_tb_mrms_BURNmi60.png',
+       dpi=600)
+
+# by area
+area <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, area_km2) %>% 
+  mutate(site = tolower(site))
+
+kappa_flip <- left_join(kappa_flip, area, by = 'site')
+
+area_plot <- kappa_flip %>%
+  filter(!site == 'mtcampus') %>%
+ggplot(.) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 color=area_km2),
+                 size=5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed", 
+              color = "black") +
+   scale_color_continuous(type = "viridis") +
+    geom_text(aes(x = MRMS, y = TB, label = site),
+            size = 5, vjust = -1, hjust = -0.1,
+            color = "black") +
+  labs(x='MRMS MI60',
+       y='TB MI60') +
+  theme_bw(base_size=20)
+
+area_plot
+
+ggsave('./figures/kappa_tb_mrms_AREAmi60.png',
+       dpi=600)
+
+```
+
+
+
+
