@@ -1,0 +1,228 @@
+---
+title: "2-min MRMS event analysis"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+knitr::opts_chunk$set(echo = F,
+                      message = F,
+                      fig.width = 12,
+                      fig.height = 6)
+
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(plotly)
+library(kableExtra)
+library(here)
+library(ggplot2); theme_set(theme_bw(base_size = 16))
+library(zoo)
+library(corrplot)
+library(stats)
+
+```
+
+# Functions
+Create as Rdata functions down the line
+
+```{r}
+
+# get events - some initial steps nbeed to happen before
+# add into function eventually: filtering less than 0.3 mm out (which also takes care of 0 mm)
+get_mrms_events <- function(df, datetime) {
+  df$datetime = as.POSIXct(df$datetime,tz="MST", format="%m/%d/%Y %H:%M")
+  df$datenumeric=as.numeric(df$datetime)
+
+  for (i in 2:nrow(df)) {
+    df[i,'dt']=df[i,'datenumeric']-df[i-1,'datenumeric']
+  }
+  df$dt_hr=as.numeric(df$dt)/60/60
+  
+  #start new event if time between rows is  >=6
+  df$event=1
+  for (i in 2:nrow(df)) {
+    df[i,'event']=ifelse(df[i,'dt_hr']<6,df[i-1,'event'],df[i-1,'event']+1)
+  }
+  return(df)
+}
+```
+
+# Prep data
+
+```{r rainfall metrics, echo=FALSE}
+
+# # load in 2023
+# all_2023 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment23_2min.csv') %>%
+#   dplyr::select(-c(1)) %>%
+#   rename(ID = catchment) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# 
+# # load in 2021
+# all_2021 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment21_2min.csv') %>%
+#   dplyr::select(-c(1)) %>%
+#   rename(ID = catchment) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# 
+# # load 2022
+# all_2022 <- read_csv('./data/final/mrms/mrms_catchments_raw/mean_exact_catchment22_2min.csv') %>%
+#   dplyr::select(-1) %>%
+#   rename(ID = catchment) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# 
+# all <- bind_rows(all_2021, all_2022, all_2023)
+# #
+# # # export all as 2 min mrms precip for all sites
+# write.csv(all, './data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv')
+
+# all <- read_csv('./data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv') %>%
+#   select(-1) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST'))
+# 
+# all <- all %>%
+#   mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
+#   mutate(year = year(datetime),
+#          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+#   group_by(ID, timestamps_10min) %>%
+#   summarize(rain_mm = sum(p_mm)) %>%
+#   rename(datetime = timestamps_10min) %>%
+#   mutate(ID = if_else(ID == 'mm',
+#                       'mm_et', ID)) # udpate mm_et site name, MM benn is capital
+# 
+# write.csv(all, './data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv')
+
+all <- read_csv('./data/final/mrms/wmean_exact_catchment_10min_0.1fil.csv') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST'))
+
+# temp for usgs gauges
+# usgs <- read_csv('./data/TB_raw/et_usgs_rain.csv') %>%
+#   mutate(datetime = mdy_hm(datetime)) %>%
+#   drop_na(datetime) %>%
+#   mutate(datetime = force_tz(datetime, tzone = 'MST')) %>%
+#   rename(ID = site) %>%
+#   mutate(year = year(datetime),
+#          timestamps_10min = ceiling_date(datetime, "10 mins")) %>%
+#   group_by(ID, timestamps_10min) %>%
+#   summarize(rain_mm = sum(p_mm)) %>%
+#   rename(datetime = timestamps_10min) 
+
+
+# summ <- usgs %>%
+#   mutate(year = year(datetime)) %>%
+#   group_by(ID, year) %>%
+#   mutate(cumsum = cumsum(rain_mm))
+
+```
+
+# Events
+Derived from 2-min MRMS data
+
+```{r}
+
+#try for all sites
+get_mrms_all_events <- function(all, ID_name) {
+  
+  events <- all %>%
+  filter(ID == ID_name,
+         rain_mm > 0.1) %>%
+  get_mrms_events(., datetime) %>%
+  group_by(ID, event) %>%
+  mutate(start_time = min(datetime),
+         end_time = max(datetime)) %>%
+  dplyr::select(-c(datenumeric, dt, dt_hr)) %>%
+  complete(datetime = seq(min(datetime), max(datetime), by = "10 mins")) %>%
+  arrange(event, datetime) %>%
+  fill(start_time, end_time, ID) %>%
+  ungroup() %>%
+  mutate(rain_mm = ifelse(is.na(rain_mm), 0, rain_mm))
+    
+  return(events)
+}
+
+# list out sites 
+sites <- unique(all$ID)
+
+# get events for all sites
+all_events <- map(sites, ~ get_mrms_all_events(all, .)) %>%
+  bind_rows(.)
+
+```
+
+# Intensity analysis
+
+```{r}
+
+# get 10, 20, 30, 60 min intensities
+
+#start with 1 site
+get_mrms_intensities <- function(all_events, ID_name) {
+
+intens <- all_events %>%
+  filter(ID == ID_name) %>%
+  arrange(.,start_time) %>% 
+  group_by(event) %>%
+  mutate(max10_mm = max(rain_mm),
+         sum20_mm = rollapplyr(rain_mm, width = 2, FUN = sum, partial = TRUE),
+         max20_mm = max(sum20_mm),
+         sum30_mm = rollapplyr(rain_mm, width = 3, FUN = sum, partial = TRUE),
+         max30_mm = max(sum30_mm),
+         sum60_mm = rollapplyr(rain_mm, width = 6, FUN = sum, partial = TRUE),
+         max60_mm = max(sum60_mm),
+         event_sum_mm = sum(rain_mm),
+         half_event_sum_mm = event_sum_mm / 2,
+         cum_rain_mm = cumsum(rain_mm),
+         halfP_datetime = datetime[which.max(cum_rain_mm >= half_event_sum_mm)],
+         MI10_mmhr = max10_mm*6,
+         MI20_mmhr = max20_mm*3,
+         MI30_mmhr = max30_mm*2,
+         MI60_mmhr = max60_mm,
+         MI60_datetime = datetime[which.max(sum60_mm)]) %>%
+  dplyr::select(-c(max10_mm, max20_mm, max30_mm, max60_mm,
+            sum20_mm, sum30_mm, sum60_mm, datetime,
+            rain_mm,
+            half_event_sum_mm,
+            cum_rain_mm)) %>%
+  ungroup() %>%
+  distinct(start_time, .keep_all = T) %>%
+  mutate(duration_hr = difftime(end_time, start_time, unit = 'hour')) %>%
+  filter(event_sum_mm > 1)
+  
+}
+
+sites <- unique(all$ID)
+
+# get events for all sites
+all_intens <- map(sites, ~ get_mrms_intensities(all_events, .)) %>%
+  bind_rows(.)
+
+all_intens <- all_intens %>%
+  group_by(ID) %>%
+  arrange(event) %>%
+  mutate(event = 1:n()) %>%
+  mutate(year = year(start_time))
+
+ggplot(all_intens, aes(y=MI60_mmhr, x=ID)) + geom_boxplot()
+ggplot(all_intens, aes(y=event_sum_mm, x=ID)) + geom_boxplot()
+
+all_intens <- all_intens %>%
+  mutate(month = month(start_time)) %>%
+  filter(month %in% c(6:9))
+
+write.csv(all_intens, './data/final/mrms/catchment_mrms_intensities_wmean_exact_addedmetrics.csv')
+
+```
+
+
+
+
+
+
+

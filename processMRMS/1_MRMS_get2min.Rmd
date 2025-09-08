@@ -1,0 +1,426 @@
+---
+title: "MRMS:MultiQPE,QPE, SPR"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(R.utils) # to unzip the gz files
+library(tidyverse)
+library(lubridate)
+library(raster)
+#library(rgdal)
+library(sf)
+library(sp)
+library(mapview)
+library(terra)
+library(tmap)
+library(foreach)
+library(doParallel)
+library(magrittr)
+library(beepr)
+
+```
+
+Create a bounding box to crop MRMS rasters (multi-QPE, QPE only, and SPR)
+
+```{r}
+
+# ETF watersheds - don't need right now
+bbox <- vect('/Users/megansears/Documents/MRMS/bbox_2fires/bbox_2fires.shp')%>%
+  terra::project(., '+proj=longlat +datum=WGS84 +no_defs')
+
+# # All rain sensors for CPF, ETF, Bennett
+# rain <- read_csv('./data/sensor_coords.csv') %>%
+#   filter(type == 'rain') %>%
+#   drop_na(y) %>%
+#   st_as_sf(coords = c('x', 'y'), crs = 4326) %>%
+#   st_transform(crs = st_crs(et_sheds))
+
+# Bounding box based on rain sensors to crop MRMS data
+bbox <- as(bbox, 'Spatial')
+#bbox <- st_bbox(drowsy1)
+
+# mapview(drowsy1)
+# mapview(bbox)
+
+# # Bounding box cuts off some points so expand it
+# xrange <- bbox$xmax - bbox$xmin # range of x values
+# yrange <- bbox$ymax - bbox$ymin # range of y values
+# 
+# bbox[1] <- bbox[1] - (0.1 * xrange) # xmin - left
+# bbox[3] <- bbox[3] + (0.1 * xrange) # xmax - right
+# bbox[2] <- bbox[2] - (0.1 * yrange) # ymin - bottom
+# bbox[4] <- bbox[4] + (0.1 * yrange) # ymax - top
+# 
+# # Check bbox 
+# mapview(bbox)
+
+
+
+```
+
+# 0. Unzip the grib2 files
+
+```{r}
+
+# Get rid of gz - unzip the grib2
+setwd("/Users/megansears/Documents/MRMS/RQI/2021")
+
+# Unzip all files
+unzip <- list.files(path = '/Users/megansears/Documents/MRMS/RQI/2021', pattern = '.gz',
+                  full.names = T)
+
+unzip_all <- lapply(unzip, gunzip)
+
+
+```
+
+testing cropping before projecting
+
+```{r}
+
+test <- raster('/Users/megansears/Documents/MRMS/MultiSensor/2022/MultiSensor_QPE_01H_Pass2_00.00_20220501-120000.grib2')
+
+crs(test) <- "+proj=longlat +datum=WGS84 +no_defs"
+#crs(test) <- "ESRI:102009"
+
+test1 <- raster::crop(test, bbox)
+
+mapview(test1)
+
+```
+
+# 1. MutliQPE/QPE
+
+Need to divide MultiQPE by QPE to get the correction used (this later gets applied to 2min data)
+
+```{r}
+
+setwd("/Users/megansears/Documents/MRMS")
+
+# List files of the rasters in Multi Sensor QPE and radar QPE only
+multi_rasters <- list.files("./MultiSensor/2021", pattern = ".grib2", full.names = TRUE)
+folder2_rasters <- list.files("./QPE/2021", pattern = "grib2", full.names = TRUE)
+
+# Multi_qpe / qpe and save raster
+perform_division <- function(raster1, raster2, result_folder) {
+  
+  library(raster)
+  
+  # Extract the last 21 digits (datetime) from the file name
+  last_21_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 20, 1))
+  last_21_digits2 <- substring(basename(raster2), max(nchar(basename(raster2)) - 20, 1))
+  
+  if (last_21_digits1 == last_21_digits2) {
+    r1 <- raster(raster1) 
+    
+    crs(r1) <- "+proj=longlat +datum=WGS84 +no_defs"
+    
+    r1 <- raster::crop(r1, bbox)
+    
+    r2 <- raster(raster2) 
+    
+    crs(r2) <- "+proj=longlat +datum=WGS84 +no_defs"
+    
+    r2 <- raster::crop(r2, bbox)
+    
+    result_raster <- r1 / r2 #divde Multi / QPE
+    
+    result_raster[is.na(result_raster)] <- 1 # if NA change to 1 (means no diff in precip bc 0/0)
+    
+    result_raster[is.infinite(result_raster)] <- 0
+    
+    # Save
+    output_file <-
+      file.path(result_folder, paste0("result_", last_21_digits1, ".tif"))
+    
+    writeRaster(result_raster, output_file, overwrite = TRUE)
+  }
+}
+
+result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"  # Path to the folder to save the resulting rasters
+
+# Set the number of cores for parallel processing
+num_cores <- 8
+
+# parallel processing
+cl <- makeCluster(num_cores)
+
+
+clusterExport(cl, c("folder2_rasters", "result_folder", "perform_division", "bbox"))
+
+# Division
+parLapply(cl, multi_rasters, function(raster1) {
+  # Extract the last 21 digits from the file name of raster1 (this is the datetime characters)
+  last_21_digits1 <- substring(basename(raster1), max(nchar(basename(raster1)) - 20, 1))
+
+  # Find matching rasters in folder2
+  matching_rasters <- grep(last_21_digits1, folder2_rasters, value = TRUE)
+
+  # Perform division for each matching raster
+  mapply(perform_division, raster1, matching_rasters, MoreArgs = list(result_folder = result_folder))
+})
+
+# Stop
+stopCluster(cl)
+
+```
+
+Get rid of .grib2 from all the filenames
+
+```{r}
+
+# Dir path where files are located
+dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021'
+
+# List the files in directory
+file_list <- list.files(dir)
+
+# Function to remove grib2 from filename
+rename_files <- function(file) {
+  new_name <- gsub(".grib2", "", file)
+  file.rename(file.path(dir, file), file.path(dir, new_name))
+}
+
+# Apply renaming function
+lapply(file_list, rename_files)
+
+```
+
+## Testing of above
+
+```{r}
+
+test_result <- raster("/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/2022/result_20220508-130000.tif")
+
+test_qpe <- raster("/Users/megansears/Documents/MRMS/QPE/2022/RadarOnly_QPE_01H_00.00_20220508-130000.grib2") 
+
+# Project the raster to a specific CRS if needed
+test_qpe <- projectRaster(test_qpe, crs = '+init=EPSG:26913')
+
+test_qpe <- raster::crop(test_qpe, bbox)
+
+test_ms <- raster("/Users/megansears/Documents/MRMS/MultiSensor/2022/MultiSensor_QPE_01H_Pass2_00.00_20220508-130000.grib2") 
+
+# Project the raster to a specific CRS if needed
+test_ms <- projectRaster(test_ms, crs = '+init=EPSG:26913')
+
+test_ms <- raster::crop(test_ms, bbox)
+
+mapview(test_result, method = 'ngb') + mapview(test_qpe, method = 'ngb') + mapview(test_ms, method = 'ngb')
+
+```
+
+# 2. Project and crop the 2-min SPR data
+
+Project and crop the 2-min SPR and save as tif so it can be multiplied by the correction later
+
+```{r}
+
+# Path to 2 min data
+folder_path <- '/Users/megansears/Documents/MRMS/SPR/2021/2021_missing'
+folder_path2 <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing'
+
+# Get the list of GRIB2 files in the folder
+files <- list.files(folder_path, pattern = "*.grib2", full.names = TRUE)
+
+# Set the number of cores
+num_cores <- 8
+
+# PP settings
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+
+# project and crop function
+process_file <- function(file) {
+  
+  # Read the GRIB2 file as a raster
+  r <- raster(file)
+  
+  crs(r) <- "+proj=longlat +datum=WGS84 +no_defs"
+  
+  r <- raster::crop(r, bbox)
+  
+  # Save the raster as .tif
+  new_file_name <- paste0(tools::file_path_sans_ext(basename(file)), "_processed.tif")
+  new_file_path <- file.path(folder_path2, new_file_name)
+  writeRaster(r, filename = new_file_path, overwrite = TRUE)
+  
+  # Remove (memory fills up if not)
+  rm(r)
+}
+
+# PP with foreach
+foreach(file = files, .packages = c("raster")) %dopar% {
+  tryCatch({
+    process_file(file)
+  }, error = function(e) {
+    message(paste("Error processing file:", file))
+    message("Error message:", e)
+  })
+}
+
+stopCluster(cl)
+
+beep(sound=8)
+
+```
+
+# 3. Multiply!
+
+Multiply the SPR (raw 2 min) by hour correction
+
+First remove 'processed' from the projected and cropped SPR (2min) data
+
+```{r}
+
+dir <- '/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing'
+
+# Get the list of files in the folder
+file_list <- list.files(dir, full.names = TRUE)
+
+# Loop through each file and take off '_processed'
+for (file_path in file_list) {
+
+  file_name <- basename(file_path)
+
+  if (grepl("_processed", file_name)) {
+    
+    new_file_name <- gsub("_processed", "", file_name)
+    
+    new_file_path <- file.path(dirname(file_path), new_file_name)
+    
+    file.rename(file_path, new_file_path)
+    
+    cat("Renamed:", file_name, "to", new_file_name, "\n")
+  }
+}
+
+beep(sound=8)
+
+```
+
+Now multiply
+
+```{r}
+
+# Folder paths for the result (result of the divide) and precip rate rasters
+result_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/divide_2021"
+precip_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/spr_crop_2021/missing"
+multiplied_folder <- "/Users/megansears/Documents/MRMS/bbox_2fires/2min_2021" # where the rasters will go
+
+# List precip rate raster files
+precip_files <- list.files(precip_folder, pattern = "^PrecipRate_.*\\.tif$", full.names = TRUE)
+
+# Parallel processing
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+get_result_hour <- function(precip_hour, precip_minute, precip_date) {
+  n <- length(precip_hour)
+  result_hour <- vector("character", n)
+
+  for (i in 1:n) {
+    if (precip_hour[i] == "23") {
+      # Special case for "23" hour (since that will use the next day)
+      if (precip_minute[i] == "00") {
+        # If the minute is "00", use the same hour for the result hour
+        result_hour[i] <- precip_hour[i]
+      } else {
+        # if not, set the result hour to "00"
+        result_hour[i] <- "00"
+        precip_date[i] <- as.character(as.Date(precip_date[i], format = "%Y%m%d") + 1)
+        # Remove hyphens from date
+        precip_date[i] <- gsub("-", "", precip_date[i])
+      }
+    } else if (precip_minute[i] == "00") {
+      # If the minute is "00", use the same hour for the result hour
+      result_hour[i] <- precip_hour[i]
+    } else {
+      # if not, increment the hour as before
+      result_hour[i] <- sprintf("%02d", as.numeric(precip_hour[i]) + 1)
+    }
+  }
+
+  return(list(result_hour = result_hour, precip_date = precip_date))
+}
+
+# Foreach for PP
+foreach(precip_file = precip_files, .packages = c("raster")) %dopar% {
+  
+  # Get the last digits from the precip rate raster filename (datetime)
+  precip_datetime <- substr(precip_file, nchar(precip_file) - 18, nchar(precip_file) - 4)
+  
+  # Extract the date, hour, and minute from the precip datetime
+  precip_date <- substr(precip_datetime, 1, 8)
+  precip_hour <- substr(precip_datetime, 10, 11)
+  precip_minute <- substr(precip_datetime, 12, 13)
+  
+  # Get the result hour and updated precip date based on the minute of the precip datetime
+  result_info <- get_result_hour(precip_hour, precip_minute, precip_date)
+  result_hour <- result_info$result_hour
+  precip_date <- result_info$precip_date
+  
+  # construct the result raster filename based on the date and result hour
+  result_filename <- paste0("result_", precip_date, "-", result_hour, "0000.tif")
+  result_file <- file.path(result_folder, result_filename)
+  
+  # Check if the files exist before reading
+  if (file.exists(precip_file) && file.exists(result_file)) {
+    # Read the precip rate raster
+    precip_raster <- raster(precip_file)
+    
+    # Read result raster
+    result_raster <- raster(result_file)
+    
+    # precip rate raster * the result raster
+    multiplied_raster <- precip_raster * result_raster
+    
+    # Construct the output file path for the multiplied raster
+    output_filename <- paste0("multiplied_", precip_datetime, ".tif")
+    output_path <- file.path(multiplied_folder, output_filename)
+    
+    # output
+    writeRaster(multiplied_raster, filename = output_path, format = "GTiff")
+    
+    cat("Raster multiplication completed for:", precip_file, "\n")
+  } 
+}
+
+# Stop PP
+stopCluster(cl)
+
+beep(sound=8)
+
+```
+
+## Test above
+
+```{r}
+
+mult <- raster('/Users/megansears/Documents/MRMS/correctedSPR/drowsy_2023/multiplied_20230615-080800.tif')
+corr <- raster('/Users/megansears/Documents/MRMS/MultiSensor_QPE_divide/drowsy_2023/result_20230615-090000.tif')
+spr <- raster('/Users/megansears/Documents/MRMS/SPR/drowsy_2023/PrecipRate_00.00_20230615-080800.tif')
+
+mapview(mult)
+
+test1 <- corr*spr
+test2 <- test1-mult
+mapview(test2)
+
+plot(test2)
+
+mapview(mult) + mapview(corr) + mapview(spr)
+
+```
