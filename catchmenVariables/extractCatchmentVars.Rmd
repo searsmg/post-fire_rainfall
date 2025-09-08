@@ -1,0 +1,677 @@
+---
+title: "4a_extract_model_inputs"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Below will be used to extract model inputs for the rainfall-runoff response at CPF, Bennett, and ETF sites.
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(R.utils) #to unzip the gz files
+library(here)
+library(tidyverse)
+library(lubridate)
+library(terra)
+library(raster)
+library(sf)
+library(mapview)
+library(terra)
+library(tmap)
+library(AOI) # for gridmet
+library(climateR) # for gridmet
+library(dataRetrieval)
+library(beepr)
+library(FedData)
+library(foreign) # read in dbf of soil data
+library(stars)
+
+```
+
+The following inputs need to be spatially extracted.
+- dNBR
+- catchemnt area
+- snow persistence
+- % treated (mulched)
+- geology
+- soils?
+- slope?
+
+Already extracted:
+- NDVI (need for lower ETf sites still)
+
+# Bring in catchment boundaries
+
+```{r}
+
+all_sites <- vect('./data/GIS/catchments_all_lidar.shp')
+all_sites$site[all_sites$site == "mm"] <- "mm_et"
+
+# view the sites
+plot(all_sites)
+
+clipped_lidar <- rast('./data/GIS/clipped_lidar.tif')
+
+# get elevation range
+elev <- clipped_lidar %>% 
+  terra::extract(all_sites, fun=min, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, elev = .) %>%
+  rename(min_elev = 3) 
+
+elev_max <- clipped_lidar %>% 
+  terra::extract(all_sites, fun=max, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, elev = .) %>%
+  rename(max_elev = 3) 
+
+elev_join <- left_join(elev, elev_max, by = 'site')
+
+write_csv(elev_join, './data/final_model_inputs/elev_range.csv')
+
+```
+
+# dNBR
+
+```{r}
+
+dnbr_etf <- rast(here('./data/GIS/co4020310623920201014_20200904_20210907_dnbr.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+dnbr_cpf <- rast(here('./data/GIS/co4060910587920200813_20180915_20210907_dnbr.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+# get mean dNBR value for each catchment
+mean_dnbr_cpf <- dnbr_cpf %>%
+  terra::extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, mean_dnbr_cpf = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_dnbr = 2) %>%
+  drop_na()
+
+mean_dnbr_etf <- dnbr_etf %>%
+  terra::extract(all_sites, fun=mean, na.rm=TRUE) %>%
+  data.frame(site = all_sites$site, mean_dnbr_etf = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_dnbr = 2) %>%
+  drop_na()
+
+mean_dnbr_all <- bind_rows(mean_dnbr_cpf, mean_dnbr_etf)
+
+#####
+# for CPF only
+burn_cat <- read_stars('./data/GIS/burn_boundaries/cpf_burnsev_cat.tif')
+burn_cat[[1]][burn_cat[[1]] > 5] <- NA
+
+sites <- st_read('./data/GIS/catchments_all_lidar.shp')
+sites$site[sites$site == "mm"] <- "mm_et"
+
+# need to add area to sites (only some sites have it calculated)
+sites$area_m2 <- st_area(sites)
+  
+sites <- sites %>%  
+  mutate(area_km2 = as.numeric(area_m2) / 1e6) 
+
+burn_cat <- st_transform(burn_cat, st_crs(sites))
+
+burn_cat_poly <- st_as_sf(burn_cat, as_points = F, merge=F)
+
+mapview(burn_cat_poly)
+
+intersect <- st_intersection(burn_cat_poly, sites)
+
+mapview(intersect)
+
+intersect$area_m2 <- st_area(intersect)
+
+intersect_summ <- intersect %>%
+  group_by(site,cpf_burnsev_cat.tif) %>%
+  summarize(sum_area = sum(area_m2)) %>%
+  mutate(area_km2 = as.numeric(sum_area) / 1e6) %>%
+  as.data.frame() %>% 
+  dplyr::select(-geometry)
+
+area_tot <- intersect %>%
+  dplyr::select(site, area_km2) %>%
+  as.data.frame() %>%
+  dplyr::select(-geometry) %>%
+  distinct(site, .keep_all = T)
+
+intersect_summ <- left_join(intersect_summ, area_tot, by='site') %>%
+  rename(area_tot = area_km2.y) %>%
+  mutate(percent = area_km2.x / area_tot)
+
+
+intersect_summ <- intersect_summ %>%
+  mutate(actual_percent = percent*100) %>%
+  dplyr::select(-percent)
+
+write_csv(intersect_summ, './data/final_model_inputs/cpf_burncat_percent.csv')
+
+###############################################################################
+## lets do the same for ETF
+burn_cat <- read_stars('./data/GIS/burn_boundaries/etf_reclass_burnsev.tif')
+burn_cat[[1]][burn_cat[[1]] < 0] <- NA
+
+sites <- st_read('./data/GIS/catchments_all_lidar.shp')
+sites$site[sites$site == "mm"] <- "mm_et"
+
+# need to add area to sites (only some sites have it calculated)
+sites$area_m2 <- st_area(sites)
+  
+sites <- sites %>%  
+  mutate(area_km2 = as.numeric(area_m2) / 1e6) 
+
+burn_cat <- st_transform(burn_cat, st_crs(sites))
+
+burn_cat_poly <- st_as_sf(burn_cat, as_points = F, merge=F)
+
+#mapview(burn_cat_poly)
+
+intersect <- st_intersection(burn_cat_poly, sites)
+
+#mapview(intersect)
+
+intersect$area_m2 <- st_area(intersect)
+
+intersect_summ <- intersect %>%
+  group_by(site,etf_reclass_burnsev.tif) %>%
+  summarize(sum_area = sum(area_m2)) %>%
+  mutate(area_km2 = as.numeric(sum_area) / 1e6) %>%
+  as.data.frame() %>% 
+  dplyr::select(-geometry)
+
+area_tot <- intersect %>%
+  dplyr::select(site, area_km2) %>%
+  as.data.frame() %>%
+  dplyr::select(-geometry) %>%
+  distinct(site, .keep_all = T)
+
+intersect_summ <- left_join(intersect_summ, area_tot, by='site') %>%
+  rename(area_tot = area_km2.y) %>%
+  mutate(percent = area_km2.x / area_tot)
+
+
+intersect_summ <- intersect_summ %>%
+  mutate(actual_percent = percent*100) %>%
+  dplyr::select(-percent)
+
+write_csv(intersect_summ, './data/final_model_inputs/etf_burncat_percent.csv')
+
+
+```
+
+# Catchment area
+
+```{r}
+
+# Assuming you have a vector object: all_sites
+area <- all_sites %>%
+  as('Spatial') %>%
+  st_as_sf() %>%
+  mutate(area_km2 = as.numeric(st_area(.) / 1e6)) %>%
+  dplyr::select(site, area_km2) %>%
+  st_drop_geometry()
+
+```
+
+# Snow persistence
+
+From 2020
+
+```{r}
+
+sp <- rast(here('./data/GIS/MOD10A2_SCI_2020.tif')) %>%
+  terra::project(., 'EPSG:26913')
+
+mean_sp <- sp %>%
+  terra::extract(all_sites, fun=mean, na.rm=T) %>%
+  data.frame(site = all_sites$site, mean_sp = .) %>%
+  dplyr::select(-2) %>%
+  rename(mean_sp = 2)
+
+```
+
+# Sp
+avg from 2000-2019
+
+```{r}
+
+sp <- rast('/Volumes/Kampf/Private/Cameron_Peak_Fire/snow/snow_persistence/SP_mean.tif')
+
+mean_sp <- sp %>%
+  terra::extract(catch, fun = mean) %>%
+  mutate(site = catch$site)
+
+write_csv(mean_sp, './data/final_model_inputs/sp_2000_2019_avg_catchments.csv')
+
+```
+
+
+# Potential water deficit
+
+PPT-ETo = PWD
+-Cumulative WY values
+-Lagged by a day
+
+```{r}
+# Pull gridmet data
+# Precip
+system.time({
+  gridmet_p = getGridMET(AOI = all_sites,
+                 varname = c('pr'),
+                 startDate = "2020-10-1",
+                 endDate  = "2023-09-30")
+})
+
+gridmet_p <- gridmet_p[[1]] %>% # remove it from a list to just spatraster
+  terra::project('EPSG:26913')
+
+all_sites_test <- as(all_sites, 'Spatial') # tmap won't plot spatvector
+
+# quick look at some of the rasters
+tm_shape(gridmet_p) +
+  tm_raster() +
+  tm_shape(all_sites_test) +
+  tm_borders()
+
+# determine weighted mean
+calculate_weighted_mean <- function(nlyr) {
+  one_layer <- gridmet_p[[nlyr]]
+  terra::zonal(one_layer, all_sites, weights = TRUE)
+ }
+
+# weighted means - comes out as a list, each item is a day
+weighted_means <- map(1:dim(gridmet_p)[3], 
+                      calculate_weighted_mean) # 3 equals the third dimension aka the "layers" or stack
+
+
+# Add a site column, create date column, rename the first column to p_mm
+tidy_up <- function(df, all_sites) {
+  
+  # Extract the name of the first column
+  first_header <- names(df)[1]
+  
+  # Drop the "pr_" prefix from the name
+  new_first_header <- sub("^pr_", "", first_header)
+  
+  # Name date column
+  df$date <- new_first_header
+  
+  # Add the site column
+  df$site <- all_sites$site
+  
+  # Rename the first column to "p_mm"
+  names(df)[1] <- "p_mm"
+  
+  return(df)
+}
+
+# Use map to apply tidy_up to each dataframe in the list, make 1 df, add WY
+gridmet_p <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date) %>%
+  group_by(site, waterYear) %>%
+  mutate(p_cumu_mm = cumsum(p_mm))
+
+###################################################
+
+# Pull ET (etr [mm])
+system.time({
+  gridmet_et = getGridMET(AOI = all_sites,
+                 varname = c('etr'),
+                 startDate = "2020-10-1",
+                 endDate  = "2023-09-30")
+})
+
+
+gridmet_et <- gridmet_et[[1]] %>% # remove it from a list to just spatraster
+  terra::project('EPSG:26913')
+
+# determine weighted mean
+calculate_weighted_mean_et <- function(nlyr) {
+  one_layer <- gridmet_et[[nlyr]]
+  terra::zonal(one_layer, all_sites, weights = TRUE)
+ }
+
+# weighted means - comes out as a list, each item is a day
+weighted_means <- map(1:dim(gridmet_et)[3], 
+                      calculate_weighted_mean_et) # 3 equals the third dimension aka the "layers" or stack
+
+
+# Add a site column, create date column, rename the first column to p_mm
+tidy_up <- function(df, all_sites) {
+  
+  # Extract the name of the first column
+  first_header <- names(df)[1]
+  
+  # Drop the "pr_"
+  new_first_header <- sub("^etr_", "", first_header)
+  
+  # Name the date column
+  df$date <- new_first_header
+  
+  # Add the site column
+  df$site <- all_sites$site
+  
+  # Rename the first column to "p_mm"
+  names(df)[1] <- "et_mm"
+  
+  return(df)
+}
+
+# Use map to apply tidy_up to each dataframe in the list, make 1 df, add WY
+gridmet_et <- map(weighted_means, ~tidy_up(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date) %>%
+  group_by(site, waterYear) %>%
+  mutate(et_cumu_mm = cumsum(et_mm))
+
+####################
+
+# use p and et to calculate pwd, lag by a day
+pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
+  dplyr::select(-waterYear.y) %>%
+  dplyr::rename(WY = waterYear.x) %>%
+  mutate(pwd = p_cumu_mm - et_cumu_mm) %>%
+  mutate(lag_pwd = lag(pwd))
+
+write_csv(pwd, './data/final_model_inputs/pwd.csv')
+
+```
+
+catchm# Soil
+
+Soil database found here:
+https://www.sciencebase.gov/catalog/item/631405c8d34e36012efa31ff (sand clay silt in text, ksat in layer)
+
+```{r}
+# soil database to be used in function below
+avg_soil_type <- read.dbf('./data/GIS/soil/Text.dbf') %>%
+  rename(MUKEY = mukey) %>%
+  mutate_at(vars(AVG_SAND, AVG_CLAY, AVG_SILT), ~ifelse(. == -9999, NA, .))
+
+# list out site names
+site_name <- all_sites$site
+
+get_soil_contents <- function(site_name){
+
+  # get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+  soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+  soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY))
+
+  # project so same as site_poly, then join to database to the spatial data
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913') %>%
+    left_join(., avg_soil_type, by = 'MUKEY')
+
+  # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+}
+
+soil_means <- map_df(site_name, get_soil_contents) %>%
+  bind_rows()
+
+# do above but for ksat using the layer instead of text
+# soil database to be used in function below
+avg_ksat <- read.dbf('./data/GIS/soil/Layer.dbf') %>%
+  rename(MUKEY = mukey) %>%
+  mutate(AVG_KSAT = ifelse(AVG_KSAT == -9999, NA, AVG_KSAT))
+
+# list out site names
+site_name <- all_sites$site
+
+get_soil_contents <- function(site_name){
+
+  # get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+  soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+  soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY))
+
+  # project so same as site_poly, then join to database to the spatial data
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913') %>%
+    left_join(., avg_ksat, by = 'MUKEY')
+
+  # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+}
+
+soil_ksat_means <- map_df(site_name, get_soil_contents) %>%
+  bind_rows() %>%
+  select(site, AVG_KSAT)
+
+soils_means <- soil_means %>%
+  select(site, AVG_CLAY, AVG_SAND, AVG_SILT)
+
+soils_avg <- left_join(soils_means, soil_ksat_means, by = 'site')
+
+####################################################################
+
+# get average weighted available water storage and bedrock min depth
+# both located in the muaggatt txt file
+
+get_soil_depth <- function(site_name){
+
+# get site polygon
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY)) %>%
+  left_join(., soil$tabular$muaggatt, by = 'mukey')
+
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913')
+  
+    # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+# aws0150wta 
+# brockdepmin
+# https://www.nrcs.usda.gov/sites/default/files/2022-08/SSURGO-Metadata-Tables-and-Columns-Report.pdf
+
+soil_depths <- soil_mean %>%
+  select(site, aws0150wta, brockdepmin)
+
+}
+
+soil_depths_all <- map_df(site_name, get_soil_depth) %>%
+  bind_rows()
+  
+
+```
+
+# Slope
+
+```{r}
+
+slope <- terrain(clipped_lidar, 
+                 v = 'slope',
+                 unit = 'degrees')
+
+slope_avg <- zonal(slope,
+                   all_sites,
+                   fun = 'mean',
+                   as.polygons = T,
+                   na.rm = T)
+
+slope_avg_df <- as.data.frame(slope_avg)
+
+slope_avg_df$site <- all_sites$site
+
+plot(slope_avg)
+beep(sound=8)
+
+# frac of slope above 30
+get_slope30_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope30 = if_else(slope >= 30, 1, 0)) %>%
+  summarize(slope30_frac = sum(slope30) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope30_frac <- map(site_name, get_slope30_frac) %>%
+  bind_rows()
+
+# frac of slope above 40
+get_slope40_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope40 = if_else(slope >= 40, 1, 0)) %>%
+  summarize(slope40_frac = sum(slope40) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope40_frac <- map(site_name, get_slope40_frac) %>%
+  bind_rows()
+
+# do slopes >= 23 (that's what usgs uses in debris flow but on only mod or high burned slopes)
+get_slope23_frac <- function(site_name) {
+
+  site_poly <- all_sites %>%
+    tidyterra::filter(site == site_name)
+
+  extract_site <- crop(slope, 
+                     site_poly,
+                     mask = T)
+
+slope_site <- as_tibble(values(extract_site), rownames = "cell") %>%
+  drop_na() %>%
+  mutate(slope23 = if_else(slope >= 23, 1, 0)) %>%
+  summarize(slope23_frac = sum(slope23) / n()) %>%
+  mutate(site = site_name)
+
+}
+
+site_name <- all_sites$site
+
+slope23_frac <- map(site_name, get_slope23_frac) %>%
+  bind_rows()
+
+# extract slope23 alone since doing it after all other calcs
+write_csv(slope23_frac, './data/final_model_inputs/slope23_frac.csv')
+
+```
+
+# Geology
+https://ngmdb.usgs.gov/Prodesc/proddesc_68589.htm
+
+```{r}
+
+geo <- read_csv('./data/final_model_inputs/ndvi&geo.csv') %>%
+  select(site = ID, geology, geo_general)
+
+```
+
+# NDVI
+done in GEE using landsat 8 collection
+
+```{r}
+
+ndvi <- read_csv('./data/final_model_inputs/ndvi&geo.csv') %>%
+  select(site = ID, NDVI_2021, NDVI_2022, NDVI_2023)
+
+```
+
+
+# Join metrics
+
+```{r}
+
+# join metrics (except for PWD since that is dynamic [time dependent])
+inputs <- left_join(mean_dnbr_all, area, by = 'site') %>%
+  left_join(., mean_sp, by = 'site') %>%
+  left_join(., soils_avg, by = 'site') %>%
+  left_join(., slope_avg_df, by = 'site') %>%
+  left_join(., slope30_frac, by = 'site') %>%
+  left_join(., slope40_frac, by = 'site') %>%
+  left_join(., soil_depths_all, by = 'site')
+
+#write_csv(inputs, './data/final_model_inputs/inputs1.csv')
+
+# after the fact, adding geo and ndvi to the inputs1 csv
+# if I run this code start to finish again then add this up above to original left joins
+inputs <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  left_join(., geo, by = 'site') %>%
+  left_join(., ndvi, by = 'site')
+
+write_csv(inputs, './data/final_model_inputs/inputs1.csv')
+
+```
+
+
