@@ -1,0 +1,96 @@
+---
+title: "site_figure"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r open package, include=FALSE}
+
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+library(tidyverse)
+library(plotly)
+library(stars)
+library(viridis)
+library(ggspatial)
+library(rosm)
+
+```
+
+```{r}
+
+catchment <- st_read('./data/GIS/site_fig/catchments_all_lidar.shp')
+
+tb <- read_csv('./data/GIS/site_fig/tb_locations.csv') %>% 
+  st_as_sf(., coords=c('x','y'), crs = 4326)
+
+stream <- read_csv('./data/GIS/site_fig/stream_pts.csv') %>%
+  st_as_sf(., coords=c('x','y'), crs = 4326)
+
+etf_bs <- read_stars('./data/GIS/site_fig/etf_burnsev.tif')
+
+cpf_bs <- read_stars('./data/GIS/site_fig/cpf_burnsev.tif')
+
+
+```
+
+```{r}
+
+cpf_bs <- st_transform(cpf_bs, crs = 4326)
+
+ggplot() +
+   annotation_map_tile(type = "osm", zoom = 12) + 
+  
+  # Overlay CPF burn severity raster
+  geom_stars(data = cpf_bs, aes(fill = cpf_burnsev.tif)) +
+  #scale_fill_viridis(discrete = TRUE, option = "D", name = "CPF Burn Sev") +
+  
+  # Plot catchment boundaries
+  geom_sf(data = catchment, fill = NA, color = 'black', size = 0.7) +
+  
+  # Plot stream points
+  geom_sf(data = stream, color = 'blue', size = 2, shape = 16) +
+  
+  # Plot tipping bucket locations
+  geom_sf(data = tb, color = 'red', size = 3, shape = 4) +
+  
+  # Adjust theme and labels
+  theme_bw() +
+   coord_sf(xlim = c(-105.2, -105.9), ylim = c(40.4, 40.8))
+
+## 
+bbox <- st_bbox(c(xmin = 105.2, xmax = 105.9, ymin = 40.4, ymax = 40.8), crs = st_crs(cpf_bs))
+
+# Crop raster
+cpf_bs_crop <- st_crop(cpf_bs, bbox)
+
+# Crop vector layers
+catchment_crop <- st_crop(catchment, bbox)
+
+stream <- st_transform(stream, st_crs(bbox))
+tb <- st_transform(tb, st_crs(bbox))
+
+stream_crop <- st_crop(stream, bbox)
+tb_crop <- st_crop(tb, bbox)
+
+
+ggplot() +
+  # Overlay CPF burn severity raster
+  geom_stars(data = cpf_bs, aes(fill = cpf_burnsev.tif)) +
+  #scale_fill_viridis(discrete = TRUE, option = "D", name = "CPF Burn Sev") +
+  
+  # Plot cropped catchment boundaries
+  geom_sf(data = catchment_crop, fill = NA, color = 'black', size = 0.7) +
+  
+  # Plot cropped stream points
+  geom_sf(data = stream_crop, color = 'blue', size = 2, shape = 16) +
+  
+  # Plot cropped tipping bucket locations
+  geom_sf(data = tb_crop, color = 'red', size = 3, shape = 4) +
+  
+  # Adjust theme and labels
+  theme_bw() 
+
+```
+

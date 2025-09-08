@@ -1,0 +1,349 @@
+---
+title: "extract for debris flow"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(here)
+library(tidyverse)
+library(lubridate)
+library(zoo)
+library(terra)
+library(stars)
+library(tmap)
+library(sf)
+library(mapview)
+library(zoo)
+library(ggspatial)
+library(beepr)
+
+```
+
+# Fire boundaries
+
+```{r}
+
+# read in fire boundaries
+et <- st_read("./data/GIS/burn_boundaries/co4020310623920201014_20200904_20210907_burn_bndy.shp")
+cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp')
+
+# 10 mins mrms csvs with grid coords (split in half bc so large) - will convert back to stars
+right_10min_21 <- read_csv('./data/mrms_data/bbox_2fires/mrms2021_10min_right.csv')
+left_10min_21 <- read_csv('./data/mrms_data/bbox_2fires/mrms2021_10min_left.csv')
+
+# neither split includes all of cpf or etf
+
+```
+
+# CPF
+
+## P total
+
+```{r}
+
+# filter for cpf dates needed - need 2021 season through 7/26/21
+right_cp <- right_10min_21 #%>%
+  #filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
+
+# now do left date filter
+left_cp <- left_10min_21 #%>%
+  #filter(datetime_round < ymd_hms('2021-07-27 00:10:00'))
+
+# small enough to combine left and right
+# then group by pixel
+# then summarize the sum of each pixel
+cp_10min <- bind_rows(left_cp, right_cp) %>%
+  group_by(x,y) %>%
+  summarize(ptotal_mm = sum(p_mm))
+
+# convert to stars
+cp_ptot <- st_as_stars(cp_10min, dims = c("x", "y"))
+
+# set the crs
+st_crs(cp_ptot) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to cpf but first make sure same CRS
+cp_trans <- st_transform(cp, st_crs(cp_ptot))
+
+# crop to cpf boundary
+cp_ptot_crop <- st_crop(cp_ptot, cp_trans)
+
+write_stars(cp_ptot_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/cp_ptotal.tif')
+
+```
+
+## P total above MI60 10 mm/hr
+
+```{r}
+pover <- 10
+
+cp_right_ptot_mi60 <- right_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi60 = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(roll_mi60 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_left_ptot_mi60 <- left_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi60 = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(roll_mi60 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_ptot_mi60 <- bind_rows(cp_right_ptot_mi60,
+                          cp_left_ptot_mi60)
+
+# convert to stars
+cp_ptot_mi60_crop <- st_as_stars(cp_ptot_mi60, dims = c("x", "y"))
+
+# set the crs
+st_crs(cp_ptot_mi60_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to cpf but first make sure same CRS
+cp_trans <- st_transform(cp, st_crs(cp_ptot_mi60_crop))
+
+# crop to cpf boundary
+cp_ptot_mi60_crop <- st_crop(cp_ptot_mi60_crop, cp_trans)
+
+write_stars(cp_ptot_mi60_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/cp_ptotal_mi60.tif')
+
+```
+
+## P total above MI30 10 mm/hr
+
+```{r}
+pover <- 10
+
+cp_right_ptot_mi30 <- right_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi30 = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(over = if_else(roll_mi30 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_left_ptot_mi30 <- left_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi30 = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(over = if_else(roll_mi30 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_ptot_mi30 <- bind_rows(cp_right_ptot_mi30,
+                          cp_left_ptot_mi30)
+
+# convert to stars
+cp_ptot_mi30_crop <- st_as_stars(cp_ptot_mi30, dims = c("x", "y"))
+
+# set the crs
+st_crs(cp_ptot_mi30_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to cpf but first make sure same CRS
+cp_trans <- st_transform(cp, st_crs(cp_ptot_mi30_crop))
+
+# crop to cpf boundary
+cp_ptot_mi30_crop <- st_crop(cp_ptot_mi30_crop, cp_trans)
+
+write_stars(cp_ptot_mi30_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/cp_ptotal_mi30.tif')
+
+```
+
+## P total above MI10 10 mm/hr
+
+```{r}
+
+pover <- 10
+
+cp_right_ptot_mi10 <- right_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>%
+  mutate(p_mmhr = p_mm * 6) %>% 
+  mutate(over = if_else(p_mmhr > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_left_ptot_mi10 <- left_cp %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(p_mmhr = p_mm * 6) %>% 
+  mutate(over = if_else(p_mmhr > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+cp_ptot_mi10 <- bind_rows(cp_right_ptot_mi10,
+                          cp_left_ptot_mi10)
+
+# convert to stars
+cp_ptot_mi10_crop <- st_as_stars(cp_ptot_mi10, dims = c("x", "y"))
+
+# set the crs
+st_crs(cp_ptot_mi10_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to cpf but first make sure same CRS
+cp_trans <- st_transform(cp, st_crs(cp_ptot_mi10_crop))
+
+# crop to cpf boundary
+cp_ptot_mi10_crop <- st_crop(cp_ptot_mi10_crop, cp_trans)
+
+write_stars(cp_ptot_mi10_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/cp_ptotal_mi10.tif')
+
+```
+
+# ETF
+
+## P total
+
+```{r}
+
+# filter for etf dates needed - there are 2 dates - ran this 2 diff times
+right_et <- right_10min_21 %>%
+  filter(datetime_round < ymd_hms('2021-08-27 00:10:00'))
+
+# now do left date filter
+left_et <- left_10min_21 %>%
+  filter(datetime_round < ymd_hms('2021-08-27 00:10:00'))
+
+# small enough to combine left and right
+# then group by pixel
+# then summarize the sum of each pixel
+et_10min <- bind_rows(left_et, right_et) %>%
+  group_by(x,y) %>%
+  summarize(ptotal_mm = sum(p_mm))
+
+# convert to stars
+et_ptot <- st_as_stars(et_10min, dims = c("x", "y"))
+
+# set the crs
+st_crs(et_ptot) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to etf but first make sure same CRS
+et_trans <- st_transform(et, st_crs(et_ptot))
+
+# crop to etf boundary
+et_ptot_crop <- st_crop(et_ptot, et_trans)
+
+write_stars(et_ptot_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/et_ptotal_0826.tif')
+
+```
+
+## P total above MI60 10 mm/hr
+
+```{r}
+pover <- 10
+
+et_right_ptot_mi60 <- right_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi60 = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(roll_mi60 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_left_ptot_mi60 <- left_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi60 = (rollapplyr(p_mm, width = 6, FUN = sum, partial = T))) %>% 
+  mutate(over = if_else(roll_mi60 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_ptot_mi60 <- bind_rows(et_right_ptot_mi60,
+                          et_left_ptot_mi60)
+
+# convert to stars
+et_ptot_mi60_crop <- st_as_stars(et_ptot_mi60, dims = c("x", "y"))
+
+# set the crs
+st_crs(et_ptot_mi60_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to etf but first make sure same CRS
+et_trans <- st_transform(et, st_crs(et_ptot_mi60_crop))
+
+# crop to etf boundary
+et_ptot_mi60_crop <- st_crop(et_ptot_mi60_crop, et_trans)
+
+write_stars(et_ptot_mi60_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/et_ptotal_mi60_0826.tif')
+
+```
+
+## P total above MI30 10 mm/hr
+
+```{r}
+pover <- 10
+
+et_right_ptot_mi30 <- right_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi30 = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(over = if_else(roll_mi30 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_left_ptot_mi30 <- left_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(roll_mi30 = (rollapplyr(p_mm, width = 3, FUN = sum, partial = T))*2) %>% 
+  mutate(over = if_else(roll_mi30 > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_ptot_mi30 <- bind_rows(et_right_ptot_mi30,
+                          et_left_ptot_mi30)
+
+# convert to stars
+et_ptot_mi30_crop <- st_as_stars(et_ptot_mi30, dims = c("x", "y"))
+
+# set the crs
+st_crs(et_ptot_mi30_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to etf but first make sure same CRS
+et_trans <- st_transform(et, st_crs(et_ptot_mi30_crop))
+
+# crop to etf boundary
+et_ptot_mi30_crop <- st_crop(et_ptot_mi30_crop, et_trans)
+
+write_stars(et_ptot_mi30_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/et_ptotal_mi30_0826.tif')
+
+```
+
+## P total above MI10 10 mm/hr
+
+```{r}
+
+pover <- 10
+
+et_right_ptot_mi10 <- right_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>%
+  mutate(p_mmhr = p_mm * 6) %>% 
+  mutate(over = if_else(p_mmhr > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_left_ptot_mi10 <- left_et %>% 
+  group_by(x,y) %>%
+  arrange(datetime_round) %>% 
+  mutate(p_mmhr = p_mm * 6) %>% 
+  mutate(over = if_else(p_mmhr > pover, p_mm, 0)) %>%
+  summarize(p_over = sum(over))
+
+et_ptot_mi10 <- bind_rows(et_right_ptot_mi10,
+                          et_left_ptot_mi10)
+
+# convert to stars
+et_ptot_mi10_crop <- st_as_stars(et_ptot_mi10, dims = c("x", "y"))
+
+# set the crs
+st_crs(et_ptot_mi10_crop) <- st_crs("+proj=longlat +datum=WGS84")
+
+# crop to etf but first make sure same CRS
+et_trans <- st_transform(et, st_crs(et_ptot_mi10_crop))
+
+# crop to etf boundary
+et_ptot_mi10_crop <- st_crop(et_ptot_mi10_crop, et_trans)
+
+write_stars(et_ptot_mi10_crop, '/Volumes/Kampf/Private/SearsM/GIS_debrisflow/For_SK/et_ptotal_mi10_0826.tif')
+
+```

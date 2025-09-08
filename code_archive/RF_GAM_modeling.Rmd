@@ -1,0 +1,669 @@
+---
+title: "RF & GAM modeling"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    theme: journal
+editor_options:
+  chunk_output_type: console
+---
+
+```{r, include = F}
+
+library(pacman)
+
+p_load(tidyverse, 
+       reshape, 
+       lme4, 
+       randomForest, 
+       mgcv, 
+       pdp,
+       ggcorrplot,
+       RColorBrewer,
+       gratia,
+       performance)
+
+# Set a basic ggplot theme
+theme_set(theme_bw(base_size = 20))
+
+```
+
+# Prep
+
+```{r}
+
+response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  select(site,
+         sp_cat, # categorical
+         fire, # categorical
+         stage_rise_cm,
+         lag2peak_halfP,
+         lag2peak_Pstart,
+         MI60_mmhr,
+         lag_pwd,
+         terrain_hypso75 = hypso75,
+         terrain_hypso25 = hypso25,
+         terrain_hypso50 = hypso50,
+         terrain_connec = IC,
+         terrain_conn_dnbr = hydraulic_func_conn,
+         area_km2 = area_km2.x,
+         terrain_rc_circle = RC_CIRCLE.x,
+         terrain_slope40 = slope40_frac,
+         soil_brockdepmin = brockdepmin,
+         terrain_recharge = frac_recharge_area,
+         #terrain_vbw = avg_vbw_m,
+         soil_sand = AVG_SAND,
+         mean_dnbr, 
+         soil_clay = AVG_CLAY,
+         soil_ksat = AVG_KSAT, 
+         terrain_elongation = ELONGATION.x, 
+         soil_availwaterstor = aws0150wta, 
+         NDVI, 
+         terrain_vall_holl = frac_valley,
+         terrain_flowlength = flow_length_m, 
+         terrain_slope30 = slope30_frac, 
+         SP_mean,
+         terrain_hypsoint = hypso_integral,
+         year,
+         terrain_glacial = frac_glacial,
+         fire_no,
+         mulch_frac) %>%
+  mutate(site_number = as.integer(factor(site))) %>% # give each site a number
+  select(-site)
+
+```
+
+# Correlations
+
+```{r}
+
+# make a df that is just one row per site
+site_vars <- response %>%
+  distinct(site_number, .keep_all = T)
+
+# columns to plot for distr.
+cols_to_plot <- c(3:34)
+
+plots <- map(cols_to_plot, ~ {
+  col_name <- names(site_vars)[.x]
+  
+  ggplot(site_vars, aes(x = .data[[col_name]])) +
+    geom_density(fill = "steelblue", alpha = 0.6) +
+    theme_bw(base_size=20)
+})
+
+# Print the plots
+walk(plots, print)
+# distr. are funky so use spearman
+
+
+corr_prep <- site_vars %>%
+  select(-c(#MI60_mmhr,
+            #lag_pwd,
+            lag2peak_halfP,
+            lag2peak_Pstart,
+            #stage_rise_cm,
+            fire_no)) %>%
+  select(where(is.numeric))
+
+corr_matrix <- cor(corr_prep, 
+                   use = "complete.obs",
+                   method = 'spearman')
+
+ggcorrplot(corr_matrix, method = "square", 
+           hc.order = FALSE,
+           #type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3,
+           colors = brewer.pal(n = 3, name = "BrBG")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+ggsave(
+  './figures/SR_response/corrplot_all.png',
+       dpi=600,
+       width=14,
+       height=12)
+
+# filter to only view values > abs(0.6)
+masked_corr <- corr_matrix %>%
+  as.data.frame() %>%
+  mutate(across(everything(), 
+                ~ ifelse(abs(.) <= 0.6, 
+                         NA, .)))
+
+ggcorrplot(masked_corr, method = "square", 
+           #hc.order = FALSE,
+           type = "lower", 
+           lab = TRUE, 
+           lab_col = "black", 
+           lab_size = 3, 
+           colors = brewer.pal(n = 3, name = "BrBG")) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(hjust = 1))
+
+ggsave(
+  './figures/SR_response/corrplot_cross.png',
+       dpi=600,
+       width=14,
+       height=12)
+
+```
+
+
+# GAM
+
+```{r}
+data <- response %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'low') %>%
+  drop_na()
+
+# vars
+vars <- c(#'lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          #'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'year')
+
+# w/ interaction - for if wanting to test 1 
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) + # smooth function of MI60, same for all sites
+             s(site_number, bs = "re") + # random effects, random intercept for each site
+             s(MI60_mmhr, site_number, bs = "fs") + # diff smooth of MI60 for each site
+             s(MI60_mmhr, by=SP_mean),  # smooth interaction of MI60 w/ var
+             #s(year),
+            family = Gamma(link = "log"),
+            data = data)
+
+summary(gam)
+AIC(gam)
+
+plot(gam)
+
+plot(gam, select = 4, rug = TRUE, shade = TRUE)
+
+```
+
+# Plot interaction 
+
+```{r}
+
+# code below doesn't work
+# Generate prediction data across MI60 range for several soil_clay levels
+newdat <- with(data, expand.grid(
+  MI60_mmhr = seq(min(MI60_mmhr), max(MI60_mmhr), length.out = 100),
+  mean_dnbr = quantile(mean_dnbr, probs = c(0.1, 0.5, 0.9))
+  #site_number = factor(site_number, levels = levels(site_number))
+))
+
+# Predict on response scale
+newdat$fit <- predict(gam, newdata = newdat, type = "response")
+
+ggplot(newdat, aes(x = MI60_mmhr, 
+                   y = fit, 
+                   color = factor(mean_dnbr))) +
+  geom_line(size = 1) +
+  labs(x = "MI60 (mm/hr)", 
+       y = "Predicted Stage Rise (cm)", 
+       color = "dnbr") +
+  theme_bw(base_size=20)
+
+```
+
+# GAM interaction p-vals
+
+```{r}
+
+pval_table <- map_dfr(vars, function(var) {
+  tryCatch({
+    # Updated formula with terrain_glacial replaced by var
+    form <- as.formula(paste0(
+      "stage_rise_cm ~ ",
+      "s(MI60_mmhr) + ",
+      "s(MI60_mmhr, site_number, bs = 'fs') + ",
+      "s(site_number, bs = 're') + ",
+      "s(MI60_mmhr, by = ", var, ")"
+    ))
+    
+    # Fit GAM
+    mod <- gam(form, 
+               family = Gamma(link = "log"), 
+               data = data)
+    
+    # Extract p-value for interaction term
+    sum_mod <- summary(mod)
+    term_label <- paste0("s(MI60_mmhr):", var)
+    pval <- sum_mod$s.table[term_label, "p-value"]
+    
+    tibble(variable = var, 
+           p_value = pval)
+    
+  }, 
+  error = function(e) {
+    tibble(variable = var, 
+           p_value = NA_real_)
+  })
+})
+
+pval_table <- pval_table %>%
+  mutate(pval_adjusted = p_value/15, # use 15 since ndvi and pwd will be included (13+2)
+         sig = if_else(p_value < 0.00333, # =0.05/15
+                       'sig', 
+                       'ns'))
+
+all <- pval_table %>%
+  mutate(cat = 'all')
+
+```
+
+# PWD GAM p-vals
+
+```{r}
+
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, by=lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
+
+pwd_gam <- summary(gam)
+
+pwd_pval <- pwd_gam$s.table['s(MI60_mmhr):lag_pwd', "p-value"]
+
+pwd_pval <- as.data.frame(pwd_pval) %>%
+  mutate(variable = 'pwd',
+         p_value = pwd_pval,
+         pval_adjusted = p_value / 15) %>%
+  mutate(sig = if_else(p_value < 0.00333, # =0.05/15
+                       'sig', 
+                       'ns')) %>% 
+  select(-pwd_pval)
+
+plot(gam)
+
+```
+
+# NDVI GAM p-vals
+
+```{r}
+
+gam_ndvi <- gam(stage_rise_cm ~ s(MI60_mmhr) +
+                 s(site_number, bs = "re") +                            
+                 s(MI60_mmhr, interaction(site_number, year), bs = "fs") +
+                 s(MI60_mmhr, by = NDVI),
+    data = data)
+
+ndvi_gam <- summary(gam_ndvi)
+
+ndvi_pval <- ndvi_gam$s.table['s(MI60_mmhr):NDVI', "p-value"]
+
+ndvi_pval <- as.data.frame(ndvi_pval) %>%
+  mutate(variable = 'ndvi',
+         p_value = ndvi_pval,
+         pval_adjusted = p_value / 15) %>%
+  mutate(sig = if_else(p_value < 0.00333, # =0.05/15
+                       'sig', 
+                       'ns')) %>% 
+  select(-ndvi_pval)
+
+plot(gam_ndvi)
+
+```
+
+# Add all p vals together
+
+```{r}
+
+pvals <- bind_rows(pval_table,
+                   ndvi_pval,
+                   pwd_pval)
+
+```
+
+# ANOVA w/ & w/o interaction
+
+```{r}
+# vars to use
+vars <- c(#'lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          #'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge')
+          #'year')
+
+# test one at interaction at a time to start
+# w/ interaction
+gam <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) + # smooth function of MI60, same for all sites
+             s(site_number, bs = "re") + # random effects, random intercept for each site
+             s(MI60_mmhr, site_number, bs = "fs") + # diff smooth of MI60 for each site
+             te(MI60_mmhr, by=SP_mean),  # smooth interaction of MI60 w/ var
+            family = Gamma(link = "log"),
+            data = data)
+
+#r2_interaction <- summary(gam)$dev.expl - summary(gam_reduce)$dev.expl
+
+#gam_update <- gam(stage_rise_cm~ te(MI60_mmhr, SP_mean, by = site_number) + site_number, data = data)
+
+## w/o interaction
+gam_reduce <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, site_number, bs = "fs") +
+             s(SP_mean),  # update the var here
+            family = Gamma(link = "log"),
+            data = data)
+
+anova_soil_clay <- anova(gam, gam_reduce, 
+                    test='Chisq')
+
+dev_diff <- anova_soil_clay$Deviance[2]
+p_val <- anova_soil_clay$`Pr(>Chi)`[2]
+
+compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'soil_clay')
+
+###############################################################################
+# automated version of above:
+compare_results <- map_dfr(vars, function(v) {
+  
+  # Formulas
+  interaction_formula <- as.formula(paste0(
+    "stage_rise_cm ~ s(MI60_mmhr) + 
+    s(site_number, bs = 're') + ",
+    "s(MI60_mmhr, site_number, bs = 'fs') + ",
+    "s(MI60_mmhr, by = ", v, ")"
+  ))
+  
+  reduced_formula <- as.formula(paste0(
+    "stage_rise_cm ~ s(MI60_mmhr) + 
+    s(site_number, bs = 're') + ",
+    "s(MI60_mmhr, site_number, bs = 'fs') + ",
+    "s(", v, ")"
+  ))
+  
+  # Fit models
+  gam_full <- gam(interaction_formula, 
+                  family = Gamma(link = "log"), 
+                  data = data)
+  
+  gam_reduce <- gam(reduced_formula, 
+                    family = Gamma(link = "log"), 
+                    data = data)
+  
+  # Compare models
+  a <- anova(gam_reduce, gam_full, test = "Chisq")
+  
+  # Extract and return results
+  data.frame(
+    var = v,
+    deviance_difference = a$Deviance[2],
+    p_value = a$`Pr(>Chi)`[2]
+  )
+})
+
+compare_results
+
+
+```
+
+# ANOVA: NDVI
+
+```{r}
+
+gam_ndvi <- gam(stage_rise_cm ~ s(MI60_mmhr) +
+                 s(site_number, bs = "re") +                            
+                 s(MI60_mmhr, interaction(site_number, year), bs = "fs") +
+                 s(MI60_mmhr, by = NDVI),
+    data = data)
+
+gam_ndvi_reduce <- gam(stage_rise_cm ~ s(MI60_mmhr) +
+                 s(site_number, bs = "re") +                            
+                 s(MI60_mmhr, interaction(site_number, year), bs = "fs") +
+                 s(NDVI),
+    data = data)
+
+ndvi_anova <- anova(gam_ndvi_reduce, gam_ndvi, test = "Chisq")
+
+dev_diff <- ndvi_anova$Deviance[2]
+p_val <- ndvi_anova$`Pr(>Chi)`[2]
+
+ndvi_compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'ndvi')
+
+```
+
+# ANOVA: PWD
+
+```{r}
+
+gam_pwd <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(MI60_mmhr, by=lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
+
+gam_pwd_reduce <- gam(stage_rise_cm ~ 
+             s(MI60_mmhr) +
+             s(site_number, bs = "re") +
+             s(lag_pwd),
+            family = Gamma(link = "log"),
+            data = data)
+
+pwd_anova <- anova(gam_pwd_reduce, gam_pwd, test = "Chisq")
+
+dev_diff <- pwd_anova$Deviance[2]
+p_val <- pwd_anova$`Pr(>Chi)`[2]
+
+pwd_compare <- data.frame(
+  deviance_difference = dev_diff,
+  p_value = p_val,
+  var = 'pwd')
+
+```
+
+# Combina ANOVAs
+
+```{r}
+
+compare_results <- bind_rows(compare_results,
+                             ndvi_compare,
+                             pwd_compare)
+
+```
+
+
+# Archive
+
+```{r}
+
+# compare response shapes RF versus GAM
+part1 <- partial(rf_all, pred.var = c('MI60_mmhr')) 
+plotPartial(part1, rug = T, train = data)
+
+# no random effects
+gam1 <- gam(stage_rise_cm ~ 
+              s(MI60_mmhr),
+            family = Gamma(link = "log"),
+            data = data)
+
+summary(gam1)
+plot(gam1)
+AIC(gam1)
+
+# add random effect to GAM
+gamm_site <- gamm(stage_rise_cm ~ s(MI60_mmhr), 
+                  random = list(site_number = ~1),
+                  family = Gamma(link = "log"),
+                  data = data)
+
+plot(gamm_site$gam)
+
+AIC(gamm_site$lme) # AIC much lower w/ site number as random effect
+
+summary(gamm_site$gam)  # fixed effects
+summary(gamm_site$lme)  # random effects
+
+# interactions
+part2 <- partial(rf_all, pred.var = c('MI60_mmhr', 'lag_pwd')) 
+plotPartial(part2, rug = T, train = data)
+
+gam2 <- gamm(stage_rise_cm ~ 
+               s(MI60_mmhr, by = lag_pwd),
+             random = list(site_number = ~1),
+             family = Gamma(link = "log"),
+             data = data)
+
+
+summary(gam2$gam)
+plot(gam2$gam)
+
+```
+
+## RF modeling
+
+no longer using RF
+
+```{r}
+
+data <- response %>%
+  #filter(fire == 'etf') %>%
+  #filter(sp_cat == 'low') %>%
+  drop_na()
+
+rf_all <- randomForest(stage_rise_cm ~ 
+                      MI60_mmhr + 
+                      lag_pwd +
+                      SP_mean +
+                      terrain_glacial +
+                      terrain_vall_holl +
+                      soil_clay +
+                      mean_dnbr +
+                      NDVI +
+                      terrain_slope30 +
+                      terrain_hypso75 +
+                      terrain_connec +
+                      terrain_elongation +
+                      terrain_flowlength +
+                      soil_ksat +
+                      terrain_recharge +
+                      #mulch_frac +
+                      year,
+                    data = data, 
+                    mtry = 6, 
+                    ntree = 500)
+
+# variable importance
+varImpPlot(rf_all)
+
+varImps <- rf_all$importance %>%
+  as.data.frame() 
+
+sr_all_RF <- varImps %>%
+  mutate(., normINP = IncNodePurity/max(IncNodePurity)) %>%
+  rownames_to_column('Predictor') %>%
+  mutate(Predictor = as.factor(Predictor)) %>%
+  ggplot(aes(x=reorder(Predictor, normINP), y=normINP)) + theme_bw(base_size = 20) +
+      geom_bar(stat='identity', color='black', fill='black') +
+      coord_flip() +
+      labs(y='Normalized Variable Importance') +
+      theme(axis.title.y = element_blank()) +
+  theme(legend.position="bottom",
+        text = element_text(size=20)) +
+  ggtitle('Stage rise - All, n = 240')
+
+sr_all_RF
+
+ggsave(
+  "./figures/SR_response/RF_SR_all.png",
+  width=12,
+  height=8,
+  dpi = 600
+)
+
+```
+
+## RF PD plots
+
+```{r}
+
+# vars used in PD plots
+vars <- c('lag_pwd',
+          'SP_mean',
+          'terrain_glacial',
+          'terrain_vall_holl',
+          'soil_clay',
+          'mean_dnbr',
+          'NDVI',
+          'terrain_slope30',
+          'terrain_hypso75',
+          'terrain_connec',
+          'terrain_elongation',
+          'terrain_flowlength',
+          'soil_ksat',
+          'terrain_recharge',
+          'year')
+
+# small subset of above instead for testing
+# vars <- c('mulch_frac')
+
+# partial diff here is from RF modeling above
+partial_df <- map_dfr(vars, function(var) {
+  partial(rf_all, pred.var = c("MI60_mmhr", var), train = data) %>%
+    rename_with(~ "var_value", all_of(var)) %>%
+    mutate(variable = var)
+})
+
+
+ggplot(partial_df, 
+       aes(x = MI60_mmhr, y = var_value, fill = yhat)) +
+  geom_raster() +
+  facet_wrap(~ variable, scales = "free") +
+  scale_fill_viridis_c(option = "C", na.value = "white") +
+  labs(
+    x = "MI60 (mm/hr)",
+    y = "Value",
+    fill = "Predicted\nstage rise (cm)") +
+  theme(legend.position = 'bottom',
+        legend.key.width = unit(2, "cm"))
+
+ggsave(
+  "./figures/SR_response/pdp_SR_all.png",
+  width = 20,
+  height = 12,
+  dpi = 600
+)
+
+```
