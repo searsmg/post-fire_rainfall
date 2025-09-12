@@ -11,3 +11,5 @@ half2_2023_bbox2fire.Rdata
 intensities_jun11_2023.csv
 .netrc.rtf
 rosm.cache
+.DS_Store
+**/.DS_Store
