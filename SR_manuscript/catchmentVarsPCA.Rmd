@@ -191,14 +191,14 @@ pcaData <- pcaDataIn %>%
   #           year,
   #           yearCont,
   #           site_number)) %>%
-  select(SP_mean,
+  select(#SP_mean,
           #terrain_glacial,
           terrain_vall_holl, # keep
           soil_clay, # keep
-          #soil_sand,
+          soil_sand,
           mean_dnbr,
           #terrain_slope30,
-          #terrain_hypso75,
+          terrain_hypso75,
           #terrain_connec,
           #terrain_elongation,
           terrain_flowlength)
