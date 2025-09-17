@@ -217,6 +217,22 @@ ggplot(ndvi_summary, aes(
 
 srNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_stageRise_final.rds')
 
+srNDVIsumm <- srNDVI %>%
+  data.frame() %>%
+  select(NDVI, 
+         MI60_mmhr.NDVI) %>%
+  melt() %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1))
+
 SRndviPlot <- as_draws(srNDVI) %>% 
   data.frame() %>%
   select(NDVI, 
