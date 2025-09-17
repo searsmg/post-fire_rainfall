@@ -1,0 +1,101 @@
+---
+title: "pull PRISM 800m"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+
+library(tidyverse)
+library(httr)
+library(terra)
+
+```
+
+# Function to pull PRISM 800m
+
+```{r}
+
+get_prism800 <- function(url, outdir) {
+  
+  fname_date <- gsub(".*/", "", url) # date from URL
+  var <- "ppt" 
+  region <- "us"
+  res <- "800m"
+  
+  # File paths
+  fname_base <- paste(var, 
+                      region, 
+                      res, 
+                      fname_date, 
+                      sep = "_")
+  
+  zipfile <- file.path(outdir, 
+                       paste0(fname_base, 
+                              ".zip"))
+  
+  unzipdir <- file.path(outdir, 
+                        paste0(fname_base, 
+                               "_unzipped"))
+  
+  # Download ZIP
+  resp <- GET(url, write_disk(zipfile, 
+                              overwrite = TRUE), 
+              progress())
+  
+  if (http_error(resp)) stop("Download failed: ", url)
+  
+  # Unzip
+  unzip(zipfile, exdir = unzipdir)
+  
+  # Find the raster inside the ZIP (.tif)
+  raster_file <- list.files(unzipdir, pattern = "\\.tif$", full.names = TRUE)[1]
+  if (is.na(raster_file)) stop("No raster found in ZIP for ", fname_date)
+  
+  # Read raster
+  rast(raster_file)
+}
+
+```
+
+
+```{r}
+
+# This is mrms summer 23 data
+# Used for crs and extent later on
+sum_all23 <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
+
+# Folder to save downloads
+outdir <- "~/Downloads/prism_800m"
+
+# Date range
+dates_tbl <- tibble(
+  date = seq(ymd("2021-06-01"), 
+             ymd("2021-09-30"), 
+             by = "day")) %>%
+  mutate(date_str = format(date, 
+                           "%Y%m%d"),
+    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", date_str))
+
+# run the function w/ urls
+rasters <- dates_tbl %>%
+  pull(url) %>%
+  map(~ get_prism800(.x, outdir))
+
+# Stack into a single SpatRaster
+P_prism_stack <- rast(rasters)
+
+plot(P_prism_stack)
+
+prism_proj <- project(P_prism_stack,
+                      sum_all23
+                      )
+
+# sum the raster
+prismSum <- sum(prism_proj, na.rm = TRUE)
+
+plot(prismSum)
+
+```
+
