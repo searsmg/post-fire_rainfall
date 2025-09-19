@@ -448,10 +448,23 @@ ptot_legend <- ggplot() +
    ) +
     guides(fill = guide_colorbar(
     barwidth = 1,  # Adjust width of the colorbar
-    barheight = 10))
+    barheight = 40))
 
 ptot_legend
-ggsave('./figures/ptotal_legend.svg', dpi=600, width=15, height = 20)
+
+
+library(cowplot)
+
+# extract only the legend
+legend_only <- get_legend(ptot_legend)
+
+# plot it
+grid::grid.newpage()
+grid::grid.draw(legend_only)
+
+legend_only
+ggsave('./figures/ptotal_legend2.png',plot=legend_only, dpi=600,
+       width=15, height = 20)
 
 ```
 
@@ -573,85 +586,87 @@ ggsave('./figures/ptot_gridmet_plot.svg', dpi=600, width=15, height = 20)
 
 # *PRISM summer totals
 
-  filter(datetime > ymd_hms('2021-05-31 23:58:00'),
-          datetime < ymd_hms('2021-09-30 23:58:00'))
+PRISM 800 JJAS precip data was pulled using the pullPRISM800 script
 
 ```{r}
 
-library(httr)
-library(terra)
-library(purrr)
-
-sum_all23 <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
-
-# Folder to save downloads
-outdir <- "~/Downloads/prism_800m"
-dir.create(outdir)
-
-download_prism <- function(url, outdir) {
-  # Extract date from URL
-  fname_date <- gsub(".*/", "", url)
-  var <- "ppt" 
-  region <- "us"
-  res <- "800m"
+prism21 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/prism800mJJAS2021.tif') %>%
+  #st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2021,
+         source = 'PRISM')
   
-  # File paths
-  fname_base <- paste(var, region, res, fname_date, sep = "_")
-  zipfile <- file.path(outdir, paste0(fname_base, ".zip"))
-  unzipdir <- file.path(outdir, paste0(fname_base, "_unzipped"))
-  
-  # Download ZIP
-  resp <- GET(url, write_disk(zipfile, overwrite = TRUE), progress())
-  if (http_error(resp)) stop("Download failed: ", url)
-  
-  # Unzip
-  unzip(zipfile, exdir = unzipdir)
-  
-  # Find the raster inside the ZIP (.tif)
-  raster_file <- list.files(unzipdir, pattern = "\\.tif$", full.names = TRUE)[1]
-  if (is.na(raster_file)) stop("No raster found in ZIP for ", fname_date)
-  
-  # Read raster
-  rast(raster_file)
-}
+#mapview(gridmet21) + mapview(sum_all21)
 
-# Example URLs
-urls <- c(
-  "https://services.nacse.org/prism/data/get/us/800m/ppt/20210601",
-  "https://services.nacse.org/prism/data/get/us/800m/ppt/20210602"
-)
+prism22 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/prism800mJJAS2022.tif') %>%
+  #st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2022,
+         source = 'PRISM')
 
-# Download and read
+prism23 <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/prism800mJJAS2023.tif') %>%
+  #st_warp(., sum_all23) %>%
+  as.data.frame(., xy = TRUE) %>%
+  rename(sum = 3) %>%
+  mutate(year = 2023,
+         source = 'PRISM')
 
-# Define date range as a tibble
-dates_tbl <- tibble(
-  date = seq(ymd("2021-06-01"), 
-             ymd("2021-09-30"), 
-             by = "day")) %>%
-  mutate(date_str = format(date, 
-                           "%Y%m%d"),
-    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", date_str))
+prism_all <- bind_rows(prism21, prism22, prism23)
 
-# Download and read rasters
-outdir <- "~/Downloads/prism_800m"
-rasters <- dates_tbl %>%
-  pull(url) %>%
-  map(~ download_prism(.x, outdir))
+# Get raster extent
+x_min <- min(prism_all$x)
+x_max <- max(prism_all$x)
+y_min <- min(prism_all$y)
+y_max <- max(prism_all$y)
 
-# Stack into a single SpatRaster
-P_prism_stack <- rast(rasters)
+prism_all_plot <- ggplot() +
+  geom_raster(data = prism_all, 
+              aes(x = x, y = y, fill = sum)) +
+  scale_fill_viridis_c(name = "P total (mm)", 
+                       option = "turbo",
+                       direction = 1,
+                       limits = c(0, 610)) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'grey40',
+          lwd = 1) +
+    theme_bw(base_size = 23) +
+      geom_sf(data = huc8,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme(
+    legend.position = 'none',
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_blank(),
+    # strip.text = element_text(hjust = 0, 
+    #                           face = "bold",
+    #                           margin = margin(t = -1),
+    #strip.background = element_rect(fill = "white", color = "black"),  # facet title
+    strip.text = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4),
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  )
 
-plot(P_prism_stack)
+prism_all_plot
 
-prism_proj <- project(P_prism_stack,
-                      sum_all23
-                      )
-
-# sum the raster
-prismSum <- sum(prism_proj, na.rm = TRUE)
-
-plot(prismSum)
-
+# save fig
+ggsave('./figures/ptot_prism_plot.svg', dpi=600, width=15, height = 20)
 
 
 ```
