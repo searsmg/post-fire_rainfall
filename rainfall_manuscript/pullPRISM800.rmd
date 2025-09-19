@@ -20,9 +20,9 @@ library(terra)
 get_prism800 <- function(url, outdir) {
   
   fname_date <- gsub(".*/", "", url) # date from URL
-  var <- "ppt" 
-  region <- "us"
-  res <- "800m"
+  var <- "ppt" # precip
+  region <- "us" # CONUS
+  res <- "800m" # 800 m 
   
   # File paths
   fname_base <- paste(var, 
@@ -64,21 +64,22 @@ get_prism800 <- function(url, outdir) {
 
 # This is mrms summer 23 data
 # Used for crs and extent later on
-sum_all23 <- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
+sum_all23 <- rast('~/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
 # Folder to save downloads
-outdir <- "~/Downloads/prism_800m"
+outdir <- "~/Documents/PRISM800/JJAS23"
 
-# Date range
+# Date range for function
 dates_tbl <- tibble(
-  date = seq(ymd("2021-06-01"), 
-             ymd("2021-09-30"), 
+  date = seq(ymd("2023-06-01"), 
+             ymd("2023-09-30"), 
              by = "day")) %>%
   mutate(date_str = format(date, 
                            "%Y%m%d"),
-    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", date_str))
+    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", 
+                 date_str))
 
-# run the function w/ urls
+# Run the function w/ urls
 rasters <- dates_tbl %>%
   pull(url) %>%
   map(~ get_prism800(.x, outdir))
@@ -86,16 +87,21 @@ rasters <- dates_tbl %>%
 # Stack into a single SpatRaster
 P_prism_stack <- rast(rasters)
 
-plot(P_prism_stack)
+# Sum for JJAS total - this is CONUS
+prismSum <- sum(P_prism_stack, 
+                na.rm = TRUE)
 
-prism_proj <- project(P_prism_stack,
-                      sum_all23
-                      )
+# Project  
+prism_proj <- project(prismSum,
+                      "EPSG:4326") # matches sum_all23
 
-# sum the raster
-prismSum <- sum(prism_proj, na.rm = TRUE)
+# Crop to mrms summer total for figure
+prismJJAS22 <- crop(prism_proj,
+                    sum_all23)
 
-plot(prismSum)
+plot(prismJJAS22)
+
+writeRaster(prismJJAS22,
+            '~/Documents/PRISM800/JJAS22/prism800mJJAS2022.tif')
 
 ```
-
