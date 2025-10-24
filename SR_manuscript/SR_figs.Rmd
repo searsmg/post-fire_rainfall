@@ -1,5 +1,5 @@
 ---
-title: "Bayes figures"
+title: "Stream response manuscript figures"
 author: "Megan Sears"
 date: "`r Sys.Date()`"
 output: html_document
@@ -29,9 +29,9 @@ showtext_auto()
 
 ```
 
-# Stage rise
+# Global bayes figures
 
-## Global
+## Stage rise
 
 ```{r}
 
@@ -96,6 +96,175 @@ globalStage <- ggplot(stageRise_df,
 globalStage
 
 ```
+
+## Lag to peak
+
+```{r}
+lag <- readRDS(here("./data/bayes_interaction_outputs/global_l2p_final.rds"))
+
+var_levels <- c(
+  "MI60", 
+  "Fire", 
+  "Snow zone", 
+  "Year"
+)
+
+lag_df <- as_draws(lag) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
+  melt() %>%
+  mutate(variable = case_match(variable,
+    "MI60_mmhr"   ~ "MI60",
+    "fireetf"     ~ "Fire",
+    "sp_catlow"   ~ "Snow zone",
+    "yearCont"    ~ "Year")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+lag_summary <- lag_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
+
+globalLag <- ggplot(lag_df, 
+                    aes(x = value,
+                        y = as.factor(variable))) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'sans',
+                        #size=100
+                        ),
+    axis.text = element_text(color = "black"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()
+  ) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+   geom_text(
+    data = lag_summary, 
+    aes(
+      x = 2,
+      y = as.factor(variable),
+      label = percent_positive_label
+    ),
+    inherit.aes = FALSE,
+    hjust = 1,
+    size = 3,
+    nudge_y = 0.12)
+
+
+globalLag
+
+```
+
+## Combine
+
+```{r}
+
+# combine the two globals
+stageRise_df <- stageRise_df %>%
+  mutate(response = 'Stage rise')
+
+lag_df <- lag_df %>%
+  mutate(response = 'Lag to peak')
+
+var_levels <- c("Year",
+                "Snow zone",
+                "Fire",
+                "MI60")
+
+summary <- bind_rows(sr_summary,
+                     lag_summary) %>%
+    mutate(response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")),
+           variable = factor(variable,
+                             levels = var_levels))
+
+global <- bind_rows(stageRise_df,
+                    lag_df) %>%
+  mutate(variable = factor(variable, 
+                           levels = var_levels),
+         response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")))
+
+globalPlot <- ggplot(global, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  facet_wrap(~response) +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'os',
+                        size=180),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  geom_text(
+    data = summary,
+    aes(
+      x = 2,
+      y = variable,
+      label = percent_positive_label),
+    inherit.aes = FALSE,
+    size = 45,
+    nudge_y = -0.12) 
+
+globalPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/global.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+```
+
+# NDVI figures
 
 ## NDVI over time
 
@@ -210,8 +379,7 @@ ggplot(ndvi_summary, aes(
 
 ```
 
-
-## NDVI
+## Stage rise: NDVI
 
 ```{r}
 
@@ -266,6 +434,49 @@ SRndviPlot <- as_draws(srNDVI) %>%
 SRndviPlot
 
 ```
+
+## Lag to peak: NDVI
+
+```{r}
+
+lpNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_l2p_final.rds')
+
+LPndviPlot <- as_draws(lpNDVI) %>% 
+  data.frame() %>%
+  select(NDVI, 
+         MI60_mmhr.NDVI, 
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  ggplot(., aes(x = value, 
+                fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) + 
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none') +
+  theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(family = "Helvetica")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  ggtitle('Lag to peak')
+
+plot_grid(SRndviPlot, LPndviPlot)
+
+```
+
+
+# Archive 
 
 ## Interactions
 
@@ -476,218 +687,6 @@ low_srInt_plot
 
 plot_grid(low_srInt_plot,
           high_srInt_plot)
-
-```
-
-# Lag to peak
-
-## Global
-
-```{r}
-lag <- readRDS(here("./data/bayes_interaction_outputs/global_l2p_final.rds"))
-
-var_levels <- c(
-  "MI60", 
-  "Fire", 
-  "Snow zone", 
-  "Year"
-)
-
-lag_df <- as_draws(lag) %>% 
-  data.frame() %>%
-  select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
-  melt() %>%
-  mutate(variable = case_match(variable,
-    "MI60_mmhr"   ~ "MI60",
-    "fireetf"     ~ "Fire",
-    "sp_catlow"   ~ "Snow zone",
-    "yearCont"    ~ "Year")) %>%
-   mutate(variable = factor(variable, levels = var_levels))
-
-lag_summary <- lag_df %>%
-  group_by(variable) %>%
-  summarize(mean = mean(value),
-            median = median(value),
-            min = min(value),
-            max = max(value),
-            lower_66 = quantile(value, 0.17),
-            upper_66 = quantile(value, 0.83),
-            lower_95 = quantile(value, 0.025),
-            upper_95 = quantile(value, 0.975),
-            percent_positive = round(mean(value > 0) * 100, 1)) %>%
-  mutate(percent_positive_label = paste0("P>0 = ", 
-                                         sprintf("%.1f", 
-                                                 percent_positive), "%")) %>%
-  mutate(response = 'Lag to peak')
-
-globalLag <- ggplot(lag_df, 
-                    aes(x = value,
-                        y = as.factor(variable))) +
-  geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1),
-            color = 'grey',
-            linewidth = 0.3) +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5,
-                     interval_size_domain = c(2,5,10),
-                     color = '#D50032FF') +
-  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
-  theme(
-    legend.position = 'none',
-    strip.background = element_rect(fill = "white", color = NA),
-    strip.text = element_text(hjust = 0,
-                              color='black',
-                              face='bold'),
-    text = element_text(color = "black",
-                        family = 'sans',
-                        #size=100
-                        ),
-    axis.text = element_text(color = "black"),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank()
-  ) +
-  labs(x = 'Scaled coefficient',
-       y = NULL) +
-   geom_text(
-    data = lag_summary, 
-    aes(
-      x = 2,
-      y = as.factor(variable),
-      label = percent_positive_label
-    ),
-    inherit.aes = FALSE,
-    hjust = 1,
-    size = 3,
-    nudge_y = 0.12)
-
-
-globalLag
-
-```
-
-## Combine - global fig
-
-```{r}
-
-# combine the two globals
-stageRise_df <- stageRise_df %>%
-  mutate(response = 'Stage rise')
-
-lag_df <- lag_df %>%
-  mutate(response = 'Lag to peak')
-
-var_levels <- c("Year",
-                "Snow zone",
-                "Fire",
-                "MI60")
-
-summary <- bind_rows(sr_summary,
-                     lag_summary) %>%
-    mutate(response = factor(response, 
-                           levels = c("Stage rise", 
-                                      "Lag to peak")),
-           variable = factor(variable,
-                             levels = var_levels))
-
-global <- bind_rows(stageRise_df,
-                    lag_df) %>%
-  mutate(variable = factor(variable, 
-                           levels = var_levels),
-         response = factor(response, 
-                           levels = c("Stage rise", 
-                                      "Lag to peak")))
-
-globalPlot <- ggplot(global, 
-                    aes(x = value,
-                        y=variable)) +
-  geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1),
-            color = 'grey',
-            linewidth = 0.3) +
-  stat_pointinterval(.width = c(.66, .95, 1),
-                     fatten_point = 2,
-                     interval_size_domain = c(2,5,10),
-                     color = '#D50032FF') +
-  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
-  facet_wrap(~response) +
-  theme(
-    legend.position = 'none',
-    strip.background = element_rect(fill = "white", 
-                                    color = NA),
-    strip.text = element_text(hjust = 0,
-                              color='black',
-                              face='bold'),
-    text = element_text(color = "black",
-                        family = 'os',
-                        size=180),
-    axis.text = element_text(color = "black",
-                             face='bold'),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank()) +
-  labs(x = 'Scaled coefficient',
-       y = NULL) +
-  geom_text(
-    data = summary,
-    aes(
-      x = 2,
-      y = variable,
-      label = percent_positive_label),
-    inherit.aes = FALSE,
-    size = 45,
-    nudge_y = -0.12) 
-
-globalPlot
-
-ggsave(
-  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/global.png',
-       dpi=800,
-       width=12,
-       height=8)
-
-```
-
-
-## NDVI
-
-```{r}
-
-lpNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_l2p_final.rds')
-
-LPndviPlot <- as_draws(lpNDVI) %>% 
-  data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI, 
-         yearCont.NDVI, 
-         MI60_mmhr.yearCont.NDVI) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) + 
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, 
-                     color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1) +
-  theme(legend.position = 'none') +
-  theme(legend.position = 'none',
-        strip.background = element_rect(fill = "white", color = NA),
-        strip.text = element_text(hjust = 0),
-        text = element_text(family = "Helvetica")) +
-  labs(x = 'Scaled coefficient',
-       y = NULL) +
-  ggtitle('Lag to peak')
-
-plot_grid(SRndviPlot, LPndviPlot)
-
-
 
 ```
 
