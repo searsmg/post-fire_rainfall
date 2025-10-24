@@ -243,6 +243,250 @@ saveRDS(ndviYear,
 
 ```
 
+# Lag to peak
+
+## Global
+
+```{r}
+
+# global model for lag to peak
+global <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr + 
+    fire + 
+    sp_cat + 
+    yearCont +       
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains =5, # switched to 5 when ready for final results
+  cores = 8,
+  iter = 5000, # switch to 5k when ready for final results
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(global)
+check_model(global)
+r2(global)
+
+saveRDS(global, 
+        "./data/bayes_interaction_outputs/global_l2p_final.rds")
+
+# lag to peak posterior draws
+as_draws(global) %>% 
+  data.frame() %>%
+  select(MI60_mmhr, 
+         fireetf, 
+         sp_catlow, 
+         yearCont) %>%
+  melt() %>%
+  ggplot(., aes(x = value, 
+                fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1, 
+             scales = 'free_y') +
+  theme(legend.position = 'none') 
+
+```
+
+## NDVI
+
+```{r}
+
+# include three way interaction between MI60, NDVI, and year to assess those time varying effects
+ndviYear <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr*yearCont*NDVI + 
+    fire + 
+    sp_cat +       
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0,1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(ndviYear)
+check_model(ndviYear)
+r2(ndviYear)
+
+saveRDS(ndviYear, 
+        "./data/bayes_interaction_outputs/ndvi_l2p_final.rds")
+
+# posterior draw distr
+as_draws(ndviYear) %>% 
+  data.frame() %>%
+  select(NDVI, 
+         MI60_mmhr.NDVI,
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  ggplot(., aes(x = value, 
+                fill = variable)) + 
+  theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) + 
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1), 
+            color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5, 
+                     color = 'darkred', 
+                     interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, 
+             ncol = 1) +
+  theme(legend.position = 'none')
+
+```
+
+
+# Archive
+
+## Interaction bayes
+
+```{r}
+
+# filter_mi60 <- response %>%
+#   select(-c(lag2peak_halfP, 
+#             lag2peak_Pstart,
+#             fire_no)) %>% # remove lag to peak
+#   relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
+#   filter(!terrain_connec > 7.9) %>%
+#   mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
+#          site_number = factor(site_number),
+#          yearFact = factor(year), # year factor for random effect
+#          yearCont = year - 2022) # centered year for fixed effect
+
+# include linear interactions with static watershed characteristics
+interaction <- stan_glmer(
+  stage_rise_cm ~ MI60_mmhr*mulch_frac + 
+    fire + 
+    sp_cat + 
+    yearCont +     
+    (1 + MI60_mmhr | site_number) + 
+    (1|yearFact),                          
+  data = stage,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 3,
+  cores = 8,
+  iter = 3000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(interaction)
+check_model(interaction)
+r2(interaction)
+
+#
+summary <- posterior_summary(interaction, 
+                             probs = c(0.025, 0.975)) %>%
+  as.data.frame() %>%
+  slice(7) %>%
+  tibble::rownames_to_column("term") %>%
+  mutate(term = str_remove(term, "MI60_mmhr:"))  # remove prefix
+
+summary
+#
+
+# testing as draws for interaction loop
+df <- as_draws(interaction) %>% 
+  data.frame() %>%
+  select(7) %>%
+  melt()
+
+as_draws(interaction) %>% 
+  data.frame() %>%
+  select(MI60_mmhr,mulch_frac, MI60_mmhr.mulch_frac) %>%
+  melt() %>%
+  ggplot(., aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
+  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
+  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+  facet_wrap(~variable, ncol = 1) +
+  theme(legend.position = 'none')
+
+#SUMMARY: The positive relationship between MI60 and stage rise is amplified by increasing dNBR.
+# ranking interactions:
+# MI60:dNBR is positive, what percentage of the posterior distribution is positive?
+
+# RANKING INTERACTIONS - The posterior distribution of each interaction is an effect size, they can be ordered by their
+# mean value with "significant" interactions determined by 95% credible intervals
+# will require running a model for each interaction (~ several hours)
+
+
+```
+
+## Conditional effects
+
+```{r}
+
+var <- 'terrain_slope30'
+
+mi60levels <- quantile(stage$MI60_mmhr, probs = c(.05, .5, .95), na.rm = T) # group MI60 into 10, 50, and 90th percentile
+terrainLevels <- quantile(stage[[var]], probs = c(.1, .5, .9), na.rm = T)
+newData <- expand.grid(
+  var = seq(min(stage[[var]]), max(stage[[var]]), length.out = 50),
+  MI60_mmhr = mi60levels,
+  yearCont = 0,
+  sp_cat = c('low', 'high'),
+  fire = c('cpf', 'etf')
+)
+
+predict <- posterior_linpred(interaction, newdata = newData, re.form = NA) # predict out model output over expanded grid of data
+
+predSummar <- apply(predict, 2, function(x) { # estimate model predicted mean for each level of mi60 plus 90% credible interval
+  c(
+    mean = mean(x),
+    lower = quantile(x, 0.10),
+    upper = quantile(x, 0.90)
+  )
+})
+
+
+predictDF <- cbind(newData, t(predSummar)) %>%
+  mutate(MI60 = factor(MI60_mmhr, labels = c("Low", "Mean", "High"))) %>%
+  dplyr::rename(lower = `lower.10%`,
+                upper = `upper.90%`)
+
+
+ggplot(predictDF, aes(x = var, y = mean, color = MI60, fill = MI60)) +
+  geom_line(size = 2) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4, color = NA) +
+  labs(x = 'Terrain connectivity', y = 'Stage Rise',
+       color = 'MI60', fill = 'MI60') +
+  paletteer::scale_fill_paletteer_d("ggthemes::wsj_dem_rep") +
+  paletteer::scale_color_paletteer_d("ggthemes::wsj_dem_rep") +
+  theme_bw(base_size = 25) +
+  facet_grid(sp_cat ~ fire) 
+
+```
+
 ## Interaction loop
 
 ### All sites
@@ -559,124 +803,6 @@ int_summary <- interaction_draws %>%
 
 write_csv(int_summary,
           './data/bayes_interaction_outputs/high_stageRiseInterac_summary_prelim.csv')
-
-```
-
-
-# Lag to peak
-
-## Global
-
-```{r}
-
-# global model for lag to peak
-global <- stan_glmer(
-  lag2peak_halfP ~ 
-    MI60_mmhr + 
-    fire + 
-    sp_cat + 
-    yearCont +       
-    (1 + MI60_mmhr | site_number) + 
-    (1|yearFact),                          
-  data = lag,
-  family = Gamma(link = "log"),
-  prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
-  prior_intercept = normal(0, 1),
-  prior_covariance = decov(regularization = 2),
-  chains =5, # switched to 5 when ready for final results
-  cores = 8,
-  iter = 5000, # switch to 5k when ready for final results
-  adapt_delta = 0.99,
-  init = 0
-)
-
-summary(global)
-check_model(global)
-r2(global)
-
-saveRDS(global, 
-        "./data/bayes_interaction_outputs/global_l2p_final.rds")
-
-# lag to peak posterior draws
-as_draws(global) %>% 
-  data.frame() %>%
-  select(MI60_mmhr, 
-         fireetf, 
-         sp_catlow, 
-         yearCont) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1, 
-             scales = 'free_y') +
-  theme(legend.position = 'none') 
-
-```
-
-## NDVI
-
-```{r}
-
-# include three way interaction between MI60, NDVI, and year to assess those time varying effects
-ndviYear <- stan_glmer(
-  lag2peak_halfP ~ 
-    MI60_mmhr*yearCont*NDVI + 
-    fire + 
-    sp_cat +       
-    (1 + MI60_mmhr | site_number) + 
-    (1|yearFact),                          
-  data = lag,
-  family = Gamma(link = "log"),
-  prior = normal(0,1),
-  prior_intercept = normal(0, 1),
-  prior_covariance = decov(regularization = 2),
-  chains = 5,
-  cores = 8,
-  iter = 5000,
-  adapt_delta = 0.99,
-  init = 0
-)
-
-summary(ndviYear)
-check_model(ndviYear)
-r2(ndviYear)
-
-saveRDS(ndviYear, 
-        "./data/bayes_interaction_outputs/ndvi_l2p_final.rds")
-
-# posterior draw distr
-as_draws(ndviYear) %>% 
-  data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI,
-         yearCont.NDVI, 
-         MI60_mmhr.yearCont.NDVI) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) + 
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, 
-                     color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1) +
-  theme(legend.position = 'none')
 
 ```
 
@@ -1001,129 +1127,3 @@ write_csv(int_summary,
 
 ```
 
-
-# Archive
-
-## Interaction bayes
-
-```{r}
-
-# filter_mi60 <- response %>%
-#   select(-c(lag2peak_halfP, 
-#             lag2peak_Pstart,
-#             fire_no)) %>% # remove lag to peak
-#   relocate(year, .after = site_number) %>% # move year to end of data set to make next line easier to code
-#   filter(!terrain_connec > 7.9) %>%
-#   mutate(across(c(MI60_mmhr:mulch_frac), scale), # scale predictor data to mean = 0, sd =1
-#          site_number = factor(site_number),
-#          yearFact = factor(year), # year factor for random effect
-#          yearCont = year - 2022) # centered year for fixed effect
-
-# include linear interactions with static watershed characteristics
-interaction <- stan_glmer(
-  stage_rise_cm ~ MI60_mmhr*mulch_frac + 
-    fire + 
-    sp_cat + 
-    yearCont +     
-    (1 + MI60_mmhr | site_number) + 
-    (1|yearFact),                          
-  data = stage,
-  family = Gamma(link = "log"),
-  prior = normal(0, 1),
-  prior_intercept = normal(0, 1),
-  prior_covariance = decov(regularization = 2),
-  chains = 3,
-  cores = 8,
-  iter = 3000,
-  adapt_delta = 0.99,
-  init = 0
-)
-
-summary(interaction)
-check_model(interaction)
-r2(interaction)
-
-#
-summary <- posterior_summary(interaction, 
-                             probs = c(0.025, 0.975)) %>%
-  as.data.frame() %>%
-  slice(7) %>%
-  tibble::rownames_to_column("term") %>%
-  mutate(term = str_remove(term, "MI60_mmhr:"))  # remove prefix
-
-summary
-#
-
-# testing as draws for interaction loop
-df <- as_draws(interaction) %>% 
-  data.frame() %>%
-  select(7) %>%
-  melt()
-
-as_draws(interaction) %>% 
-  data.frame() %>%
-  select(MI60_mmhr,mulch_frac, MI60_mmhr.mulch_frac) %>%
-  melt() %>%
-  ggplot(., aes(x = value, fill = variable)) + theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) +
-  stat_slab(aes(fill = after_stat(level)), .width = c(.66, .95, 1), color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), fatten_point = 2.5, color = 'darkred', interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, ncol = 1) +
-  theme(legend.position = 'none')
-
-#SUMMARY: The positive relationship between MI60 and stage rise is amplified by increasing dNBR.
-# ranking interactions:
-# MI60:dNBR is positive, what percentage of the posterior distribution is positive?
-
-# RANKING INTERACTIONS - The posterior distribution of each interaction is an effect size, they can be ordered by their
-# mean value with "significant" interactions determined by 95% credible intervals
-# will require running a model for each interaction (~ several hours)
-
-
-```
-
-## Conditional effects
-
-```{r}
-
-var <- 'terrain_slope30'
-
-mi60levels <- quantile(stage$MI60_mmhr, probs = c(.05, .5, .95), na.rm = T) # group MI60 into 10, 50, and 90th percentile
-terrainLevels <- quantile(stage[[var]], probs = c(.1, .5, .9), na.rm = T)
-newData <- expand.grid(
-  var = seq(min(stage[[var]]), max(stage[[var]]), length.out = 50),
-  MI60_mmhr = mi60levels,
-  yearCont = 0,
-  sp_cat = c('low', 'high'),
-  fire = c('cpf', 'etf')
-)
-
-predict <- posterior_linpred(interaction, newdata = newData, re.form = NA) # predict out model output over expanded grid of data
-
-predSummar <- apply(predict, 2, function(x) { # estimate model predicted mean for each level of mi60 plus 90% credible interval
-  c(
-    mean = mean(x),
-    lower = quantile(x, 0.10),
-    upper = quantile(x, 0.90)
-  )
-})
-
-
-predictDF <- cbind(newData, t(predSummar)) %>%
-  mutate(MI60 = factor(MI60_mmhr, labels = c("Low", "Mean", "High"))) %>%
-  dplyr::rename(lower = `lower.10%`,
-                upper = `upper.90%`)
-
-
-ggplot(predictDF, aes(x = var, y = mean, color = MI60, fill = MI60)) +
-  geom_line(size = 2) +
-  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.4, color = NA) +
-  labs(x = 'Terrain connectivity', y = 'Stage Rise',
-       color = 'MI60', fill = 'MI60') +
-  paletteer::scale_fill_paletteer_d("ggthemes::wsj_dem_rep") +
-  paletteer::scale_color_paletteer_d("ggthemes::wsj_dem_rep") +
-  theme_bw(base_size = 25) +
-  facet_grid(sp_cat ~ fire) 
-
-```
