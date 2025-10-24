@@ -83,7 +83,7 @@ pcaDataIn <- response %>%
 
 ```
 
-# Stage rise PCA
+# PCA
 
 ```{r}
 
@@ -147,7 +147,7 @@ loadings
 
 ```
 
-## Model check
+## Model check: Stage rise
 
 ```{r}
 
@@ -173,75 +173,11 @@ ggeffect(stageRise, terms = c("MI60_mmhr", "PC1"), bias_correction = TRUE) %>%
 ggeffect(stageRise, terms = c("MI60_mmhr", "PC2"), bias_correction = TRUE) %>% 
   plot + theme_bw(base_size = 20)
 
-save.image(file = "./data/pca_output/stageRisePCA.RData")
+#save.image(file = "./data/pca_output/stageRisePCA.RData")
 
 ```
 
-# Lag to peak PCA
-
-```{r}
-
-# prep PCA data
-pcaData <- pcaDataIn %>%
-  # select(-c(NDVI,
-  #           MI60_mmhr,
-  #           sp_cat,
-  #           fire,
-  #           yearFact,
-  #           year,
-  #           yearCont,
-  #           site_number)) %>%
-  select(#SP_mean,
-          #terrain_glacial,
-          terrain_vall_holl, # keep
-          soil_clay, # keep
-          soil_sand,
-          mean_dnbr,
-          #terrain_slope30,
-          terrain_hypso75,
-          #terrain_connec,
-          #terrain_elongation,
-          terrain_flowlength)
-          #soil_ksat,
-          #terrain_recharge)
-          #mulch_frac,
-          #lag_pwd)
-
-# run PCA
-pca1 <- prcomp(pcaData, 
-               scale = T, 
-               center = T) 
-
-# pca summary
-summary(pca1) # view proportion variance explained
-
-# get PCA stability
-bootOut <- bootSVD(as.matrix(pcaData), 
-                   K=2, 
-                   B = 100)
-bootOut
-
-# plot PCA 
-autoplot(prcomp(pcaData), 
-         label = FALSE, 
-         loadings = TRUE, 
-         loadings.label = TRUE) + 
-  theme_bw(base_size = 20)
-
-loadings <- pca1$rotation
-
-# Calculate length of each variable's arrow in the first 2 PCs
-arrow_lengths <- sqrt(loadings[,1]^2 + loadings[,2]^2)
-
-arrow_lengths_sorted <- sort(arrow_lengths, decreasing = TRUE)
-
-arrow_lengths_sorted
-
-loadings
-
-```
-
-## Model check
+## Model check: L2p
 
 ```{r}
 
@@ -268,4 +204,3 @@ ggeffect(l2p, terms = c("MI60_mmhr", "PC2"), bias_correction = TRUE) %>%
 
 
 ```
-
