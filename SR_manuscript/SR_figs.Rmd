@@ -35,7 +35,7 @@ showtext_auto()
 
 ```{r}
 
-stageRise <- readRDS(here("./data/bayes_interaction_outputs/global_stageRise_final.rds"))
+stageRise <- readRDS(here("./data/bayes_outputs/global_stageRise_final.rds"))
 
 var_levels <- c(
   "MI60", 
@@ -91,7 +91,8 @@ globalStage <- ggplot(stageRise_df,
         strip.text = element_text(hjust = 0),
         text = element_text(color = "black")) +
   labs(x = 'Scaled coefficient',
-       y = NULL)
+       y = NULL) +
+  xlim(-2,2)
 
 globalStage
 
@@ -100,7 +101,7 @@ globalStage
 ## Lag to peak
 
 ```{r}
-lag <- readRDS(here("./data/bayes_interaction_outputs/global_l2p_final.rds"))
+lag <- readRDS(here("./data/bayes_outputs/global_l2p_final.rds"))
 
 var_levels <- c(
   "MI60", 
@@ -252,7 +253,7 @@ globalPlot <- ggplot(global,
       label = percent_positive_label),
     inherit.aes = FALSE,
     size = 45,
-    nudge_y = -0.12) 
+    nudge_y = -0.12) + xlim(-2,3)
 
 globalPlot
 
@@ -272,7 +273,7 @@ ggsave(
 
 ndvi <- read_csv('./data/final_model_inputs/inputs_combine.csv') %>%
   mutate(sp_cat = if_else(SP_mean > 60,
-                          'persistent',
+                          'seasonal',
                           'intermittent')) %>%
   select(site,
          burn_cat,
@@ -314,7 +315,7 @@ ggplot(ndvi_summary, aes(
   group = interaction(sp_cat, burn_cat)
 )) +
   geom_point(position = position_dodge(width = 0.2),
-             size=3) +
+             size=5) +
   geom_errorbar(aes(ymin = NDVI_mean - NDVI_sd, ymax = NDVI_mean + NDVI_sd),
                 position = position_dodge(width = 0.2), width = 0.1) +
   #geom_line(position = position_dodge(width = 0.2)) +
@@ -329,8 +330,9 @@ ggplot(ndvi_summary, aes(
     legend.position = c(0.87, .09),
     strip.background = element_rect(fill = "white", color = NA),
     strip.text = element_text(color='black', face='bold'),
-    text = element_text(color = "black", family = 'sans'),
-    axis.text = element_text(color = "black"),
+    text = element_text(color = "black",
+                        family = 'os',
+                        size=180),
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank(),
     panel.grid.major.y = element_blank()
@@ -339,43 +341,12 @@ ggplot(ndvi_summary, aes(
   ylab('NDVI') +
   labs(color = 'Snow persistence')
 
-ggplot(ndvi_summary, aes(
-  x = year,
-  y = NDVI_mean,
-  color = sp_cat,
-  shape = burn_cat
-)) +
-  geom_point(position = position_dodge(width = 0.5), size = 3) +
-  geom_errorbar(
-    aes(ymin = NDVI_mean - NDVI_sd, ymax = NDVI_mean + NDVI_sd),
-    position = position_dodge(width = 0.5),  # same dodge as points
-    width = 0.1
-  ) +
-  paletteer::scale_color_paletteer_d("ggsci::alternating_igv") +
-  scale_shape_manual(values = c(16, 17)) +
-  facet_wrap(~fire,
-             labeller = labeller(
-      fire = fire_labels)) +
-  theme_bw() +
-  theme(
-    legend.position = 'bottom',
-    legend.justification = c("right","bottom"),
-    legend.background = element_rect(fill = scales::alpha('white', 0.8), color = NA),
-    strip.background = element_rect(fill = "white", color = NA),
-    strip.text = element_text(hjust = 0, color='black', face='bold'),
-    text = element_text(color = "black", family = 'sans'),
-    axis.text = element_text(color = "black"),
-    panel.grid.major.x = element_blank(),
-    panel.grid.minor.x = element_blank(),
-    panel.grid.major.y = element_blank()
-  ) +
-  xlab(NULL) +
-  labs(
-    x= NULL,
-    y='NDVI',
-    color = "Snow persistence",
-    shape = "Burn category"
-  )
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/ndvi_overtime.png',
+       dpi=800,
+       width=12,
+       height=8)
 
 ```
 
@@ -383,13 +354,27 @@ ggplot(ndvi_summary, aes(
 
 ```{r}
 
-srNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_stageRise_final.rds')
+srNDVI <- readRDS('./data/bayes_outputs/ndvi_stageRise_final.rds')
 
-srNDVIsumm <- srNDVI %>%
+var_levels <- c(
+  "NDVI", 
+  "MI60*NDVI", 
+  "Year*NDVI", 
+  "MI60*Year*NDVI"
+)
+
+srNDVI_df <- as_draws(srNDVI) %>% 
   data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI) %>%
+  select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
   melt() %>%
+  mutate(variable = case_match(variable,
+    "NDVI" ~ "NDVI",
+    "MI60_mmhr.NDVI" ~ "MI60*NDVI",
+    "yearCont.NDVI" ~ "Year*NDVI",
+    "MI60_mmhr.yearCont.NDVI" ~ "MI60*Year*NDVI")) %>%
+   mutate(variable = fct_relevel(variable, var_levels))
+
+srNDVI_summary <- srNDVI_df %>%
   group_by(variable) %>%
   summarize(mean = mean(value),
             median = median(value),
@@ -399,7 +384,12 @@ srNDVIsumm <- srNDVI %>%
             upper_66 = quantile(value, 0.83),
             lower_95 = quantile(value, 0.025),
             upper_95 = quantile(value, 0.975),
-            percent_positive = round(mean(value > 0) * 100, 1))
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
+
 
 SRndviPlot <- as_draws(srNDVI) %>% 
   data.frame() %>%
@@ -439,7 +429,34 @@ SRndviPlot
 
 ```{r}
 
-lpNDVI <- readRDS('./data/bayes_interaction_outputs/ndvi_l2p_final.rds')
+lpNDVI <- readRDS('./data/bayes_outputs/ndvi_l2p_final.rds')
+
+lpNDVI_df <- as_draws(lpNDVI) %>% 
+  data.frame() %>%
+  select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
+  melt() %>%
+  mutate(variable = case_match(variable,
+    "NDVI" ~ "NDVI",
+    "MI60_mmhr.NDVI" ~ "MI60*NDVI",
+    "yearCont.NDVI" ~ "Year*NDVI",
+    "MI60_mmhr.yearCont.NDVI" ~ "MI60*Year*NDVI")) %>%
+   mutate(variable = fct_relevel(variable, var_levels))
+
+lpNDVI_summary <- lpNDVI_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
 
 LPndviPlot <- as_draws(lpNDVI) %>% 
   data.frame() %>%
@@ -472,6 +489,83 @@ LPndviPlot <- as_draws(lpNDVI) %>%
   ggtitle('Lag to peak')
 
 plot_grid(SRndviPlot, LPndviPlot)
+
+```
+
+## Combine
+
+```{r}
+# combine the NDVI
+srNDVI_df <- srNDVI_df %>%
+  mutate(response = 'Stage rise')
+
+lpNDVI_df <- lpNDVI_df %>%
+  mutate(response = 'Lag to peak')
+
+summary <- bind_rows(srNDVI_summary,
+                     lpNDVI_summary) %>%
+    mutate(response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")),
+           variable = factor(variable,
+                             levels = var_levels))
+
+combineNDVI <- bind_rows(srNDVI_df,
+                    lpNDVI_df) %>%
+  mutate(variable = factor(variable, 
+                           levels = var_levels),
+         response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")))
+
+NDVIPlot <- ggplot(combineNDVI, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  facet_wrap(~response) +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'os',
+                        size=180),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  geom_text(
+    data = summary,
+    aes(
+      x = 0.5,
+      y = variable,
+      label = percent_positive_label),
+    inherit.aes = FALSE,
+    size = 45,
+    nudge_y = -0.12)
+
+NDVIPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/NDVI_bayes.png',
+       dpi=800,
+       width=12,
+       height=8)
+
 
 ```
 
