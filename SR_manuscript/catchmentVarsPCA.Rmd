@@ -24,10 +24,6 @@ p_load(tidyverse,
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
 
-# Add google font
-# font_add_google("Open Sans", "os")
-# showtext_auto()
-
 ```
 
 # Prep
@@ -85,32 +81,38 @@ pcaDataIn <- response %>%
 
 # PCA
 
+Description of narrowing down variables using PCA:
+1. run with all vars
+2. PC%s are lower (60 total), stability is OK.
+Remove vars with lower "arrow lengths" so ones that dont strongly contribute to PCs: elongation, ksat, mulch_frac. dnbr is low but want to keep since it's an important var
+3. PC cumulative % even lower - less than 60. stability of pc2 bad. remove low vals: slope30, recharge [also removing bc they overlap w/ connec, flow legnth, respectively]
+4. PC1,2 cumulative % only gets us to 63. pc2 lower stability. remove low vals: connec, flow length [flowlength overlaps with sp mean]
+5. PC1,2 cumulative % 71. pc1 stability good, pc2 0.60 - so both good. 
+6. removed dnbr since it small arrow, and pc cum increased to 81% but stability decrease [0.65 and 0.58].
+7. put dnbr back in since it's important and the stability is better w/ it.
+8. remove glacial but decreased stability too much and didn't really add to % total.
+9. added glacial back in
+8. the pcloadigns make sense w/ glmer for the most part and if you're looking at the largest loadings per pc
+
+
 ```{r}
 
 # prep PCA data
 pcaData <- pcaDataIn %>%
-  # select(-c(NDVI,
-  #           MI60_mmhr,
-  #           sp_cat,
-  #           fire,
-  #           yearFact,
-  #           year,
-  #           yearCont,
-  #           site_number)) %>%
-  select(#SP_mean,
-          #terrain_glacial,
+  select(SP_mean,
+         terrain_glacial,
           terrain_vall_holl, # keep
           soil_clay, # keep
           soil_sand,
           mean_dnbr,
           #terrain_slope30,
-          terrain_hypso75,
+          terrain_hypso75)
           #terrain_connec,
           #terrain_elongation,
-          terrain_flowlength)
+          #terrain_flowlength)
           #soil_ksat,
           #terrain_recharge)
-          #mulch_frac,
+          #mulch_frac)
           #lag_pwd)
 
 # run PCA
@@ -199,8 +201,6 @@ ggeffect(l2p, terms = c("MI60_mmhr", "PC1"), bias_correction = TRUE) %>%
 # conditional effects plot for PC2 x MI60
 ggeffect(l2p, terms = c("MI60_mmhr", "PC2"), bias_correction = TRUE) %>% 
   plot + theme_bw(base_size = 20)
-
-#save.image(file = "./data/pca_output/lag2PeakPCA.RData")
 
 
 ```
