@@ -243,6 +243,30 @@ saveRDS(ndviYear,
 
 ```
 
+## Interaction w/ PCs
+
+```{r}
+
+Full <- stageRise ~ 
+  MI60_mmhr*PC1 + 
+  MI60_mmhr*PC2 +
+  yearCont + 
+  (1 + MI60_mmhr | site_number) + 
+  (1 | yearFact)
+
+
+Reduced <- stageRise ~ 
+  MI60_mmhr*PC1 + 
+  MI60_mmhr*PC2 +
+  yearCont + (1 | site_number) + 
+  (1 | yearFact)
+
+ 
+
+loo_compare(loo(Full), loo(Reduced)).
+
+```
+
 # Lag to peak
 
 ## Global
