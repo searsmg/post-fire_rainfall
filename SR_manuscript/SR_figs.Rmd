@@ -18,7 +18,8 @@ p_load(tidyverse,
        reshape,
        ggdist,
        showtext,
-       ggtext)
+       ggtext,
+       brms)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -226,7 +227,8 @@ globalPlot <- ggplot(global,
   stat_pointinterval(.width = c(.66, .95, 1),
                      fatten_point = 2,
                      interval_size_domain = c(2,5,10),
-                     color = '#D50032FF') +
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
   facet_wrap(~response) +
   theme(
@@ -253,7 +255,7 @@ globalPlot <- ggplot(global,
       label = percent_positive_label),
     inherit.aes = FALSE,
     size = 45,
-    nudge_y = -0.12) + xlim(-2,3)
+    nudge_y = -0.12)
 
 globalPlot
 
@@ -431,6 +433,8 @@ SRndviPlot
 
 lpNDVI <- readRDS('./data/bayes_outputs/ndvi_l2p_final.rds')
 
+posterior_summary(lpNDVI, pars = c("MI60_mmhr", "MI60_mmhr.NDVI"))
+
 lpNDVI_df <- as_draws(lpNDVI) %>% 
   data.frame() %>%
   select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
@@ -502,6 +506,12 @@ srNDVI_df <- srNDVI_df %>%
 lpNDVI_df <- lpNDVI_df %>%
   mutate(response = 'Lag to peak')
 
+var_levels <- c(
+    "MI60*Year*NDVI",
+    "Year*NDVI",
+    "MI60*NDVI",
+    "NDVI")
+
 summary <- bind_rows(srNDVI_summary,
                      lpNDVI_summary) %>%
     mutate(response = factor(response, 
@@ -529,7 +539,8 @@ NDVIPlot <- ggplot(combineNDVI,
   stat_pointinterval(.width = c(.66, .95, 1),
                      fatten_point = 2,
                      interval_size_domain = c(2,5,10),
-                     color = '#D50032FF') +
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
   facet_wrap(~response) +
   theme(
