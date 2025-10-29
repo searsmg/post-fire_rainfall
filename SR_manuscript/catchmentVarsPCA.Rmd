@@ -93,23 +93,26 @@ Remove vars with lower "arrow lengths" so ones that dont strongly contribute to 
 8. remove glacial but decreased stability too much and didn't really add to % total.
 9. added glacial back in
 8. the pcloadigns make sense w/ glmer for the most part and if you're looking at the largest loadings per pc
+9. I decided to remove SP mean since snow zone is really being tested in the global model and I added flow length back in since that was in the same direction as sp mean
+10. I removed glacial since it decreased the cumulative variance and only boosted stability by a little
+11. stability 0.72, 0.59. pca variance cuum at 69
 
 
 ```{r}
 
 # prep PCA data
 pcaData <- pcaDataIn %>%
-  select(SP_mean,
-         terrain_glacial,
+  select(#SP_mean,
+         #terrain_glacial,
           terrain_vall_holl, # keep
           soil_clay, # keep
           soil_sand,
           mean_dnbr,
           #terrain_slope30,
-          terrain_hypso75)
+          terrain_hypso75,
           #terrain_connec,
           #terrain_elongation,
-          #terrain_flowlength)
+          terrain_flowlength)
           #soil_ksat,
           #terrain_recharge)
           #mulch_frac)
@@ -135,6 +138,12 @@ autoplot(prcomp(pcaData),
          loadings = TRUE, 
          loadings.label = TRUE) + 
   theme_bw(base_size = 20)
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/PCA_catchmentvars.png',
+       dpi=800,
+       width=12,
+       height=8)
 
 loadings <- pca1$rotation
 
@@ -204,3 +213,19 @@ ggeffect(l2p, terms = c("MI60_mmhr", "PC2"), bias_correction = TRUE) %>%
 
 
 ```
+
+# Export
+
+```{r}
+
+pcaExport <- bindData %>%
+  select(3,4,6,7,33,35,36,37,38)
+
+write.csv(pcaExport,
+         './data/pca_output/pcExport.csv')
+
+saveRDS(pca1, 
+        "./data/pca_output/pca.rds")
+
+```
+
