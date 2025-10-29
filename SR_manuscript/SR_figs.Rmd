@@ -580,6 +580,212 @@ ggsave(
 
 ```
 
+# Interaction bayes figs
+
+## Stage rise
+
+```{r}
+
+srInt <- readRDS(here("./data/bayes_outputs/interaction_stageRise_bayes.rds"))
+
+var_levels <- c("MI60*PC2",
+                "PC2",
+                "MI60*PC1",
+                "PC1")
+
+srInt_df <- as_draws(srInt) %>% 
+  data.frame() %>%
+  select(3,4,6,7) %>%
+  melt() %>%
+    mutate(variable = case_match(variable,
+    "MI60_mmhr.PC2_scale" ~ "MI60*PC2",
+    "MI60_mmhr.PC1_scale" ~ "MI60*PC1",
+    "PC1_scale" ~ "PC1",
+    "PC2_scale" ~ "PC2")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+srInt_summary <- srInt_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
+
+  
+srIntPlot <- ggplot(srInt_df, 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+srIntPlot
+
+```
+
+## Lag to peak
+
+```{r}
+
+l2pInt <- readRDS(here("./data/bayes_outputs/interaction_lag2peak_bayes.rds"))
+
+l2pInt_df <- as_draws(l2pInt) %>% 
+  data.frame() %>%
+ select(3,4,6,7) %>%
+  melt() %>%
+    mutate(variable = case_match(variable,
+    "MI60_mmhr.PC2_scale" ~ "MI60*PC2",
+    "MI60_mmhr.PC1_scale" ~ "MI60*PC1",
+    "PC1_scale" ~ "PC1",
+    "PC2_scale" ~ "PC2")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+
+l2pInt_summary <- l2pInt_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
+
+  
+l2pIntPlot <- ggplot(l2pInt_df, 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+l2pIntPlot
+
+```
+
+## Combine
+
+```{r}
+
+# combine the two globals
+srInt_df <- srInt_df %>%
+  mutate(response = 'Stage rise')
+
+l2pInt_df <- l2pInt_df %>%
+  mutate(response = 'Lag to peak')
+
+summary <- bind_rows(srInt_summary,
+                     l2pInt_summary) %>%
+    mutate(response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")),
+           variable = factor(variable,
+                             levels = var_levels))
+
+combineInt <- bind_rows(srInt_df,
+                    l2pInt_df) %>%
+  mutate(variable = factor(variable, 
+                           levels = var_levels),
+         response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")))
+
+intPlot <- ggplot(combineInt, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  facet_wrap(~response) +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black",
+                        family = 'os',
+                        size=180),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  geom_text(
+    data = summary,
+    aes(
+      x = 1,
+      y = variable,
+      label = percent_positive_label),
+    inherit.aes = FALSE,
+    size = 45,
+    nudge_y = -0.1)
+
+intPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/interaction_bayes.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+
+```
+
+
 
 # Archive 
 
