@@ -245,25 +245,97 @@ saveRDS(ndviYear,
 
 ## Interaction w/ PCs
 
+Tested a full and reduced bayes model. The reduced scored better based on loo compared, or I wasn't gaining anything with the full. 
+
 ```{r}
 
-Full <- stageRise ~ 
-  MI60_mmhr*PC1 + 
-  MI60_mmhr*PC2 +
-  yearCont + 
-  (1 + MI60_mmhr | site_number) + 
-  (1 | yearFact)
+pca <- read_csv('./data/pca_output/pcExport.csv') %>%
+  mutate(
+    PC1_scale = as.numeric(scale(PC1)),
+    PC2_scale = as.numeric(scale(PC2))) #%>%
+      # mutate(PC1_scale = PC1_scale*-1,
+      #    PC2_scale = PC2_scale*-1)
 
+# interFull <- stan_glmer(
+#   stage_rise_cm ~ 
+#     MI60_mmhr*PC1 + 
+#     MI60_mmhr*PC2 +
+#     yearCont + 
+#     (1 + MI60_mmhr | site_number) + 
+#     (1 | yearFact),                          
+#   data = pca,
+#   family = Gamma(link = "log"),
+#   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+#   prior_intercept = normal(0, 1),
+#   prior_covariance = decov(regularization = 2),
+#   chains = 5,
+#   cores = 2,
+#   iter = 5000,
+#   adapt_delta = 0.99,
+#   init = 0
+# )
+# 
+# summary(interFull)
+# check_model(interFull)
+# r2(interFull)
 
-Reduced <- stageRise ~ 
-  MI60_mmhr*PC1 + 
-  MI60_mmhr*PC2 +
+interSR <- stan_glmer(
+  stage_rise_cm ~ 
+    MI60_mmhr*PC1_scale + 
+    MI60_mmhr*PC2_scale +
   yearCont + (1 | site_number) + 
-  (1 | yearFact)
+  (1 | yearFact),                   
+  data = pca,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 2,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
 
- 
+summary(interSR)
+check_model(interSR)
+r2(interSR)
 
-loo_compare(loo(Full), loo(Reduced)).
+# compare the full and reduced models
+# loo_compare(loo(interFull,
+#                 k_threshold=0.7), 
+#             loo(interRed,
+#                 k_threshold=0.7))
+
+saveRDS(interSR, 
+        "./data/bayes_outputs/interaction_stageRise_bayes.rds")
+
+srInterPlot <- as_draws(interSR) %>% 
+  data.frame() %>%
+  select(2,6,7) %>%
+  melt() %>%
+  ggplot(., 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+srInterPlot
 
 ```
 
@@ -384,6 +456,70 @@ as_draws(ndviYear) %>%
 
 ```
 
+## Interaction w/ PCs
+
+```{r}
+
+pca <- read_csv('./data/pca_output/pcExport.csv') %>%
+  mutate(
+    PC1_scale = as.numeric(scale(PC1)),
+    PC2_scale = as.numeric(scale(PC2))) %>%
+   filter(!lag2peak_halfP <= 0)
+  
+
+interL2P <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr*PC1_scale + 
+    MI60_mmhr*PC2_scale +
+  yearCont + (1 | site_number) + 
+  (1 | yearFact),                   
+  data = pca,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 2,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(interL2P)
+check_model(interL2P)
+r2(interL2P)
+
+saveRDS(interL2P, 
+        "./data/bayes_outputs/interaction_lag2peak_bayes.rds")
+
+l2pInterPlot <- as_draws(interL2P) %>% 
+  data.frame() %>%
+  select(2,6,7) %>%
+  melt() %>%
+  ggplot(., 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+l2pInterPlot
+
+```
 
 # Archive
 
