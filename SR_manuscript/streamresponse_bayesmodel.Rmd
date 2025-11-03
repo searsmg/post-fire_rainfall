@@ -24,7 +24,8 @@ p_load(tidyverse,
        rstanarm, 
        bayesplot, 
        performance,
-       beepr)
+       beepr,
+       loo)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -191,13 +192,37 @@ SUMMARY:
 
 ```{r}
 
-# include three way interaction between MI60, NDVI, and year to assess those time varying effects
-ndviYear <- stan_glmer(
+# # include three way interaction between MI60, NDVI, and year to assess those time varying effects
+# ndviYear <- stan_glmer(
+#   stage_rise_cm ~ 
+#     MI60_mmhr*yearCont*NDVI + 
+#     fire + 
+#     sp_cat +       
+#     (1 + MI60_mmhr | site_number) + 
+#     (1|yearFact),                          
+#   data = stage,
+#   family = Gamma(link = "log"),
+#   prior = normal(0, 1),
+#   prior_intercept = normal(0, 1),
+#   prior_covariance = decov(regularization = 2),
+#   chains = 5,
+#   cores = 8,
+#   iter = 5000,
+#   adapt_delta = 0.99,
+#   init = 0
+# )
+# 
+# summary(ndviYear)
+# check_model(ndviYear)
+# r2(ndviYear)
+
+# ndvi less
+ndviLess <- stan_glmer(
   stage_rise_cm ~ 
     MI60_mmhr*yearCont*NDVI + 
     fire + 
     sp_cat +       
-    (1 + MI60_mmhr | site_number) + 
+    (1 | site_number) + 
     (1|yearFact),                          
   data = stage,
   family = Gamma(link = "log"),
@@ -211,35 +236,45 @@ ndviYear <- stan_glmer(
   init = 0
 )
 
-summary(ndviYear)
-check_model(ndviYear)
-r2(ndviYear)
+summary(ndviLess)
+check_model(ndviLess)
+r2(ndviLess)
 
-as_draws(ndviYear) %>% 
-  data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI, 
-         yearCont.NDVI, 
-         MI60_mmhr.yearCont.NDVI) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) + 
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, 
-                     color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1) +
-  theme(legend.position = 'none')
+# # test using loo cross val, got a k>0.7 warning
+# loo_ndviYear <- loo(ndviYear, k_threshold = 0.7)
+# loo_ndviLess <- loo(ndviLess, k_threshold = 0.7)
+# 
+# # ndviYear does not improve the predictive performance and performs slightly worse
+# loo_compare(loo_ndviYear, loo_ndviLess)
 
-saveRDS(ndviYear, 
-        "./data/bayes_interaction_outputs/ndvi_stageRise_final.rds")
+# loo ndviLess is not overfitting
+print(loo_ndviLess)
+
+# as_draws(ndviYear) %>% 
+#   data.frame() %>%
+#   select(NDVI, 
+#          MI60_mmhr.NDVI, 
+#          yearCont.NDVI, 
+#          MI60_mmhr.yearCont.NDVI) %>%
+#   melt() %>%
+#   ggplot(., aes(x = value, 
+#                 fill = variable)) + 
+#   theme_bw(base_size = 20) +
+#   geom_vline(xintercept = 0) + 
+#   stat_slab(aes(fill = after_stat(level)), 
+#             .width = c(.66, .95, 1), 
+#             color = 'gray50') +
+#   stat_pointinterval(.width = c(.66, .95, 1), 
+#                      fatten_point = 2.5, 
+#                      color = 'darkred', 
+#                      interval_size_domain = c(2,5,10)) +
+#   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+#   facet_wrap(~variable, 
+#              ncol = 1) +
+#   theme(legend.position = 'none')
+
+saveRDS(ndviLess, 
+        "./data/bayes_outputs/ndvi_stageRise_final.rds")
 
 ```
 
@@ -282,7 +317,9 @@ pca <- read_csv('./data/pca_output/pcExport.csv') %>%
 interSR <- stan_glmer(
   stage_rise_cm ~ 
     MI60_mmhr*PC1_scale + 
-    MI60_mmhr*PC2_scale +
+    MI60_mmhr*lag_pwd +
+    lag_pwd*PC1_scale +
+    #MI60_mmhr*PC2_scale +
   yearCont + (1 | site_number) + 
   (1 | yearFact),                   
   data = pca,
@@ -291,7 +328,7 @@ interSR <- stan_glmer(
   prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
   chains = 5,
-  cores = 2,
+  cores = 8,
   iter = 5000,
   adapt_delta = 0.99,
   init = 0
@@ -307,12 +344,12 @@ r2(interSR)
 #             loo(interRed,
 #                 k_threshold=0.7))
 
-saveRDS(interSR, 
-        "./data/bayes_outputs/interaction_stageRise_bayes.rds")
+# saveRDS(interSR, 
+#         "./data/bayes_outputs/interaction_stageRise_bayes.rds")
 
 srInterPlot <- as_draws(interSR) %>% 
   data.frame() %>%
-  select(2,6,7) %>%
+  select(4,6,7,8) %>% #2,6,7
   melt() %>%
   ggplot(., 
                       aes(x = value,
@@ -404,12 +441,13 @@ as_draws(global) %>%
 ```{r}
 
 # include three way interaction between MI60, NDVI, and year to assess those time varying effects
+# changed the random effect for site number to remove MI60 based on loo results in stage rise ndvi model
 ndviYear <- stan_glmer(
   lag2peak_halfP ~ 
     MI60_mmhr*yearCont*NDVI + 
     fire + 
     sp_cat +       
-    (1 + MI60_mmhr | site_number) + 
+    (1|site_number) + 
     (1|yearFact),                          
   data = lag,
   family = Gamma(link = "log"),
@@ -427,8 +465,14 @@ summary(ndviYear)
 check_model(ndviYear)
 r2(ndviYear)
 
+l2pNDVIloo <- loo(ndviYear,
+                  k_threshold = 0.7)
+
+print(l2pNDVIloo)
+# All Pareto k estimates are good (k < 0.7).
+
 saveRDS(ndviYear, 
-        "./data/bayes_interaction_outputs/ndvi_l2p_final.rds")
+        "./data/bayes_outputs/ndvi_l2p_final.rds")
 
 # posterior draw distr
 as_draws(ndviYear) %>% 
