@@ -392,38 +392,37 @@ srNDVI_summary <- srNDVI_df %>%
                                                  percent_positive), "%")) %>%
   mutate(response = 'Stage rise')
 
-
-SRndviPlot <- as_draws(srNDVI) %>% 
-  data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI, 
-         yearCont.NDVI, 
-         MI60_mmhr.yearCont.NDVI) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) + 
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, 
-                     color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1) +
-  theme(legend.position = 'none') +
-  theme(legend.position = 'none',
-        strip.background = element_rect(fill = "white", color = NA),
-        strip.text = element_text(hjust = 0),
-        text = element_text(family = "Helvetica")) +
-  labs(x = 'Scaled coefficient',
-       y = NULL) +
-  ggtitle('Stage rise')
-
-SRndviPlot
+# SRndviPlot <- as_draws(srNDVI) %>% 
+#   data.frame() %>%
+#   select(NDVI, 
+#          MI60_mmhr.NDVI, 
+#          yearCont.NDVI, 
+#          MI60_mmhr.yearCont.NDVI) %>%
+#   melt() %>%
+#   ggplot(., aes(x = value, 
+#                 fill = variable)) + 
+#   theme_bw(base_size = 20) +
+#   geom_vline(xintercept = 0) + 
+#   stat_slab(aes(fill = after_stat(level)), 
+#             .width = c(.66, .95, 1), 
+#             color = 'gray50') +
+#   stat_pointinterval(.width = c(.66, .95, 1), 
+#                      fatten_point = 2.5, 
+#                      color = 'darkred', 
+#                      interval_size_domain = c(2,5,10)) +
+#   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+#   facet_wrap(~variable, 
+#              ncol = 1) +
+#   theme(legend.position = 'none') +
+#   theme(legend.position = 'none',
+#         strip.background = element_rect(fill = "white", color = NA),
+#         strip.text = element_text(hjust = 0),
+#         text = element_text(family = "Helvetica")) +
+#   labs(x = 'Scaled coefficient',
+#        y = NULL) +
+#   ggtitle('Stage rise')
+# 
+# SRndviPlot
 
 ```
 
@@ -462,37 +461,37 @@ lpNDVI_summary <- lpNDVI_df %>%
                                                  percent_positive), "%")) %>%
   mutate(response = 'Lag to peak')
 
-LPndviPlot <- as_draws(lpNDVI) %>% 
-  data.frame() %>%
-  select(NDVI, 
-         MI60_mmhr.NDVI, 
-         yearCont.NDVI, 
-         MI60_mmhr.yearCont.NDVI) %>%
-  melt() %>%
-  ggplot(., aes(x = value, 
-                fill = variable)) + 
-  theme_bw(base_size = 20) +
-  geom_vline(xintercept = 0) + 
-  stat_slab(aes(fill = after_stat(level)), 
-            .width = c(.66, .95, 1), 
-            color = 'gray50') +
-  stat_pointinterval(.width = c(.66, .95, 1), 
-                     fatten_point = 2.5, 
-                     color = 'darkred', 
-                     interval_size_domain = c(2,5,10)) +
-  paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-  facet_wrap(~variable, 
-             ncol = 1) +
-  theme(legend.position = 'none') +
-  theme(legend.position = 'none',
-        strip.background = element_rect(fill = "white", color = NA),
-        strip.text = element_text(hjust = 0),
-        text = element_text(family = "Helvetica")) +
-  labs(x = 'Scaled coefficient',
-       y = NULL) +
-  ggtitle('Lag to peak')
-
-plot_grid(SRndviPlot, LPndviPlot)
+# LPndviPlot <- as_draws(lpNDVI) %>% 
+#   data.frame() %>%
+#   select(NDVI, 
+#          MI60_mmhr.NDVI, 
+#          yearCont.NDVI, 
+#          MI60_mmhr.yearCont.NDVI) %>%
+#   melt() %>%
+#   ggplot(., aes(x = value, 
+#                 fill = variable)) + 
+#   theme_bw(base_size = 20) +
+#   geom_vline(xintercept = 0) + 
+#   stat_slab(aes(fill = after_stat(level)), 
+#             .width = c(.66, .95, 1), 
+#             color = 'gray50') +
+#   stat_pointinterval(.width = c(.66, .95, 1), 
+#                      fatten_point = 2.5, 
+#                      color = 'darkred', 
+#                      interval_size_domain = c(2,5,10)) +
+#   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
+#   facet_wrap(~variable, 
+#              ncol = 1) +
+#   theme(legend.position = 'none') +
+#   theme(legend.position = 'none',
+#         strip.background = element_rect(fill = "white", color = NA),
+#         strip.text = element_text(hjust = 0),
+#         text = element_text(family = "Helvetica")) +
+#   labs(x = 'Scaled coefficient',
+#        y = NULL) +
+#   ggtitle('Lag to peak')
+# 
+# plot_grid(SRndviPlot, LPndviPlot)
 
 ```
 
@@ -576,7 +575,6 @@ ggsave(
        dpi=800,
        width=12,
        height=8)
-
 
 ```
 
