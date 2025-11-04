@@ -133,15 +133,20 @@ bootOut <- bootSVD(as.matrix(pcaData),
 bootOut
 
 # plot PCA 
-autoplot(prcomp(pcaData), 
+autoplot(pca1,
+         #prcomp(pcaData), 
          label = FALSE, 
          loadings = TRUE, 
          loadings.label = TRUE,
-         loadings.label.size = 40) + 
-  theme_bw(base_size = 20) +
-  theme(text = element_text(color = "black",
-                        family = 'os',
-                        size=180))
+         loadings.label.size = 40,
+         loadings.label.vjust = -1,          # move labels farther from arrows
+         loadings.label.hjust = 0.5) +       # center labels horizontally
+  theme_bw() +
+  theme(
+    text = element_text(
+      color = "black",
+      family = "os",
+      size = 180))
 
 ggsave(
   '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/PCA_catchmentvars.png',
