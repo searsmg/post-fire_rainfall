@@ -19,14 +19,11 @@ p_load(tidyverse,
        ggdist,
        showtext,
        ggtext,
-       brms)
+       brms,
+       ggfortify)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
-
-# Add google font
-font_add_google("Open Sans", "os")
-showtext_auto()
 
 ```
 
@@ -238,9 +235,7 @@ globalPlot <- ggplot(global,
     strip.text = element_text(hjust = 0,
                               color='black',
                               face='bold'),
-    text = element_text(color = "black",
-                        family = 'os',
-                        size=180),
+    text = element_text(color = "black"),
     axis.text = element_text(color = "black",
                              face='bold'),
     panel.grid.major.x = element_blank(),
@@ -254,8 +249,8 @@ globalPlot <- ggplot(global,
       y = variable,
       label = percent_positive_label),
     inherit.aes = FALSE,
-    size = 45,
-    nudge_y = -0.12)
+    nudge_y = -0.12,
+    size=5)
 
 globalPlot
 
@@ -275,8 +270,8 @@ ggsave(
 
 ndvi <- read_csv('./data/final_model_inputs/inputs_combine.csv') %>%
   mutate(sp_cat = if_else(SP_mean > 60,
-                          'seasonal',
-                          'intermittent')) %>%
+                          'Seasonal',
+                          'Intermittent')) %>%
   select(site,
          burn_cat,
          fire,
@@ -320,28 +315,25 @@ ggplot(ndvi_summary, aes(
              size=5) +
   geom_errorbar(aes(ymin = NDVI_mean - NDVI_sd, ymax = NDVI_mean + NDVI_sd),
                 position = position_dodge(width = 0.2), width = 0.1) +
-  #geom_line(position = position_dodge(width = 0.2)) +
-  paletteer::scale_color_paletteer_d("ggsci::alternating_igv") +
+   scale_color_manual(values = c("#D95F02",'#7570B3')) +
   facet_grid(rows = vars(burn_cat), cols = vars(fire),
               labeller = labeller(
       burn_cat = burn_labels,
       fire = fire_labels
     )) +  # burn_cat on rows
-  theme_bw() +
+  theme_bw(base_size=20) +
   theme(
-    legend.position = c(0.87, .09),
+    legend.position = c(0.9, .09),
     strip.background = element_rect(fill = "white", color = NA),
     strip.text = element_text(color='black', face='bold'),
-    text = element_text(color = "black",
-                        family = 'os',
-                        size=180),
+    text = element_text(color = "black"),
     panel.grid.major.x = element_blank(),
     panel.grid.minor.x = element_blank(),
     panel.grid.major.y = element_blank()
   ) +
   xlab(NULL) +
   ylab('NDVI') +
-  labs(color = 'Snow persistence')
+  labs(color = 'Snow zone')
 
 
 ggsave(
@@ -359,6 +351,7 @@ ggsave(
 srNDVI <- readRDS('./data/bayes_outputs/ndvi_stageRise_final.rds')
 
 var_levels <- c(
+  "MI60",
   "NDVI", 
   "MI60*NDVI", 
   "Year*NDVI", 
@@ -367,9 +360,14 @@ var_levels <- c(
 
 srNDVI_df <- as_draws(srNDVI) %>% 
   data.frame() %>%
-  select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
+  select(MI60_mmhr, 
+         NDVI, 
+         MI60_mmhr.NDVI, 
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
   melt() %>%
   mutate(variable = case_match(variable,
+    "MI60_mmhr" ~ "MI60",
     "NDVI" ~ "NDVI",
     "MI60_mmhr.NDVI" ~ "MI60*NDVI",
     "yearCont.NDVI" ~ "Year*NDVI",
@@ -392,38 +390,6 @@ srNDVI_summary <- srNDVI_df %>%
                                                  percent_positive), "%")) %>%
   mutate(response = 'Stage rise')
 
-# SRndviPlot <- as_draws(srNDVI) %>% 
-#   data.frame() %>%
-#   select(NDVI, 
-#          MI60_mmhr.NDVI, 
-#          yearCont.NDVI, 
-#          MI60_mmhr.yearCont.NDVI) %>%
-#   melt() %>%
-#   ggplot(., aes(x = value, 
-#                 fill = variable)) + 
-#   theme_bw(base_size = 20) +
-#   geom_vline(xintercept = 0) + 
-#   stat_slab(aes(fill = after_stat(level)), 
-#             .width = c(.66, .95, 1), 
-#             color = 'gray50') +
-#   stat_pointinterval(.width = c(.66, .95, 1), 
-#                      fatten_point = 2.5, 
-#                      color = 'darkred', 
-#                      interval_size_domain = c(2,5,10)) +
-#   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-#   facet_wrap(~variable, 
-#              ncol = 1) +
-#   theme(legend.position = 'none') +
-#   theme(legend.position = 'none',
-#         strip.background = element_rect(fill = "white", color = NA),
-#         strip.text = element_text(hjust = 0),
-#         text = element_text(family = "Helvetica")) +
-#   labs(x = 'Scaled coefficient',
-#        y = NULL) +
-#   ggtitle('Stage rise')
-# 
-# SRndviPlot
-
 ```
 
 ## Lag to peak: NDVI
@@ -432,13 +398,16 @@ srNDVI_summary <- srNDVI_df %>%
 
 lpNDVI <- readRDS('./data/bayes_outputs/ndvi_l2p_final.rds')
 
-posterior_summary(lpNDVI, pars = c("MI60_mmhr", "MI60_mmhr.NDVI"))
-
 lpNDVI_df <- as_draws(lpNDVI) %>% 
   data.frame() %>%
-  select(NDVI, MI60_mmhr.NDVI, yearCont.NDVI, MI60_mmhr.yearCont.NDVI) %>%
+    select(MI60_mmhr, 
+         NDVI, 
+         MI60_mmhr.NDVI, 
+         yearCont.NDVI, 
+         MI60_mmhr.yearCont.NDVI) %>%
   melt() %>%
   mutate(variable = case_match(variable,
+    "MI60_mmhr" ~ "MI60",
     "NDVI" ~ "NDVI",
     "MI60_mmhr.NDVI" ~ "MI60*NDVI",
     "yearCont.NDVI" ~ "Year*NDVI",
@@ -461,38 +430,6 @@ lpNDVI_summary <- lpNDVI_df %>%
                                                  percent_positive), "%")) %>%
   mutate(response = 'Lag to peak')
 
-# LPndviPlot <- as_draws(lpNDVI) %>% 
-#   data.frame() %>%
-#   select(NDVI, 
-#          MI60_mmhr.NDVI, 
-#          yearCont.NDVI, 
-#          MI60_mmhr.yearCont.NDVI) %>%
-#   melt() %>%
-#   ggplot(., aes(x = value, 
-#                 fill = variable)) + 
-#   theme_bw(base_size = 20) +
-#   geom_vline(xintercept = 0) + 
-#   stat_slab(aes(fill = after_stat(level)), 
-#             .width = c(.66, .95, 1), 
-#             color = 'gray50') +
-#   stat_pointinterval(.width = c(.66, .95, 1), 
-#                      fatten_point = 2.5, 
-#                      color = 'darkred', 
-#                      interval_size_domain = c(2,5,10)) +
-#   paletteer::scale_fill_paletteer_d("soilpalettes::gley") +
-#   facet_wrap(~variable, 
-#              ncol = 1) +
-#   theme(legend.position = 'none') +
-#   theme(legend.position = 'none',
-#         strip.background = element_rect(fill = "white", color = NA),
-#         strip.text = element_text(hjust = 0),
-#         text = element_text(family = "Helvetica")) +
-#   labs(x = 'Scaled coefficient',
-#        y = NULL) +
-#   ggtitle('Lag to peak')
-# 
-# plot_grid(SRndviPlot, LPndviPlot)
-
 ```
 
 ## Combine
@@ -509,7 +446,8 @@ var_levels <- c(
     "MI60*Year*NDVI",
     "Year*NDVI",
     "MI60*NDVI",
-    "NDVI")
+    "NDVI",
+    "MI60")
 
 summary <- bind_rows(srNDVI_summary,
                      lpNDVI_summary) %>%
@@ -549,9 +487,7 @@ NDVIPlot <- ggplot(combineNDVI,
     strip.text = element_text(hjust = 0,
                               color='black',
                               face='bold'),
-    text = element_text(color = "black",
-                        family = 'os',
-                        size=180),
+    text = element_text(color = "black"),
     axis.text = element_text(color = "black",
                              face='bold'),
     panel.grid.major.x = element_blank(),
@@ -565,7 +501,7 @@ NDVIPlot <- ggplot(combineNDVI,
       y = variable,
       label = percent_positive_label),
     inherit.aes = FALSE,
-    size = 45,
+    size = 5,
     nudge_y = -0.12)
 
 NDVIPlot
@@ -578,7 +514,170 @@ ggsave(
 
 ```
 
-# Interaction bayes figs
+# Catchment variables
+
+## PCA
+
+```{r}
+
+pca <- readRDS('./data/pca_output/pca.rds')
+
+rownames(pca$rotation) <- c("Valleys\n& hollows", "Clay", "Sand", "dNBR", "Area > 75% elevation", "Max flow length")
+pca
+
+pca_plot <- autoplot(pca,
+         label = FALSE, 
+         loadings = TRUE, 
+         loadings.label = TRUE,
+         loadings.colour = "black",
+         loadings.label.colour = 'black',
+         loadings.label.size = 5,
+         loadings.label.vjust=1.3,
+         loadings.label.hjust=0) +
+  geom_point(size = 2, color = "black") + 
+  theme_bw(base_size=20) +
+  theme(
+    text = element_text(
+      color = "black"),
+  axis.text.x = element_text(color = "black"),
+    axis.text.y = element_text(color = "black"),
+    axis.title.x = element_text(color = "black"),
+    axis.title.y = element_text(color = "black"),
+  panel.grid = element_blank(),
+  panel.border = element_rect(color = "black", fill = NA, size = 0.75)) +
+  labs( x = 'PC1 (42%)',
+        y = 'PC2 (27%)') +
+  xlim(-0.15, 0.15) +
+   geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") 
+
+pca_plot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/PCA_catchmentvars.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+loadings_df <- as.data.frame(pca$rotation)
+loadings_df$var <- rownames(loadings_df)
+
+pca_plot <- autoplot(pca, label = F, loadings = F) +   # disable built-in arrows
+     geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_segment(data = loadings_df,
+               aes(x = 0, y = 0, xend = PC1/5.35, yend = PC2/5.35),
+               arrow = arrow(length = unit(0.03, "npc")),
+               color = "black",
+               linewidth = 1.2) +   # <-- make thicker
+  geom_text(data = loadings_df,
+            aes(x = PC1/5.35, y = PC2/5.35, label = var),
+            vjust = -0.4, hjust = -0.1, color = "black", size = 5) +
+  geom_point(size = 2, color = "black") +
+  theme_bw(base_size = 20) +
+  theme(panel.grid = element_blank()) +
+  xlim(-0.15,0.15) 
+  #ylim(-0.16,0.15)
+
+
+```
+
+## Boxplots
+
+```{r}
+
+inputs <- read_csv('./data/final_model_inputs/events_inputs_v2.csv')
+
+# remove the unburned sites from inputs for dnbr and ndvi
+inputs_edit <- inputs
+
+# make df long & remove the categorical geology
+inputs_long <- inputs_edit %>%
+  distinct(site,
+           .keep_all = T) %>%
+  select(AVG_SAND,
+         AVG_CLAY,
+         mean_dnbr,
+         hypso75,
+         frac_valley,
+         flow_length_m,
+         fire,
+         sp_cat) %>%
+  pivot_longer(!c(sp_cat, fire),
+               names_to = 'var',
+               values_to = 'vals') %>%
+  mutate(var = case_when(
+    var == 'AVG_CLAY' ~ 'Clay (%)',
+    var == 'hypso75' ~ 'Area > 75% elevation',
+    var == 'frac_valley' ~ 'Valleys & hollows',
+    var == 'flow_length_m' ~ 'Max flow length (m)',
+    var == 'mean_dnbr' ~ 'dNBR',
+    var == 'AVG_SAND' ~ "Sand (%)"
+  )) %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+         sp_cat = if_else(sp_cat == 'high',
+                          'Seasonal',
+                          'Intermittent'))
+
+inputs_long <- inputs_long %>%
+  mutate(var = factor(var, levels = c(
+    "Clay (%)",
+    "Sand (%)",
+    "Valleys & hollows",
+    "Area > 75% elevation",
+    "dNBR",
+    "Max flow length (m)"
+  )))
+
+
+boxplots <- ggplot(inputs_long, aes(x = fire, y = vals, fill = sp_cat)) +
+      geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+      scale_fill_manual(values = c("#D95F02",'#7570B3')) +
+  facet_wrap(~var, scales = 'free_y', ncol = 2) +
+      labs(x = NULL, y = NULL, fill = 'Snow zone') +
+  theme_bw(base_size=20) +
+      theme(
+        legend.position = 'bottom',
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        axis.title = element_text(color = "black"),
+        axis.text = element_text(color = "black"),
+        strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black")) 
+
+boxplots
+
+ggsave(
+  './figures/SR_response/catchmentvars_boxplot.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+```
+
+## PC + Boxplots
+
+```{r}
+
+both <- plot_grid(pca_plot,
+                  boxplots)
+
+both
+
+ggsave(
+  './figures/SR_response/pca_boxplots.png',
+       dpi=800,
+       width=14,
+       height=8)
+
+
+```
+
 
 ## Stage rise
 
@@ -589,17 +688,19 @@ srInt <- readRDS(here("./data/bayes_outputs/interaction_stageRise_bayes.rds"))
 var_levels <- c("MI60*PC2",
                 "PC2",
                 "MI60*PC1",
-                "PC1")
+                "PC1",
+                "MI60")
 
 srInt_df <- as_draws(srInt) %>% 
   data.frame() %>%
-  select(3,4,6,7) %>%
+  select(2,3,4,6,7) %>%
   melt() %>%
     mutate(variable = case_match(variable,
     "MI60_mmhr.PC2_scale" ~ "MI60*PC2",
     "MI60_mmhr.PC1_scale" ~ "MI60*PC1",
     "PC1_scale" ~ "PC1",
-    "PC2_scale" ~ "PC2")) %>%
+    "PC2_scale" ~ "PC2",
+    "MI60_mmhr" ~ "MI60")) %>%
    mutate(variable = factor(variable, levels = var_levels))
 
 srInt_summary <- srInt_df %>%
@@ -652,15 +753,15 @@ l2pInt <- readRDS(here("./data/bayes_outputs/interaction_lag2peak_bayes.rds"))
 
 l2pInt_df <- as_draws(l2pInt) %>% 
   data.frame() %>%
- select(3,4,6,7) %>%
+  select(2,3,4,6,7) %>%
   melt() %>%
     mutate(variable = case_match(variable,
     "MI60_mmhr.PC2_scale" ~ "MI60*PC2",
     "MI60_mmhr.PC1_scale" ~ "MI60*PC1",
     "PC1_scale" ~ "PC1",
-    "PC2_scale" ~ "PC2")) %>%
+    "PC2_scale" ~ "PC2",
+    "MI60_mmhr" ~ "MI60")) %>%
    mutate(variable = factor(variable, levels = var_levels))
-
 
 l2pInt_summary <- l2pInt_df %>%
   group_by(variable) %>%
@@ -753,9 +854,7 @@ intPlot <- ggplot(combineInt,
     strip.text = element_text(hjust = 0,
                               color='black',
                               face='bold'),
-    text = element_text(color = "black",
-                        family = 'os',
-                        size=180),
+    text = element_text(color = "black"),
     axis.text = element_text(color = "black",
                              face='bold'),
     panel.grid.major.x = element_blank(),
@@ -769,7 +868,7 @@ intPlot <- ggplot(combineInt,
       y = variable,
       label = percent_positive_label),
     inherit.aes = FALSE,
-    size = 45,
+    size = 5,
     nudge_y = -0.1)
 
 intPlot
@@ -780,9 +879,7 @@ ggsave(
        width=12,
        height=8)
 
-
 ```
-
 
 
 # Archive 
