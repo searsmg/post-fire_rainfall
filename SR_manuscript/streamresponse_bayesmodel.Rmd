@@ -118,13 +118,6 @@ If you look at the MCMC diagnostics in your model summary, all Rhat values = 1.0
 If shrinking your priors, you should probably do it in the other models too.
 **
 
-SUMMARY: increasing MI60 has a strong positive effect on stage rise, stage rise is on average higher in low snow zone and  -->
-in ETF. Stage rise increases over time after accounting for MI60, fire, snow persistence zone. -->
-MI60 mean 0.5 -> exp -> one unit change in MI60 increases stage rise 65% -->
-fireetf mean 1.7 -> ETF experiences 5x the stage rise as CPF, after accounting for MI60, year, snow zone -->
-spcatlow mean 0.8 -> low snow zone experiences 2.23 the stage rise as high, after accounting for MI60, year, and fire -->
-yearCont mean 0.0 -> stage rise does not change over time -->
-
 ```{r}
 
 # global model for stage rise
@@ -142,7 +135,7 @@ global <- stan_glmer(
   prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
   chains = 5,
-  cores = 8,
+  cores = 2,
   iter = 5000,
   adapt_delta = 0.99,
   init = 0
@@ -152,8 +145,34 @@ summary(global)
 check_model(global)
 r2(global)
 
-saveRDS(global, 
-        "./data/bayes_interaction_outputs/global_stageRise_final.rds")
+# globalLess <- stan_glmer(
+#   stage_rise_cm ~ 
+#     MI60_mmhr + 
+#     fire + 
+#     sp_cat + 
+#     yearCont +       
+#     (1 | site_number) + 
+#     (1|yearFact),                          
+#   data = stage,
+#   family = Gamma(link = "log"),
+#   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
+#   prior_intercept = normal(0, 1),
+#   prior_covariance = decov(regularization = 2),
+#   chains = 5,
+#   cores = 2,
+#   iter = 5000,
+#   adapt_delta = 0.99,
+#   init = 0
+# )
+# 
+# loo_global <- loo(global,k_threshold = 0.7)
+# loo_globalLess <- loo(globalLess, k_threshold = 0.7)
+# 
+# loo_compare(loo_global, loo_globalLess) # global is better
+print(loo_global) # k estimates are good
+
+# saveRDS(global, 
+#         "./data/bayes_interaction_outputs/global_stageRise_final.rds")
 
 # look at posterior distr and credible intervals
 as_draws(global) %>% 
@@ -183,12 +202,6 @@ as_draws(global) %>%
 ```
 
 ## NDVI
-
-SUMMARY: 
--Increasing NDVI reduces stage rise
--MI60_mmhr:NDVI - increasing NDVI reduces the MI60-stage rise relationship
--yearCont:NDVI - NDVI is increasing over time
--MI60_mmhr:yearCont:NDVI - the dampening effect of NDVI on the MI60-stage rise relationship decreases over time
 
 ```{r}
 
@@ -287,17 +300,15 @@ Tested a full and reduced bayes model. The reduced scored better based on loo co
 pca <- read_csv('./data/pca_output/pcExport.csv') %>%
   mutate(
     PC1_scale = as.numeric(scale(PC1)),
-    PC2_scale = as.numeric(scale(PC2))) #%>%
-      # mutate(PC1_scale = PC1_scale*-1,
-      #    PC2_scale = PC2_scale*-1)
+    PC2_scale = as.numeric(scale(PC2))) 
 
 # interFull <- stan_glmer(
-#   stage_rise_cm ~ 
-#     MI60_mmhr*PC1 + 
+#   stage_rise_cm ~
+#     MI60_mmhr*PC1 +
 #     MI60_mmhr*PC2 +
-#     yearCont + 
-#     (1 + MI60_mmhr | site_number) + 
-#     (1 | yearFact),                          
+#     yearCont +
+#     (1 + MI60_mmhr | site_number) +
+#     (1 | yearFact),
 #   data = pca,
 #   family = Gamma(link = "log"),
 #   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
@@ -317,11 +328,10 @@ pca <- read_csv('./data/pca_output/pcExport.csv') %>%
 interSR <- stan_glmer(
   stage_rise_cm ~ 
     MI60_mmhr*PC1_scale + 
-    MI60_mmhr*lag_pwd +
-    lag_pwd*PC1_scale +
-    #MI60_mmhr*PC2_scale +
-  yearCont + (1 | site_number) + 
-  (1 | yearFact),                   
+    MI60_mmhr*PC2_scale +
+    yearCont + 
+    (1 | site_number) + 
+    (1 | yearFact),                   
   data = pca,
   family = Gamma(link = "log"),
   prior = normal(0, 1), # default rec from Gelman et al. for gamma models is 0,2.5
@@ -339,13 +349,17 @@ check_model(interSR)
 r2(interSR)
 
 # compare the full and reduced models
-# loo_compare(loo(interFull,
-#                 k_threshold=0.7), 
-#             loo(interRed,
-#                 k_threshold=0.7))
+# test using loo cross val, got a k>0.7 warning
+# loo_interFull <- loo(interFull,k_threshold = 0.7)
+# loo_interSR <- loo(interSR,k_threshold = 0.7)
+# 
+# # interFull does not improve the predictive performance and performs slightly worse
+# loo_compare(loo_interFull, loo_interSR)
 
-# saveRDS(interSR, 
-#         "./data/bayes_outputs/interaction_stageRise_bayes.rds")
+print(loo_interSR) # k estimates are good
+
+saveRDS(interSR,
+        "./data/bayes_outputs/interaction_stageRise_bayes.rds")
 
 srInterPlot <- as_draws(interSR) %>% 
   data.frame() %>%
@@ -376,6 +390,90 @@ srInterPlot
 
 ```
 
+## PWD
+
+```{r}
+
+pwdModel <- stan_glmer(
+  stage_rise_cm ~ 
+    MI60_mmhr*lag_pwd + 
+    fire + 
+    sp_cat + 
+    yearCont +
+    (1 | site_number) + 
+    (1|yearFact),                          
+  data = stage,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(pwdModel)
+check_model(pwdModel)
+r2(pwdModel)
+
+loo_pwdModel <- loo(pwdModel, k_threshold = 0.7)
+print(loo_pwdModel) # k estimates are good
+
+saveRDS(pwdModel,
+        "./data/bayes_outputs/pwd_stageRise_bayes.rds")
+
+pwdPlot <- as_draws(pwdModel) %>% 
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>%
+  ggplot(., 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+pwdPlot
+
+
+pwdSummary <- as_draws(pwdModel) %>% 
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>% 
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%"))
+
+
+```
+
+
 # Lag to peak
 
 ## Global
@@ -397,7 +495,7 @@ global <- stan_glmer(
   prior_intercept = normal(0, 1),
   prior_covariance = decov(regularization = 2),
   chains =5, # switched to 5 when ready for final results
-  cores = 8,
+  cores = 2,
   iter = 5000, # switch to 5k when ready for final results
   adapt_delta = 0.99,
   init = 0
@@ -406,6 +504,9 @@ global <- stan_glmer(
 summary(global)
 check_model(global)
 r2(global)
+
+loo_globalL2P <- loo(global, k_threshold = 0.7)
+print(loo_globalL2P) # estimates are good
 
 saveRDS(global, 
         "./data/bayes_interaction_outputs/global_l2p_final.rds")
@@ -533,6 +634,9 @@ summary(interL2P)
 check_model(interL2P)
 r2(interL2P)
 
+loo_interL2P <- loo(interL2P, k_threshold = 0.7)
+print(loo_interL2P) # estimates are good
+
 saveRDS(interL2P, 
         "./data/bayes_outputs/interaction_lag2peak_bayes.rds")
 
@@ -564,6 +668,43 @@ l2pInterPlot <- as_draws(interL2P) %>%
 l2pInterPlot
 
 ```
+
+## PWD
+
+```{r}
+
+pwdModel <- stan_glmer(
+  lag2peak_halfP ~ 
+    MI60_mmhr*lag_pwd + 
+    fire + 
+    sp_cat + 
+    yearCont +
+    (1 | site_number) + 
+    (1|yearFact),                          
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(pwdModel)
+check_model(pwdModel)
+r2(pwdModel)
+
+loo_pwdModel <- loo(pwdModel, k_threshold = 0.7)
+print(loo_pwdModel) # k estimates are good
+
+saveRDS(pwdModel,
+        "./data/bayes_outputs/pwd_l2p_bayes.rds")
+
+```
+
 
 # Archive
 
