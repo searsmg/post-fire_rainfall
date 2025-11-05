@@ -678,7 +678,6 @@ ggsave(
 
 ```
 
-
 ## Stage rise
 
 ```{r}
@@ -880,6 +879,254 @@ ggsave(
        height=8)
 
 ```
+
+# PWD
+
+## General PWD fig
+
+```{r}
+inputs <- read_csv('./data/final_model_inputs/events_inputs_v2.csv')
+
+inputs_edit <- inputs 
+
+# make a sep lag pwd plot
+pwd <- inputs_edit %>%
+  select(lag_pwd,
+         fire,
+         sp_cat,
+         year) %>%
+  pivot_longer(!c(sp_cat, fire, year),
+               names_to = 'var',
+               values_to = 'vals') %>%
+  mutate(var = 'PWD') %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'),
+          sp_cat = if_else(sp_cat == 'high',
+                          'Seasonal',
+                          'Intermittent'))
+
+# lag pwd plot only
+pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
+  geom_boxplot(color = "black", size = 0.2, width = 0.6) +
+      scale_fill_manual(values = c("#D95F02",'#7570B3')) +
+  facet_wrap(~var, ncol = 3) +
+      labs(x = NULL, y = NULL, fill = 'Snow zone') +
+      theme(
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill = "white"),
+        strip.background = element_blank(),
+        strip.text = element_text(color = "black"),
+        axis.title = element_text(color = "black"),
+        axis.text = element_text(color = "black"),
+        legend.position = "bottom",
+        plot.margin = margin(10, 5, 5, 5)
+      ) 
+
+pwd_plot
+
+```
+
+## Stage rise
+
+```{r}
+
+srPWD <- readRDS(here("./data/bayes_outputs/pwd_stageRise_bayes.rds"))
+
+var_levels <- c("MI60*PWD",
+                "PWD",
+                "MI60")
+
+srPWD_df <- as_draws(srPWD) %>% 
+  data.frame() %>%
+  select(2,3,7) %>%
+  melt() %>%
+    mutate(variable = case_match(variable,
+    "MI60_mmhr.lag_pwd" ~ "MI60*PWD",
+    "lag_pwd" ~ "PWD",
+    "MI60_mmhr" ~ "MI60")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+srPWD_summary <- srPWD_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
+
+  
+srPWDPlot <- ggplot(srPWD_df, 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+srPWDPlot
+
+```
+
+## Lag to peak
+
+```{r}
+
+lagPWD <- readRDS(here("./data/bayes_outputs/pwd_l2p_bayes.rds"))
+
+var_levels <- c("MI60*PWD",
+                "PWD",
+                "MI60")
+
+lagPWD_df <- as_draws(lagPWD) %>% 
+  data.frame() %>%
+  select(2,3,7) %>%
+  melt() %>%
+    mutate(variable = case_match(variable,
+    "MI60_mmhr.lag_pwd" ~ "MI60*PWD",
+    "lag_pwd" ~ "PWD",
+    "MI60_mmhr" ~ "MI60")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+lagPWD_summary <- lagPWD_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
+
+  
+lagPWDPlot <- ggplot(lagPWD_df, 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+lagPWDPlot
+
+```
+
+## Combine
+
+```{r}
+
+# combine the PWD
+srPWD_df <- srPWD_df %>%
+  mutate(response = 'Stage rise')
+
+lagPWD_df <- lagPWD_df %>%
+  mutate(response = 'Lag to peak')
+
+summary <- bind_rows(srPWD_summary,
+                     lagPWD_summary) %>%
+    mutate(response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")),
+           variable = factor(variable,
+                             levels = var_levels))
+
+combinePWD <- bind_rows(srPWD_df,
+                    lagPWD_df) %>%
+  mutate(variable = factor(variable, 
+                           levels = var_levels),
+         response = factor(response, 
+                           levels = c("Stage rise", 
+                                      "Lag to peak")))
+
+PWDPlot <- ggplot(combinePWD, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  facet_wrap(~response) +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) +
+  geom_text(
+    data = summary,
+    aes(
+      x = 0.5,
+      y = variable,
+      label = percent_positive_label),
+    inherit.aes = FALSE,
+    size = 5,
+    nudge_y = -0.12)
+
+PWDPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/PWD_bayes.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+```
+
 
 
 # Archive 
