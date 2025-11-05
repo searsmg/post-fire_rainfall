@@ -42,6 +42,9 @@ var_levels <- c(
   "Year"
 )
 
+loo_stageRise <- loo(stageRise)
+print(loo_pwdModel) # k estimates are good
+
 stageRise_df <- as_draws(stageRise) %>% 
   data.frame() %>%
   select(MI60_mmhr, fireetf, sp_catlow, yearCont) %>%
@@ -620,6 +623,11 @@ inputs_long <- inputs_edit %>%
          sp_cat = if_else(sp_cat == 'high',
                           'Seasonal',
                           'Intermittent'))
+
+# get var summaries
+vars_summary <- inputs_long %>% 
+  group_by(fire, sp_cat, var) %>% 
+  summarize(mean = mean(vals))
 
 inputs_long <- inputs_long %>%
   mutate(var = factor(var, levels = c(
