@@ -391,7 +391,7 @@ write_csv(pwd, './data/final_model_inputs/pwd.csv')
 
 ```
 
-catchm# Soil
+# Soil
 
 Soil database found here:
 https://www.sciencebase.gov/catalog/item/631405c8d34e36012efa31ff (sand clay silt in text, ksat in layer)
@@ -532,6 +532,68 @@ soil_depths_all <- map_df(site_name, get_soil_depth) %>%
   
 
 ```
+
+# General soil type by fire
+
+```{r}
+
+# read in fire boundaries
+et <- vect('./data/GIS/etf_updatedboundary/etf_boundary.shp') %>%
+  aggregate()
+
+et$site <- 'et'
+
+cp <- vect('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp') %>%
+  aggregate()
+
+cp$site <- 'cp'
+
+cp <- project(cp, "EPSG:26913")
+et <- project(et, "EPSG:26913")
+
+# soil database to be used in function below
+avg_soil_type <- read.dbf('./data/GIS/soil/Text.dbf') %>%
+  rename(MUKEY = mukey) %>%
+  mutate_at(vars(AVG_SAND, AVG_CLAY, AVG_SILT), ~ifelse(. == -9999, NA, .))
+
+# list out site names
+site_name <- et$site
+
+get_soil_contents <- function(site_name){
+
+  # get site polygon
+  site_poly <- et %>%
+    tidyterra::filter(site == site_name)
+
+  # get ssurgo data using site_poly as boundary
+  soil <- get_ssurgo(site_poly, 
+                   label = site_name,
+                   raw.dir = './data/GIS/soil',
+                   extraction.dir = './data/GIS/soil')
+
+  # extract the spatial data
+  soil_sp <- soil$spatial %>% 
+    mutate(mukey = as.numeric(MUKEY))
+
+  # project so same as site_poly, then join to database to the spatial data
+  site_soils <- vect(soil_sp) %>%
+    terra::project(., 'EPSG:26913') %>%
+    left_join(., avg_soil_type, by = 'MUKEY')
+
+  # get the weighted mean
+  soil_mean <- terra::zonal(site_soils, site_poly, 
+                            fun = 'mean',
+                            na.rm = T,
+                            weights = T) %>%
+    mutate(site = site_name)
+
+}
+
+soil_means <- map_df(site_name, get_soil_contents) %>%
+  bind_rows()
+
+```
+
 
 # Slope
 
