@@ -265,7 +265,7 @@ get_hypso_csv <- function(site_name) {
     tidyterra::filter(site == site_name)
 
   # Mask the lidar data for the specified site
-  site_rast <- terra::crop(clipped_lidar, 
+  site_rast <- terra::crop(lidar, 
                            site_data,
                            mask = T)
 
@@ -275,7 +275,7 @@ get_hypso_csv <- function(site_name) {
   # Hypsometric analysis
   wbt_hypsometric_analysis(
     inputs = paste0('./data/GIS/', site_name, '_lidar.tif'), # input the site specific lidar
-    output = paste0('./data/GIS/', site_name, '_hypso.csv'))
+    output = paste0('./data/GIS/', site_name, '_hypso.html'))
 
 }
 
