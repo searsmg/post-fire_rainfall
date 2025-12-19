@@ -665,6 +665,60 @@ ggsave(
        dpi=800,
        width=12,
        height=8)
+####################################################
+# can't have boxplot for ETF intermittent bc only 2 sites
+
+boxplot_data <- inputs_long %>%
+  filter(!(fire == "ETF" & sp_cat == "Intermittent"))
+
+etf_int_data <- inputs_long %>%
+  filter(fire == "ETF", sp_cat == "Intermittent")
+
+boxplots <- ggplot() +
+  geom_boxplot(
+    data = boxplot_data,
+    aes(x = fire, y = vals, fill = sp_cat),
+    color = "black",
+    size = 0.2,
+    width = 0.6
+  ) +
+  geom_point(
+    data = etf_int_data,
+    aes(x = fire, y = vals, fill = sp_cat),
+    shape = 21,
+    size = 3,
+    stroke = 0.4,
+position = position_nudge(x = 0.4)
+    #position = position_jitter(width = 0.08),
+    #position = position_dodge(width = 1)
+  ) +
+  scale_fill_manual(values = c("#D95F02", "#7570B3")) +
+  facet_wrap(~var, scales = "free_y", ncol = 2) +
+  labs(x = NULL, y = NULL, fill = "Snow zone") +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = "bottom",
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.text = element_text(
+      hjust = 0,
+      color = "black",
+      face = "bold"
+    ),
+    text = element_text(color = "black")
+  )
+
+boxplots
+
+ggsave(
+  './figures/SR_response/catchmentvars_boxplot_dec25.png',
+       dpi=800,
+       width=12,
+       height=8)
+
 
 ```
 
@@ -678,7 +732,7 @@ both <- plot_grid(pca_plot,
 both
 
 ggsave(
-  './figures/SR_response/pca_boxplots.png',
+  './figures/SR_response/pca_boxplots_dec25.png',
        dpi=800,
        width=14,
        height=8)
@@ -897,6 +951,9 @@ inputs <- read_csv('./data/final_model_inputs/events_inputs_v2.csv')
 
 inputs_edit <- inputs 
 
+hist(inputs$lag_pwd)
+
+
 # make a sep lag pwd plot
 pwd <- inputs_edit %>%
   select(lag_pwd,
@@ -933,6 +990,9 @@ pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
 
 pwd_plot
 
+ggplot(inputs, aes(x = lag_pwd, y=stage_rise_cm)) +
+                    geom_point() + geom_smooth(method='lm')
+ 
 ```
 
 ## Stage rise
