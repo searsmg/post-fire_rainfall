@@ -310,6 +310,7 @@ huc <- st_read('./data/GIS/WBDHU8.shp') %>%
 huc8 <- st_union(huc) %>%
   st_sf()
 
+
 mapview(fires) + mapview(huc8)
 
 # Get raster extent
@@ -317,6 +318,59 @@ x_min <- min(p_df$x)
 x_max <- max(p_df$x)
 y_min <- min(p_df$y)
 y_max <- max(p_df$y)
+
+########### PLOT JUST FOR STUDY AREA
+
+rast<- rast('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2021_fil01.tif')
+
+library(ggplot2)
+library(sf)
+library(ggspatial)
+library(maptiles)
+
+rast <- rast(sum_all21[[1]]) %>% 
+  project(., crs(dem))
+
+basemap <- get_tiles(
+  rast,
+  provider = "Esri.WorldTopoMap",
+  zoom=10,
+  crop = TRUE
+)
+
+ggplot() +
+  layer_spatial(basemap) +
+  geom_sf(
+    data = fires,
+    fill = NA,
+    color = "grey30",
+    linewidth = 1.4
+  ) +
+  geom_sf(
+    data = huc8,
+    fill = NA,
+    color = "black",
+    linewidth = 1.4,
+    linetype = "dashed"
+  ) +
+  coord_sf(
+    xlim = c(x_min, x_max),
+    ylim = c(y_min, y_max),
+    expand = FALSE
+  ) +
+  theme_bw(base_size = 22) +
+   theme(
+    legend.position = 'none',
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+     strip.background = element_rect(fill = "white", color = "black")
+  ) 
+
+ggsave('./figures/studyarea_zoomedout.png', dpi=800, width=20, height = 15)
+
+#####
 
 ptot_plot <- ggplot() +
   geom_raster(data = p_df, 
