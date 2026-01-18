@@ -197,9 +197,43 @@ stage <- read_csv('./figures/dry_stage_event.csv') %>%
 
 ggplot(stage, aes(x = datetime)) +
   # Add shaded box for specific time range
-  geom_rect(aes(xmin = ymd_hms("2021-07-20 15:56:00", tz='MST'), 
-                xmax = ymd_hms("2021-07-20 17:14:00", tz='MST'), 
-                ymin = -Inf, ymax = Inf), 
+  # geom_rect(aes(xmin = ymd_hms("2021-07-20 15:56:00", tz='MST'), 
+  #               xmax = ymd_hms("2021-07-20 17:14:00", tz='MST'), 
+  #               ymin = -Inf, ymax = Inf), 
+  #           fill = "gray84", alpha = 0.8) +  # Gray box with transparency
+  geom_col(data = both, aes(y = rain_mmhr, x =datetime, fill = type), width = 500,
+           position = 'dodge') +
+  #geom_col(data = mrms, aes(x = datetime, y = rain_mm*6, fill = "MRMS"), width = 500) + 
+  geom_line(aes(y = Stage_cm, color = "Stage"), size = 1) +
+  labs(y = "Rain (mm/hr)") +
+  scale_y_continuous(sec.axis = sec_axis(~ ., name = "Stage (cm)")) +
+  scale_color_manual(values = c("Stage" = "darkred")) +
+  scale_fill_manual(values = c("MRMS" = "#00AFBB", "TB" = "#E7B800")) +
+  theme_bw(base_size = 20) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title.x = element_blank(),
+    
+    legend.position = c(0.92, 0.85),  
+    legend.background = element_rect(fill = alpha("white", 0.8)), 
+    legend.title = element_blank(), 
+    legend.text = element_text(size = 18),  #
+    legend.spacing.y = unit(0.0000000000000000000001, "mm")  
+  ) +
+  guides(fill = guide_legend(byrow = TRUE))  # Forces legend items to align closely by row
+
+ggsave('./figures/mrms_tb_drystage_pres.png', dpi=800, width=12, height = 8)
+
+ggplot(stage, aes(x = datetime)) +
+ # Add shaded box for specific time range
+  geom_rect(aes(xmin = ymd_hms("2021-07-20 15:56:00", tz='MST'),
+                xmax = ymd_hms("2021-07-20 17:14:00", tz='MST'),
+                ymin = -Inf, ymax = Inf),
             fill = "gray84", alpha = 0.8) +  # Gray box with transparency
   geom_col(data = both, aes(y = rain_mmhr, x =datetime, fill = type), width = 500,
            position = 'dodge') +
@@ -227,7 +261,108 @@ ggplot(stage, aes(x = datetime)) +
   ) +
   guides(fill = guide_legend(byrow = TRUE))  # Forces legend items to align closely by row
 
-ggsave('./figures/mrms_tb_drystage.png', dpi=600, width=15, height = 6)
+ggsave('./figures/mrms_tb_drystage_pres.png', dpi=800, width=12, height = 6)
+
+
+ggplot(stage, aes(x = datetime)) +
+  geom_line(aes(y = Stage_cm, color = "Stage"), size = 1) +
+  labs(y = "Stage (cm)") +
+  scale_color_manual(values = c("Stage" = "darkred")) +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title.x = element_blank(),
+    legend.position = 'none')
+
+ggsave('./figures/drystage_pres.png', dpi=800, width=12, height = 8)
+
+```
+
+
+```{r}
+
+mrms <- read_csv('./data/final/mrms/mrms_catchments_raw/wmean_exact_catchment_2min_all.csv') %>%
+  filter(ID == 'dry') %>%
+  mutate(datetime = force_tz(datetime, tzone = 'MST')) %>% 
+  mutate(year = year(datetime)) %>%
+  filter(year == 2021) %>%
+  mutate(p_mm = if_else(p_mm > 0.1, p_mm, 0)) %>% # mrms precision is 0.1
+  filter(datetime > ymd_hms('2021-07-20 15:40:00', tz ='MST'),
+         datetime < ymd_hms('2021-07-20 17:30:00', tz='MST'))
+
+mrms <- mrms %>%
+  mutate(type = 'MRMS')
+
+ggplot(mrms, aes(datetime,
+                 p_mm)) +
+  geom_col(fill = "#00AFBB", color="black") +
+  theme_bw(base_size = 20) +
+  labs(y='Rainfall (mm)',
+       x=NULL) +
+   theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title.x = element_blank())
+
+ggsave('./figures/precipExample.png', dpi=800,
+       width=12,
+       height=8)
+
+
+mrmsSum <- mrms %>%
+  mutate(cumsum = cumsum(p_mm))
+
+ggplot(mrmsSum, aes(datetime,
+                 cumsum)) +
+  geom_line(color="#00AFBB",
+            size=3) +
+  theme_bw(base_size = 20) +
+  labs(y='Cumulative rainfall (mm)',
+       x=NULL) +
+   theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title.x = element_blank())
+
+ggsave('./figures/precipSum.png', dpi=800,
+       width=12,
+       height=8)
+
+
+```
+
+# PWD example fig for defense
+
+```{r}
+
+pwd <- rast('/Users/megansears/Downloads/climateEngine_download.wb.tif')
+plot(pwd)
+
+shp <- vect('/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/data/GIS/catchments_all/catchments_all_lidar.shp') %>%
+  tidyterra::filter(site == 'UE') %>%
+  project(., crs(pwd))
+
+plot(shp)
+
+plot(pwd)
+plot(shp, add=T)
+
+
+cols <- colorRampPalette(c("red", "white", "blue"))(100)
+
+plot(pwd, col = cols)
+plot(shp, add = TRUE)
+
 
 ```
 
