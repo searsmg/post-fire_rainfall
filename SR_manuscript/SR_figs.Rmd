@@ -31,6 +31,8 @@ theme_set(theme_bw(base_size = 20))
 
 ## Stage rise
 
+For manuscript
+
 ```{r}
 
 stageRise <- readRDS(here("./data/bayes_outputs/global_stageRise_final.rds"))
@@ -43,7 +45,7 @@ var_levels <- c(
 )
 
 loo_stageRise <- loo(stageRise)
-print(loo_pwdModel) # k estimates are good
+#print(loo_pwdModel) # k estimates are good
 
 stageRise_df <- as_draws(stageRise) %>% 
   data.frame() %>%
@@ -92,12 +94,57 @@ globalStage <- ggplot(stageRise_df,
         strip.text = element_text(hjust = 0),
         text = element_text(color = "black")) +
   labs(x = 'Scaled coefficient',
-       y = NULL) +
-  xlim(-2,2)
+       y = NULL)
+  #xlim(-2,2)
 
 globalStage
 
 ```
+
+For defense pres
+
+```{r}
+
+stagePlot <- ggplot(stageRise_df, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) + xlim(-2.5,2.5)
+ 
+stagePlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/defense/stageGlobal.png',
+       dpi=800,
+       width=12,
+       height=8)
+
+
+```
+
 
 ## Lag to peak
 
