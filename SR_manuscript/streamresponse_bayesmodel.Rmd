@@ -1,5 +1,5 @@
 ---
-title: "RF & GAM modeling"
+title: "Bayes modeling"
 author: "Megan Sears"
 date: "`r Sys.Date()`"
 output:
