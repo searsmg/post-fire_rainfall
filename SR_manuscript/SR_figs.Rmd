@@ -442,6 +442,56 @@ srNDVI_summary <- srNDVI_df %>%
 
 ```
 
+# Stage rise only fig for defense
+
+```{r}
+
+srSimple <- srNDVI_df %>%
+  filter(variable %in% c('MI60',
+                         'NDVI')) %>%
+    mutate(variable = factor(variable, 
+                           levels = c('NDVI',
+                           'MI60')))
+  
+
+ggplot(srSimple, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+
+ggsave('/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/NDVIbayesSimple.png',
+       dpi=800,
+       height=8,
+       width=12)
+
+
+```
+
 ## Lag to peak: NDVI
 
 ```{r}
@@ -827,8 +877,13 @@ srInt_summary <- srInt_df %>%
                                                  percent_positive), "%")) %>%
   mutate(response = 'Stage rise')
 
-  
-srIntPlot <- ggplot(srInt_df, 
+
+srIntSimple <- srInt_df %>%
+  filter(variable %in% c('MI60',
+                         'PC1',
+                         'PC2'))
+
+srIntPlot <- ggplot(srIntSimple, 
                       aes(x = value,
                           y=variable)) +
   geom_vline(xintercept = 0) +
@@ -841,11 +896,18 @@ srIntPlot <- ggplot(srInt_df,
                      interval_size_domain = c(2,5,10),
                      color = '#D50032FF') +
   paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
-  #scale_y_discrete(limits = rev(var_levels)) +
-    theme(legend.position = 'none',
-        strip.background = element_rect(fill = "white", color = NA),
-        strip.text = element_text(hjust = 0),
-        text = element_text(color = "black")) +
+    theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
   labs(x = 'Scaled coefficient',
        y = NULL) 
 
@@ -910,6 +972,12 @@ l2pIntPlot <- ggplot(l2pInt_df,
        y = NULL) 
 
 l2pIntPlot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/interactionbayesSimple.png',
+       dpi=800,
+       width=12,
+       height=8)
 
 ```
 
@@ -1022,8 +1090,9 @@ pwd <- inputs_edit %>%
 pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
   geom_boxplot(color = "black", size = 0.2, width = 0.6) +
       scale_fill_manual(values = c("#D95F02",'#7570B3')) +
-  facet_wrap(~var, ncol = 3) +
-      labs(x = NULL, y = NULL, fill = 'Snow zone') +
+  #facet_wrap(~var, ncol = 3) +
+      labs(y='PWD (mm)', x= NULL, fill = 'Snow zone') +
+    theme_bw(base_size=25)+
       theme(
         panel.grid = element_blank(),
         panel.background = element_rect(fill = "white"),
@@ -1036,6 +1105,13 @@ pwd_plot <-  ggplot(pwd, aes(x = fire, y = vals, fill = sp_cat)) +
       ) 
 
 pwd_plot
+
+ggsave(
+  '/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/pwdSimple.png',
+       dpi=800,
+  width=12,
+  height=8)
+
 
 ggplot(inputs, aes(x = lag_pwd, y=stage_rise_cm)) +
                     geom_point() + geom_smooth(method='lm')
@@ -1101,6 +1177,56 @@ srPWDPlot <- ggplot(srPWD_df,
        y = NULL) 
 
 srPWDPlot
+
+```
+
+# Stage rise only fig for defense
+
+```{r}
+
+srSimple <- srPWD_df %>%
+  filter(variable %in% c('MI60',
+                         'PWD')) %>%
+    mutate(variable = factor(variable, 
+                           levels = c('PWD',
+                           'MI60')))
+  
+
+ggplot(srSimple, 
+                    aes(x = value,
+                        y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF',
+                     point_interval=mean_qi) +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(
+    legend.position = 'none',
+    strip.background = element_rect(fill = "white", 
+                                    color = NA),
+    strip.text = element_text(hjust = 0,
+                              color='black',
+                              face='bold'),
+    text = element_text(color = "black"),
+    axis.text = element_text(color = "black",
+                             face='bold'),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank()) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+
+ggsave('/Users/megansears/Documents/Repos/post-fire_rainfall/figures/SR_response/PWDbayesSimple.png',
+       dpi=800,
+       height=8,
+       width=12)
+
 
 ```
 
