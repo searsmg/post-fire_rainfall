@@ -1091,9 +1091,6 @@ dem_crop <- st_crop(dem_mosaic, mi60_p10_23_rast)
 # rename to dem
 dem <- dem_crop
 
-# haven't exported yet, takes a really long time
-#write_stars(dem_crop,'./data/GIS/dem_10m.tif')
-
 # need to resample DEM (10m) to match MRMS (1km)
 dem_resam <- st_warp(dem, mi60_p10_23_rast, 
                      method = "bilinear",
