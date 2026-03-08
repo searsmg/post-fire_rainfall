@@ -1,0 +1,192 @@
+---
+title: "Rainfall manuscript figures"
+author: "Megan Sears"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = F,
+  message = F, 
+  warning  = F)
+
+# load packages
+library(here)
+library(tidyverse)
+library(ggExtra)
+library(viridis)
+library(RColorBrewer)
+library(ggpubr)
+library(hydroGOF)
+
+```
+
+# TB vs pixel
+
+```{r}
+
+comp_all <- read_csv('./data/final/mrms/pixel_compare/compare/comp_cpf_etf2.csv')
+
+# Create RQI buckets
+comp_all <- comp_all %>%
+  mutate(rqi_bucket = cut(rqi, 
+                          breaks = c(0, .20, .40, .60, .80, 1),
+                          labels = c("0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"), 
+                          include.lowest = TRUE))
+
+color_palette <- c(
+  "0-0.2" = "#66A61E",
+  "0.2-0.4" = "#1B9E77",
+  "0.4-0.6" = "#D95F02",
+  "0.6-0.8" = "#7570B3",
+  "0.8-1.0" = "#E7298A"
+)
+
+new_facet_titles <- c(
+  "CPF" = "East",
+  "ETF" = "West"
+)
+
+# MI60 correlation to figure
+spearman_corrs_mi60 <- comp_all %>%
+  group_by(fire) %>%
+  summarize(spearman_corr = cor(MI60_mmhr.y, 
+                                MI60_mmhr.x, 
+                                method = "spearman"))
+
+# Event sum correlation for figure
+spearman_corrs_eventsum <- comp_all %>%
+  group_by(fire) %>%
+  summarize(spearman_corr = cor(event_sum_mm.y, 
+                                event_sum_mm.x, 
+                                method = "spearman"))
+# West rmse MI60
+et_rmse_mi60 <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  summarize(rmse = rmse(MI60_mmhr.x,
+                        MI60_mmhr.y)) %>%
+  mutate(R_spearman = 0.49) # previously calculated in stat_cor
+
+# West rmse event sum
+et_rmse_sum <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  summarize(rmse = rmse(event_sum_mm.x,
+                        event_sum_mm.y)) %>%
+  mutate(R_spearman = 0.58) # previously calculated in stat_cor
+
+###############################################################################
+
+# East Troublesome - WEST sites - MI60
+et60 <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = MI60_mmhr.y, 
+             x = MI60_mmhr.x, 
+             color = rqi_bucket)) +
+  geom_point(alpha = 0.6, 
+             size = 4, 
+             stroke = 1) +
+  scale_color_manual(values = color_palette) +
+  geom_abline(intercept = 0, 
+              slope = 1, 
+              linetype = "dashed", 
+              color = "black") +
+  labs(x = 'MRMS MI60 (mm/hr)', 
+       y = 'TB MI60 (mm/hr)', 
+       color = 'RQI') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = 'none',
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16)) +
+    annotate("text", 
+             x = 15, 
+             y = 32, 
+             label = "R = 0.49, RMSE = 3.6", 
+          color = "black", 
+          size = 4)
+
+et60
+
+et_marg60 <- ggMarginal(et60,
+           groupColour = T,
+           groupFill = T)
+
+et_marg60
+
+ggsave('./figures/rainfallFigureUpdates/pixel_tb_ETmarg_mi60.png',
+       plot = et_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
+
+# East Troublesome - WEST sites - MI60
+etEvent <- comp_all %>%
+  filter(fire == 'ETF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(., 
+         aes(y = event_sum_mm.y, 
+             x = event_sum_mm.x, 
+             color = rqi_bucket)) +
+  geom_point(alpha = 0.6, 
+             size = 4, 
+             stroke = 1) +
+  scale_color_manual(values = color_palette) +
+  geom_abline(intercept = 0, 
+              slope = 1, 
+              linetype = "dashed", 
+              color = "black") +
+  labs(x = 'MRMS event rainfall (mm)', 
+       y = 'TB event rainfall (mm)', 
+       color = 'RQI') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = 'none',
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16)) +
+    annotate("text", 
+             x = 15, 
+             y = 32, 
+             label = "R = 0.58, RMSE = 4.7", 
+          color = "black", 
+          size = 4)
+
+etEvent
+
+et_margEvent <- ggMarginal(etEvent,
+           groupColour = T,
+           groupFill = T)
+
+et_margEvent
+
+ggsave('./figures/rainfallFigureUpdates/pixel_tb_ETmarg_eventSum.png',
+       plot = et_marg,
+       width = 7,
+       height = 5,
+       dpi=600)
+
+###############################################################################
+
+# East side
+
+
+
+```
+
