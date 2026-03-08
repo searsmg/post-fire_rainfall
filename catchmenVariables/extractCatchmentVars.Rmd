@@ -83,8 +83,26 @@ write_csv(elev_join, './data/final_model_inputs/elev_range.csv')
 dnbr_etf <- rast(here('./data/GIS/co4020310623920201014_20200904_20210907_dnbr.tif')) %>%
   terra::project(., 'EPSG:26913')
 
-dnbr_cpf <- rast(here('./data/GIS/co4060910587920200813_20180915_20210907_dnbr.tif')) %>%
+dnbr_cpf <- rast(here('./data/GIS/LooseItems/co4060910587920200813_20180915_20210907_dnbr.tif')) %>%
   terra::project(., 'EPSG:26913')
+
+dnbrDry <- mask(dnbr_cpf, dry)
+dnbrDry <- trim(dnbrDry)
+
+dnbr_class <- classify(dnbrDry, 
+                       matrix(c(-Inf, 0, 0,   # unburned
+                                0,  200, 1,   # low
+                                200, 400, 2,  # moderate
+                                400, Inf, 3), # high
+                              ncol = 3, byrow = TRUE))
+
+plot(
+  dnbr_class,
+  col = c("green", "yellow", "orange", "red"),
+  legend = FALSE,
+  axes = FALSE,
+  box = FALSE
+)
 
 # get mean dNBR value for each catchment
 mean_dnbr_cpf <- dnbr_cpf %>%
