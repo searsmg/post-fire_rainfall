@@ -69,8 +69,8 @@ ggplot() +
   ) +
   scale_fill_manual(
     values = c(
-      intermittent = "lightblue",
-      seasonal = "blue"
+      intermittent = "#D95F02",
+      seasonal = '#7570B3'
     ),
     name = "Snow zone"
   ) +
@@ -85,3 +85,4 @@ ggplot() +
 
 ggsave('/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/figures/snowzone60.png',
        dpi=800)
+
