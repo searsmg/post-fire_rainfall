@@ -96,7 +96,7 @@ wbt_geomorphons(
     output = './data/GIS/geomorphons.tif')
 
 # make sure it looks right, view with mapview
-geomorphons <- rast('./data/GIS/geomorphons.tif')
+geomorphons <- rast('./data/GIS/LooseItems/geomorphons.tif')
 #plot(geomorphons) # take a quick look
 
 # get the valley/holllow fraction
@@ -117,6 +117,49 @@ valley_frac <- values %>%
 metrics <- left_join(valley_frac, 
                          as.data.frame(catchments), 
                          by = 'ID')
+
+###
+
+all_sites <- vect('./data/GIS/LooseItems/catchments_all_lidar.shp')
+dry <- all_sites %>%
+  tidyterra::filter(site == 'dry')
+
+dryGeo <- mask(geomorphons, dry)
+dryGeo <- trim(dryGeo)
+
+dryValley <- ifel(dryGeo %in% c(7,9), dryGeo, NA)
+
+plot(dryValley)
+
+lidar <- rast('./data/GIS/LooseItems/clipped_lidar.tif')
+dryDEM <- mask(lidar, dry)
+dryDEM <- trim(dryDEM)
+
+slope  <- terrain(dryDEM, v = "slope", unit = "radians")
+aspect <- terrain(dryDEM, v = "aspect", unit = "radians")
+hill <- shade(slope, aspect, angle = 45, direction = 315)
+
+plot(hill)
+
+plot(hill, col = gray.colors(100), legend = FALSE, axes = FALSE, box = FALSE)
+
+plot(dryValley, add = T)
+
+dry_df <- as.data.frame(dryGeo, xy = TRUE, na.rm = TRUE)
+names(dry_df)[3] <- "value"
+
+# Make it a factor (no forced levels)
+dry_df$value <- factor(dry_df$value)
+
+# Plot
+ggplot(dry_df) +
+  geom_raster(aes(x = x, y = y, fill = value)) +
+  scale_fill_brewer(
+    palette = "Set3",
+    name = "Value"
+  ) +
+  theme_void()
+
 
 ```
 
