@@ -1282,6 +1282,77 @@ ggsave('./figures/elev_vs_pixel_scatter.png', dpi=800,
        height = 6,
        width=14)
 
+p10overStats <- dem_p10over %>% 
+   group_by(median_elev, side, year) %>%
+  summarise(
+    p_value = cor.test(mi60_p10)$p.value,
+    .groups = "drop"
+  )
+
+pvals <- dem_p10over %>%
+  group_by(year, median_elev) %>%
+  summarise(
+    p_value = tryCatch(
+      t.test(mi60_p10 ~ side)$p.value,
+      error = function(e) NA
+    ),
+    n_left  = sum(side == "left"),
+    n_right = sum(side == "right"),
+    .groups = "drop"
+  ) %>%
+  mutate(sig = p_value < 0.05)
+
+pvals
+
+p10over_median <- p10over_median %>%
+  left_join(pvals, by = c("year", "median_elev")) %>%
+  mutate(sig = if_else(is.na(sig),
+                         TRUE,
+                         sig))
+
+# Figure 4 with shapes filled to indicate sig
+ggplot(p10over_median, aes(
+  as.numeric(median_elev),
+  median_p10,
+  color = side,
+  shape = side,
+  fill = interaction(side, sig))) +
+  geom_point(size = 3, 
+             stroke = 1.5) +
+  scale_color_manual(values = c("East" = "steelblue", 
+                                  "West" = "black")) +
+  scale_shape_manual(values = c("East" = 21, 
+                                "West" = 24)) +
+  scale_fill_manual(values = c(
+    "East.TRUE"  = "steelblue",
+    "East.FALSE" = "white",
+    "West.TRUE"  = "black",
+    "West.FALSE" = "white")) +
+  guides(
+  fill = "none",
+  shape = guide_legend(
+    override.aes = list(
+      fill = c("steelblue", "black")))) +
+  facet_wrap(~year) +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = c(.01, 0.98),
+    legend.justification = c(0, 1.1),
+    legend.text = element_text(size = 13),
+    legend.title = element_blank()) +
+  labs(x = 'Elevation (m)',
+    y = 'Median rainfall (mm) > MI60 10 mm/hr')
+
+ggsave('./figures/elev_vs_pixel_scatter_Mar2026.png', dpi=800,
+       height = 6,
+       width=14)
+
 ```
 
 # *Elev stats

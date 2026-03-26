@@ -20,10 +20,416 @@ library(viridis)
 library(RColorBrewer)
 library(ggpubr)
 library(hydroGOF)
+library(ggExtra)
 
 ```
 
-# TB vs pixel
+# Figure 3
+TB MI60 for high vs low
+
+```{r}
+tbMI60 <- read_csv('./data/final/stage_YN_response/tbHighLow.csv')
+
+tbMI60$fire <- factor(tbMI60$fire, levels = c("West", "East"))
+
+  ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
+  
+  # Boxplot with bold outlines and minimal fill
+  geom_boxplot(
+    fill = "white",           
+    color = "black",          
+    size = 0.8,                 
+    width = 0.4,                
+    outlier.shape = NA         
+  ) +
+  
+  # Points, but de-emphasized
+  geom_jitter(
+    aes(color = elev_type),
+    width = 0.1,             
+    height = 0,              
+    size = 1.2,               
+    alpha = 0.3                 
+  ) +
+  
+  facet_wrap(~fire) +
+  
+  # Color scales (optional)
+  scale_color_manual(values = c('#7570B3', "#D95F02")) +
+  
+  theme_bw(base_size = 20) +
+  labs(
+    x = 'Elevation',
+    y = 'MI60 (mm/hr)'
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = "none"
+  )
+
+  
+ggsave('./figures/tb_mi60_elev_updated.png',
+       width = 8,
+       height = 5,
+       dpi=600)
+
+
+  ggplot(tbMI60, aes(x = elev_type, y = MI60)) + 
+geom_violin(width=0.8) +
+
+  # geom_boxplot(
+  #   fill = "white",           
+  #   color = "black",          
+  #   size = 0.8,                 
+  #   width = 0.4,                
+  #   outlier.shape = NA         
+  # ) +
+  
+  # Points, but de-emphasized
+  geom_jitter(
+    aes(color = elev_type),
+    width = 0.1,             
+    height = 0,              
+    size = 1.2,               
+    alpha = 0.3                 
+  ) +
+  
+  facet_wrap(~fire) +
+  
+  # Color scales (optional)
+  scale_color_manual(values = c('#7570B3', "#D95F02")) +
+  
+  theme_bw(base_size = 20) +
+  labs(
+    x = 'Elevation',
+    y = 'MI60 (mm/hr)'
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = "none"
+  )
+
+  ggsave('./figures/tb_mi60_elev_violin.png',
+       width = 8,
+       height = 5,
+       dpi=600)
+
+```
+
+# Figure 4
+
+```{r}
+
+# read in huc, filter for co and wy
+# remove one line follows the divide
+# looking at the mtn range instead
+huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+  filter(!huc8 == 10180001) %>%
+  filter(states %in% c('CO', 'CO,WY'))
+
+# make as 1 polygon  
+huc8 <- st_union(huc) %>%
+  st_sf()
+
+# need to expand the dem (cut off at the bottom)
+dem_add1 <- read_stars('./data/GIS/USGS_13_n40w107_20220216.tif')
+dem_add2 <- read_stars('./data/GIS/USGS_13_n40w106_20230602 (1).tif')
+
+# original dem
+dem <- read_stars('./data/GIS/dem_10m.tif')
+
+# mosaic in the bottom dems
+dem_mosaic <- st_mosaic(dem, dem_add1, dem_add2)
+
+# 2023 mi60 over 10
+mi60_p10_23_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2023_mi60_p10.tif')
+
+# dem's way bigger than needed, crop to mi60_p10 rast
+dem_crop <- st_crop(dem_mosaic, mi60_p10_23_rast)
+
+# rename to dem
+dem <- dem_crop
+
+# need to resample DEM (10m) to match MRMS (1km)
+dem_resam <- st_warp(dem, mi60_p10_23_rast, 
+                     method = "bilinear",
+                     use_gdal = T)
+
+# set 0 values to NA if they exist (on border)
+dem_resam[dem_resam == 0] <- NA
+
+# crop right side of dem and create df
+# only need to do this once
+dem_right <- st_crop(dem_resam,
+                     huc8) %>%
+  as.data.frame() %>%
+  rename(elev_m = 3) %>%
+  drop_na(elev_m)
+
+# right 23
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_23_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_right23 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
+         year = '2023',
+         source = 'mrms')
+
+# right 22
+mi60_p10_22_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2022_mi60_p10.tif')
+
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_22_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_right22 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
+         year = '2022',
+         source = 'mrms')
+
+# right 21
+mi60_p10_21_rast <- read_stars('/Users/megansears/Documents/MRMS/mrms_data/bbox_2fires/mrms2021_mi60_p10.tif')
+
+# extract p over 10 mi60 for right side of mtns
+pover10_mi60_right <- st_crop(mi60_p10_21_rast, 
+                  huc8) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_right21 <- left_join(dem_right, pover10_mi60_right, by = c("x", "y")) %>%
+  mutate(side = 'right',
+         year = '2021',
+         source = 'mrms')
+
+## LEFT SIDE ##
+# crop left side of dem
+# this needs to be done since we are cropping area that is outside of huc8
+# rasterize huc8 based on demresam, set the huc8 values to 1
+# drop huc8 values (1) since we are on the left
+huc8_mask <- st_rasterize(huc8, dem_resam, values = 1) %>%
+  as.data.frame() %>%
+  filter(!ID == 1)
+
+# put back to stars
+huc8_mask <- st_as_stars(huc8_mask, 
+                                  dimensions = c("x", "y")) 
+
+# set same crs as dem_resam
+st_crs(huc8_mask) <- st_crs(dem_resam)
+
+# crop the dem_resam to the huc8_mask
+dem_left <- st_crop(dem_resam,
+                     huc8_mask) %>%
+  as.data.frame() %>%
+  rename(elev_m = 3) %>%
+  drop_na(elev_m)
+
+# left 23
+# extract p over 10 mi60 for right side of mtns
+# crop by huc8mask
+pover10_mi60_left <- st_crop(mi60_p10_23_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_left23 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
+         year = '2023',
+         source = 'mrms')
+
+# left 22
+# extract p over 10 mi60 for left side of mtns
+pover10_mi60_left <- st_crop(mi60_p10_22_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_left22 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
+         year = '2022',
+         source = 'mrms')
+
+# left 21
+# extract p over 10 mi60 for left side of mtns
+pover10_mi60_left <- st_crop(mi60_p10_21_rast, 
+                  huc8_mask) %>%
+  as.data.frame() %>%
+  rename(mi60_p10 = 3) %>%
+  drop_na(mi60_p10)
+
+# join the 2 dfs
+dem_p10_mi60_left21 <- left_join(dem_left, pover10_mi60_left, by = c("x", "y")) %>%
+  mutate(side = 'left',
+         year = '2021',
+         source = 'mrms')
+
+# combine all years and sides together
+dem_p10over <- bind_rows(dem_p10_mi60_right21,
+                         dem_p10_mi60_right22,
+                         dem_p10_mi60_right23,
+                         dem_p10_mi60_left21,
+                         dem_p10_mi60_left22,
+                         dem_p10_mi60_left23)
+
+dem_p10over <- dem_p10over %>%
+  mutate(
+    elevation_bin = cut(
+      elev_m,
+      breaks = seq(1500, 4150, by = 150), # Set breaks to 150-meter intervals
+      include.lowest = TRUE,
+      labels = paste0(
+        seq(1500, 3850, by = 150), # Start and end adjusted for 150-meter bins
+        "–",
+        seq(1650, 4150, by = 150)
+      )
+    ),
+    year = as.factor(year)
+  ) %>%
+  separate(elevation_bin, into = c("bin_start", "bin_end"), sep = "–", convert = TRUE) %>%
+  mutate(median_elev = (bin_start + bin_end) / 2)
+
+# scatter plots of medians for each elevation bin
+# get median by median_elev that represents the bin, year, side
+p10over_median <- dem_p10over %>%
+  group_by(median_elev, year, side) %>%
+  summarize(median_p10 = median(mi60_p10)) %>%
+  mutate(side = if_else(side == 'left', 'West',
+                        'East'))
+  
+ggplot(p10over_median, aes(as.numeric(median_elev),
+                median_p10,
+                shape=side, color=side)) +
+  geom_point(size=3,
+             alpha=0.8) +
+  scale_color_manual(values = c('steelblue', 'black')) +
+  #geom_jitter(size=3, alpha =0.8) +
+  facet_wrap(~year) +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    #strip.text = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    #axis.text.x = element_text(angle = 45, hjust = 1)
+    legend.position = c(.01, 0.98),
+   legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 13),         # Adjust legend text size
+    legend.title = element_blank()
+  ) +
+  labs(x='Elevation (m)',
+       y='Median rainfall (mm) > MI60 10 mm/hr')
+
+ggsave('./figures/elev_vs_pixel_scatter.png', dpi=800,
+       height = 6,
+       width=14)
+
+p10overStats <- dem_p10over %>% 
+   group_by(median_elev, side, year) %>%
+  summarise(
+    p_value = cor.test(mi60_p10)$p.value,
+    .groups = "drop"
+  )
+
+pvals <- dem_p10over %>%
+  group_by(year, median_elev) %>%
+  summarise(
+    p_value = tryCatch(
+      t.test(mi60_p10 ~ side)$p.value,
+      error = function(e) NA
+    ),
+    n_left  = sum(side == "left"),
+    n_right = sum(side == "right"),
+    .groups = "drop"
+  ) %>%
+  mutate(sig = p_value < 0.05)
+
+pvals
+
+p10over_median <- p10over_median %>%
+  left_join(pvals, by = c("year", "median_elev")) %>%
+  mutate(sig = if_else(is.na(sig),
+                         TRUE,
+                         sig))
+
+# Figure 4 with shapes filled to indicate sig
+ggplot(p10over_median, aes(
+  as.numeric(median_elev),
+  median_p10,
+  color = side,
+  shape = side,
+  fill = interaction(side, sig))) +
+  geom_point(size = 3, 
+             stroke = 1.5) +
+  scale_color_manual(values = c("East" = "steelblue", 
+                                  "West" = "black")) +
+  scale_shape_manual(values = c("East" = 21, 
+                                "West" = 24)) +
+  scale_fill_manual(values = c(
+    "East.TRUE"  = "steelblue",
+    "East.FALSE" = "white",
+    "West.TRUE"  = "black",
+    "West.FALSE" = "white")) +
+  guides(
+  fill = "none",
+  shape = guide_legend(
+    override.aes = list(
+      fill = c("steelblue", "black")))) +
+  facet_wrap(~year) +
+  theme_bw(base_size = 20) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.position = c(.01, 0.98),
+    legend.justification = c(0, 1.1),
+    legend.text = element_text(size = 13),
+    legend.title = element_blank()) +
+  labs(x = 'Elevation (m)',
+    y = 'Median rainfall (mm) > MI60 10 mm/hr')
+
+ggsave('./figures/elev_vs_pixel_scatter_Mar2026.png', dpi=800,
+       height = 6,
+       width=14)
+
+
+
+```
+
+
+
+# Figure 5
+TB vs pixel
 
 ```{r}
 
@@ -78,77 +484,202 @@ et_rmse_sum <- comp_all %>%
 
 ###############################################################################
 
-# East Troublesome - WEST sites - MI60
-et60 <- comp_all %>%
+library(ggpointdensity)
+
+et60_dens <- comp_all %>%
   filter(fire == 'ETF') %>% 
   arrange(desc(rqi)) %>%
-  ggplot(., 
-         aes(y = MI60_mmhr.y, 
-             x = MI60_mmhr.x, 
-             color = rqi_bucket)) +
-  geom_point(alpha = 0.6, 
-             size = 4, 
-             stroke = 1) +
-  scale_color_manual(values = color_palette) +
+  ggplot(aes(
+    x = MI60_mmhr.x, 
+    y = MI60_mmhr.y
+  )) +
+  geom_pointdensity(size = 4,
+                    adjust = 4) +
+  scale_color_viridis_c(name = "Density",
+                        option = "A",
+                         guide = guide_colorbar(
+    barwidth = 1.5,
+    barheight = 5)) +
   geom_abline(intercept = 0, 
-              slope = 1, 
-              linetype = "dashed", 
+              slope = 1,
+              linewidth = 0.65,
+              #linetype = "dashed", 
               color = "black") +
   labs(x = 'MRMS MI60 (mm/hr)', 
-       y = 'TB MI60 (mm/hr)', 
-       color = 'RQI') +
-  theme_bw(base_size = 18) +
+       y = 'TB MI60 (mm/hr)',
+       title = 'West') +
+  theme_bw(base_size = 16) +
   theme(
+    plot.title = element_text(hjust = 0.5),
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "white"),
     strip.background = element_blank(),
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
-    legend.position = 'none',
-    legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
-    legend.title = element_text(size = 16)) +
-    annotate("text", 
-             x = 15, 
-             y = 32, 
-             label = "R = 0.49, RMSE = 3.6", 
-          color = "black", 
-          size = 4)
+    legend.title = element_text(size = 16),
+    legend.position = c(0.85, 0.4),
+    legend.justification = c(0, 1),)
 
-et60
+et60_dens
 
-et_marg60 <- ggMarginal(et60,
-           groupColour = T,
-           groupFill = T)
+################################################################################
 
-et_marg60
+cp60_dens <- comp_all %>%
+  filter(fire == 'CPF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = MI60_mmhr.x, 
+    y = MI60_mmhr.y
+  )) +
+  geom_pointdensity(size = 4,
+                    adjust = 4) +
+  scale_color_viridis_c(name = "Density",
+                        option = "A") +
+                         #guide = guide_colorbar(
+    #barwidth = 1.5,
+    #barheight = 5)) +
+  geom_abline(intercept = 0, 
+              slope = 1,
+              linewidth = 0.65,
+              #linetype = "dashed", 
+              color = "black") +
+  labs(x = 'MRMS MI60 (mm/hr)', 
+       y = 'TB MI60 (mm/hr)',
+       title = 'East') +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16),
+     legend.position = c(0.85, 0.4),
+    legend.justification = c(0, 1))
 
-ggsave('./figures/rainfallFigureUpdates/pixel_tb_ETmarg_mi60.png',
-       plot = et_marg,
-       width = 7,
-       height = 5,
-       dpi=600)
+cp60_dens
 
-# East Troublesome - WEST sites - MI60
-etEvent <- comp_all %>%
+################################################################################
+
+et_event_dens <- comp_all %>%
   filter(fire == 'ETF') %>% 
   arrange(desc(rqi)) %>%
-  ggplot(., 
-         aes(y = event_sum_mm.y, 
-             x = event_sum_mm.x, 
-             color = rqi_bucket)) +
-  geom_point(alpha = 0.6, 
-             size = 4, 
-             stroke = 1) +
-  scale_color_manual(values = color_palette) +
+  ggplot(aes(
+    x = MI60_mmhr.x, 
+    y = MI60_mmhr.y
+  )) +
+  geom_pointdensity(size = 4,
+                    adjust = 4) +
+  scale_color_viridis_c(name = "Density",
+                        option = "A",
+                         guide = guide_colorbar(
+    barwidth = 1.5,
+    barheight = 5)) +
   geom_abline(intercept = 0, 
-              slope = 1, 
-              linetype = "dashed", 
+              slope = 1,
+              linewidth = 0.65,
+              #linetype = "dashed", 
               color = "black") +
   labs(x = 'MRMS event rainfall (mm)', 
-       y = 'TB event rainfall (mm)', 
-       color = 'RQI') +
+       y = 'TB event rainfall (mm)',
+       title = 'West') +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.position = c(0.8, 0.35),
+    legend.justification = c(0, 1),)
+
+et_event_dens
+
+################################################################################
+
+cp_event_dens <- comp_all %>%
+  filter(fire == 'CPF') %>% 
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = event_sum_mm.x, 
+    y = event_sum_mm.y
+  )) +
+  geom_pointdensity(size = 4,
+                    adjust = 4) +
+  scale_color_viridis_c(name = "Density",
+                        option = "A",
+                         guide = guide_colorbar(
+    barwidth = 1.5,
+    barheight = 5)) +
+  geom_abline(intercept = 0, 
+              slope = 1,
+              linewidth = 0.65,
+              #linetype = "dashed", 
+              color = "black") +
+  labs(x = 'MRMS event rainfall (mm)', 
+       y = 'TB event rainfall (mm)',
+       title='East') +
+  theme_bw(base_size = 16) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    legend.position = c(0.8, 0.32),
+    legend.justification = c(0, 1),)
+
+cp_event_dens
+
+################################################################################
+
+library(cowplot)
+dens <- plot_grid(et60_dens,
+                  cp60_dens,
+                  et_event_dens,
+                  cp_event_dens,
+                  nrow=2)
+dens
+
+ggsave('./figures/dens_pixelTB_Mar2026.png', dpi=800,
+       height = 12,
+       width=16)
+
+################################################################################
+################################################################################
+
+rqi60 <- comp_all %>%
+  mutate(fire = recode(fire,
+                       "ETF" = "West",
+                       "CPF" = "East")) %>%
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = rqi, 
+    y = (MI60_mmhr.y - MI60_mmhr.x),
+    shape = fire,
+    color = fire
+  )) +
+  # geom_point(size=3,
+  #            alpha=0.65) +
+  geom_hline(yintercept=0) +
+  geom_jitter(size = 3, alpha = 0.8, width = 0.01, height = 0) +
+    scale_color_manual(values = c("East" = "steelblue", 
+                                  "West" = "black")) +
+  labs(x = "RQI",
+       y = 'MI60 residual (mm/hr)') +
   theme_bw(base_size = 18) +
   theme(
     panel.grid = element_blank(),
@@ -157,36 +688,284 @@ etEvent <- comp_all %>%
     text = element_text(color = "black"),
     axis.title = element_text(color = "black"),
     axis.text = element_text(color = "black"),
-    legend.position = 'none',
-    legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),
-    legend.title = element_text(size = 16)) +
-    annotate("text", 
-             x = 15, 
-             y = 32, 
-             label = "R = 0.58, RMSE = 4.7", 
-          color = "black", 
-          size = 4)
+    legend.position = c(0.15, 0.92),
+    legend.title = element_blank())
 
-etEvent
+rqi60
 
-et_margEvent <- ggMarginal(etEvent,
-           groupColour = T,
-           groupFill = T)
+################################################################################
 
-et_margEvent
+rqiEvent <- comp_all %>%
+  mutate(fire = recode(fire,
+                       "ETF" = "West",
+                       "CPF" = "East")) %>%
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = rqi, 
+    y = (event_sum_mm.y - event_sum_mm.x),
+    shape = fire,
+    color = fire
+  )) +
+  geom_hline(yintercept=0) +
+  # geom_point(size=3,
+  #            alpha=0.65) +
+  geom_jitter(size = 3, alpha = 0.8, width = 0.01, height = 0) +
+    scale_color_manual(values = c("East" = "steelblue", 
+                                  "West" = "black")) +
+  labs(x = "RQI",
+       y = 'Event rainfall residual (mm)') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.position = 'none',
+    legend.title = element_blank())
 
-ggsave('./figures/rainfallFigureUpdates/pixel_tb_ETmarg_eventSum.png',
-       plot = et_marg,
-       width = 7,
-       height = 5,
+rqiEvent
+
+rqi <- plot_grid(rqi60, rqiEvent)
+rqi
+
+ggsave('./figures/rqi_pixelTB_Mar2026.png', dpi=800,
+       height = 6,
+       width=12)
+
+```
+
+# Figure 6
+Kappa & KGE
+
+```{r}
+
+kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean_updatedMar2026.csv')
+
+# get some summary stats for manuscript
+kappaSummary <- kappa %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kappa_value))
+
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
+
+new_facet_titles <- c(
+  "cpf" = "East",
+  "etf" = "West"
+)
+
+kappa_burnOnly <- left_join(kappa, burn, by = 'site') %>%
+  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned')) %>%
+  filter(burn_cat == 'burn')
+
+kappa_burnOnly$fire <- factor(kappa_burnOnly$fire, levels = c("etf", "cpf"))
+
+pBurnKap <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source)) + 
+  #geom_violin(scale='width') +
+  geom_boxplot(position = position_dodge(0.8),
+               outlier.size = 2,
+               width=0.5) +
+  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
+                     method = 'wilcox.test', 
+                     label = "p.signif",    # Display significance levels (*, **, ***)
+                     hide.ns = T,        # Hide non-significant results
+                     label.y = 0.8,
+                     label.x = 1.4,
+                     size = 15) +  # Adjust label position
+  theme(
+    legend.position = c(.75, 1.01),
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),         # Adjust legend text size
+    legend.title = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")
+    #strip.text = element_blank()
+  ) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'MI60 kappa values',
+       x=NULL)
+
+pBurnKap
+
+################################################################################
+
+kge <- read_csv('./data/final/stage_YN_response/kge_mi60_wmean_updatedMar2026.csv')
+
+# get some summary stats for manuscript
+kgeSummary <- kge %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kge_value))
+
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
+
+new_facet_titles <- c(
+  "cpf" = "East",
+  "etf" = "West"
+)
+
+kge_burnOnly <- left_join(kge, burn, by = 'site') %>%
+  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned')) %>%
+  filter(burn_cat == 'burn')
+
+kge_burnOnly$fire <- factor(kge_burnOnly$fire, levels = c("etf", "cpf"))
+
+pBurnKGE <-ggplot(kge_burnOnly, aes(x = source, y = kge_value, fill = source)) + 
+  geom_boxplot(position = position_dodge(0.8),
+              outlier.size = 2,
+              width=0.5) +
+  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
+                     method = 'wilcox.test', 
+                     label = "p.signif",    # Display significance levels (*, **, ***)
+                     hide.ns = T,        # Hide non-significant results
+                     label.y = 0.8,
+                     label.x = 1.4,
+                     size = 15) +  # Adjust label position
+  theme(
+    legend.position = "none",
+    legend.justification = c(0, 1.1), 
+    legend.text = element_text(size = 16),         # Adjust legend text size
+    legend.title = element_blank(), 
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.text = element_blank()
+  ) +
+  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
+  labs(y = 'MI60 KGE values',
+       x=NULL)
+
+pBurnKGE
+
+combined_plot <- plot_grid(pBurnKap, pBurnKGE, ncol = 1)
+combined_plot
+
+################################################################################
+
+kappa_flip <- kappa %>%
+  dplyr::select(-1) %>%
+  pivot_wider(names_from = 'source',
+              values_from = 'kappa_value')
+
+# bring in catchments
+catch <- vect('./data/GIS/catchments_all/catchments_all_lidar.shp')
+dem <- rast('./data/GIS/dem_10m.tif')
+
+mean_elev <- dem %>%
+  terra::extract(catch, fun = mean, ID = T) %>%
+  mutate(site = catch$site) %>%
+  mutate(site = if_else(site == 'mm',
+                        'mm_et',
+                        site)) %>%
+  mutate(site = tolower(site)) %>%
+  rename(mean_elev_m = 2) %>%
+  dplyr::select(-1)
+
+kappa_elev <- left_join(kappa_flip,
+                        mean_elev,
+                        by = 'site') %>%
+  mutate(fire = if_else(fire == 'cpf',
+                        'CPF',
+                        'ETF'))
+
+kappa_elev <- kappa_elev %>%
+  filter(site %in% burnList)
+
+kappa_elev_plot <- ggplot(kappa_elev) +
+  geom_point(aes(MRMS, TB, 
+                 shape = fire,
+                 fill = mean_elev_m),
+             color = 'black',    
+             size = 6.5) +
+  geom_abline(slope = 1, 
+              intercept = 0, 
+              linetype = "dashed",
+              linewidth=0.75,
+              color = "black") +
+  scale_fill_gradientn(colours = terrain.colors(15)) +
+  scale_shape_manual(values = c(21, 24),
+                     labels = c("CPF" = "East", "ETF" = "West")) +
+  geom_text_repel(aes(x = MRMS, y = TB, label = siteIndex),
+                  size = 7,
+                  color = "black",
+                  point.padding = 1,
+                  box.padding = 0.4) +
+  labs(x = 'MRMS MI60 kappa',
+       y = 'TB MI60 kappa',
+       fill = 'Elevation (m)',
+       shape = element_blank()) +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = 'bottom',
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size=12),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black")) +
+  guides(fill = guide_colorbar(barwidth = 18))
+
+kappa_elev_plot
+
+# ggsave('./figures/kappa_tb_mrms_elevmi60.png',
+#        dpi=600)
+
+white_spacer <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "white", color = NA))
+
+# Stack white spacer and kappa plot
+adjusted_kappa <- plot_grid(
+  white_spacer,
+  kappa_elev_plot,
+  ncol = 1,
+  rel_heights = c(0.043, 1)
+)
+
+# Combine horizontally
+combined_plot2 <- plot_grid(
+  combined_plot,
+  adjusted_kappa,
+  ncol = 2,
+  labels = c("a", "b"),
+  label_size = 18
+)
+
+combined_plot2
+
+ggsave('./figures/kappa_combine2_updatelabels_Mar2026.png',
+       width=16,
+       height=10,
        dpi=600)
 
-###############################################################################
+################################################################################
 
-# East side
+#  Stats for reuslts section
+kappaSummary <- kappa_burnOnly %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kappa_value))
 
+kappaSummary
 
+kgeSummary <- kge_burnOnly %>%
+  group_by(fire, source) %>%
+  summarize(mean = mean(kge_value))
+
+kgeSummary
 
 ```
 
