@@ -21,6 +21,7 @@ library(RColorBrewer)
 library(ggpubr)
 library(hydroGOF)
 library(ggExtra)
+library(stars)
 
 ```
 

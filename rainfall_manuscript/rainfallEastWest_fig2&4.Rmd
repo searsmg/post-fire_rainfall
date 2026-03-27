@@ -1522,6 +1522,26 @@ grid_all21_left <- st_crop(gridmet21, huc8_mask)
 grid_all22_left <- st_crop(gridmet22, huc8_mask)
 grid_all23_left <- st_crop(gridmet23, huc8_mask)
 
+################################################################################
+
+sd_right21<- sd(as.vector(grid_all21_right[[1]]), na.rm = TRUE)
+sd_right22 <- sd(as.vector(grid_all22_right[[1]]), na.rm = TRUE)
+sd_right23 <- sd(as.vector(grid_all23_right[[1]]), na.rm = TRUE)
+
+
+sd_left21<- sd(as.vector(grid_all21_left[[1]]), na.rm = TRUE)
+sd_left22 <- sd(as.vector(grid_all22_left[[1]]), na.rm = TRUE)
+sd_left23 <- sd(as.vector(grid_all23_left[[1]]), na.rm = TRUE)
+
+
+msd_right21<- sd(as.vector(sum_all21_right[[1]]), na.rm = TRUE)
+msd_right22 <- sd(as.vector(sum_all22_right[[1]]), na.rm = TRUE)
+msd_right23 <- sd(as.vector(sum_all23_right[[1]]), na.rm = TRUE)
+
+msd_left21<- sd(as.vector(sum_all21_left[[1]]), na.rm = TRUE)
+msd_left22 <- sd(as.vector(sum_all22_left[[1]]), na.rm = TRUE)
+msd_left23 <- sd(as.vector(sum_all23_left[[1]]), na.rm = TRUE)
+
 ```
 
 
