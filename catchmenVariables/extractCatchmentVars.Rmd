@@ -51,7 +51,7 @@ Already extracted:
 
 ```{r}
 
-all_sites <- vect('./data/GIS/catchments_all_lidar.shp')
+all_sites <- vect('./data/GIS/catchments_all/catchments_all_lidar.shp')
 all_sites$site[all_sites$site == "mm"] <- "mm_et"
 
 # view the sites
