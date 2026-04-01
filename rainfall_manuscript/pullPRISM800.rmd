@@ -20,7 +20,7 @@ library(terra)
 get_prism800 <- function(url, outdir) {
   
   fname_date <- gsub(".*/", "", url) # date from URL
-  var <- "ppt" # precip
+  var <- "tmin" # ppt # tmean
   region <- "us" # CONUS
   res <- "800m" # 800 m 
   
@@ -67,16 +67,16 @@ get_prism800 <- function(url, outdir) {
 sum_all23 <- rast('~/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
 # Folder to save downloads
-outdir <- "~/Documents/PRISM800/JJAS23"
+outdir <- "~/Documents/PRISM800/tmin21"
 
 # Date range for function
 dates_tbl <- tibble(
-  date = seq(ymd("2023-06-01"), 
-             ymd("2023-09-30"), 
+  date = seq(ymd("2021-09-30"), 
+             ymd("2021-09-30"), 
              by = "day")) %>%
   mutate(date_str = format(date, 
                            "%Y%m%d"),
-    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", 
+    url = paste0("https://services.nacse.org/prism/data/get/us/800m/tmin/", # "https://services.nacse.org/prism/data/get/us/800m/ppt/"
                  date_str))
 
 # Run the function w/ urls
@@ -87,21 +87,45 @@ rasters <- dates_tbl %>%
 # Stack into a single SpatRaster
 P_prism_stack <- rast(rasters)
 
-# Sum for JJAS total - this is CONUS
-prismSum <- sum(P_prism_stack, 
-                na.rm = TRUE)
+# # Sum for JJAS total - this is CONUS
+# prismSum <- sum(P_prism_stack, 
+#                 na.rm = TRUE)
 
 # Project  
-prism_proj <- project(prismSum,
-                      "EPSG:4326") # matches sum_all23
+prism_proj <- project(P_prism_stack,
+                      "EPSG:4326") # matches sum_all21
 
 # Crop to mrms summer total for figure
-prismJJAS22 <- crop(prism_proj,
+prismJJAS21 <- crop(prism_proj,
                     sum_all23)
 
-plot(prismJJAS22)
+plot(prismJJAS21)
 
-writeRaster(prismJJAS22,
-            '~/Documents/PRISM800/JJAS22/prism800mJJAS2022.tif')
+# writeRaster(prismJJAS22,
+#             '~/Documents/PRISM800/JJAS22/prism800mJJAS2022.tif')
 
 ```
+
+# Catchment air T
+
+```{r}
+
+all_sites <- vect('/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/data/GIS/catchments_all/catchments_all_lidar.shp')
+all_sites$site[all_sites$site == "mm"] <- "mm_et"
+
+plot(all_sites)
+
+tmin21 <- prismJJAS21 %>%
+  terra::extract(all_sites, fun = mean) %>%
+  mutate(site = all_sites$site)
+
+tmin21_long <- tmin21 %>%
+  pivot_longer(-c(site,ID),
+               names_to = 'dates',
+               values_to = 'tmin')
+
+write_csv(tmin23_long,
+          '/Users/megansears/Documents/PRISM800/tmin23_catchments.csv')
+
+```
+
