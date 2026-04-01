@@ -303,13 +303,15 @@ p_df <- bind_rows(p_df21, p_df22, p_df23)
 # put in same crs
 fires <- st_transform(fires, crs = 4326)
 
-huc <- st_read('./data/GIS/WBDHU8.shp') %>%
+huc <- st_read('/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/data/GIS/WBDHU8.shp') %>%
   filter(!huc8 == 10180001) %>%
   filter(states %in% c('CO', 'CO,WY'))
   
 huc8 <- st_union(huc) %>%
   st_sf()
 
+write_sf(huc8,
+            '/Users/megansears/Library/CloudStorage/OneDrive-Colostate/PhD/post-fire_rain_response/data/GIS/huc8line.shp')
 
 mapview(fires) + mapview(huc8)
 
