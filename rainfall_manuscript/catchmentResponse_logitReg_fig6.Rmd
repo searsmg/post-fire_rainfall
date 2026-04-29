@@ -4556,6 +4556,29 @@ metric <- 'MI60_mmhr'
 
 ```
 
+# PRISM "cold" days
+
+```{r}
+
+cold_days <- read_csv('./data/prism800_airT/prism800_colddays.csv') %>%
+   mutate(
+    prism_date = as.Date(str_extract(dates, "\\d{8}"), format = "%Y%m%d"),
+    window_start = as.POSIXct(paste0(prism_date - 1, " 05:00:00"), tz = "MST"),
+    window_end   = as.POSIXct(paste0(prism_date,     " 05:00:00"), tz = "MST")
+  )
+
+flag_cold_precip <- function(df) {
+  df %>%
+    mutate(start_time = as.POSIXct(start_time, format = "%m/%d/%y %H:%M", tz = "MST")) %>%
+    mutate(cold_precip_flag = map_lgl(seq_len(n()), function(i) {
+      site_windows <- cold_days %>% filter(site == .data$site[i])
+      any(.data$start_time[i] >= site_windows$window_start & 
+          .data$start_time[i] < site_windows$window_end)
+    }))
+}
+
+```
+
 
 ## ETF TB
 
@@ -4566,7 +4589,9 @@ etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
   mutate(date = mdy(date)) %>%
   mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>%
   mutate(month = month(date)) %>%
-  filter(month %in% c(6:9))
+  filter(month %in% c(6:9)) %>%
+  flag_cold_precip(.)
+
 
 burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
   dplyr::select(site, mean_dnbr) %>% 
@@ -4671,7 +4696,8 @@ etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_wmean.csv') %>%
       TRUE ~ 'keep'
     )
   ) %>%
-  filter(condition == 'keep')
+  filter(condition == 'keep') %>%
+  flag_cold_precip(.)
 
 etf_mrms <- left_join(etf_mrms,
                     burn,
@@ -4729,7 +4755,6 @@ etf_mrms_count <- etf_mrms %>%
 
 - Remove Michigan in both bc no stream events
 
-
 ```{r}
 
 cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
@@ -4746,9 +4771,9 @@ cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
   filter(!(site == 'dry' & date > ymd('2023-10-01'))) %>%
   filter(!(site == 'mtcampus' & date < ymd('2021-06-01'))) %>%
   mutate(month = month(date)) %>%
-  filter(month %in% c(6:9))
+  filter(month %in% c(6:9)) %>%
+  flag_cold_precip(.)
   
-
 cpf_tb <- left_join(cpf_tb,
                     burn,
                     by = 'site')
@@ -4897,7 +4922,8 @@ cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_wmean.csv') %>%
       site == 'uw' & 
         start_time > ymd_hms('2023-09-07 14:05:00') ~ 'remove',
       TRUE ~ 'keep')) %>%
-  filter(condition == 'keep') 
+  filter(condition == 'keep') %>%
+  flag_cold_precip(.)
   
 cpf_mrms <- left_join(cpf_mrms,
                     burn,
@@ -5173,7 +5199,7 @@ etf_tb <- left_join(etf_tb,
 
 site_kge_values <- etf_tb %>%
   group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
                                       data = pick(everything()), 
                                       family = 'binomial'),
                                   type = 'response')) %>%
@@ -5255,7 +5281,7 @@ etf_mrms <- left_join(etf_mrms,
 
 site_kge_values <- etf_mrms %>%
   group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
                                       data = pick(everything()), 
                                       family = 'binomial'),
                                   type = 'response')) %>%
@@ -5331,7 +5357,7 @@ cpf_tb <- left_join(cpf_tb,
 
 site_kge_values <- cpf_tb %>%
   group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
                                       data = pick(everything()), 
                                       family = 'binomial'),
                                   type = 'response')) %>%
@@ -5463,7 +5489,7 @@ cpf_mrms <- left_join(cpf_mrms,
 
 site_kge_values <- cpf_mrms %>%
   group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
+  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
                                       data = pick(everything()), 
                                       family = 'binomial'),
                                   type = 'response')) %>%
@@ -5652,8 +5678,6 @@ pBurn <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source)) 
 pBurn
 
 ```
-
-
 
 # Mean elev w/ kappa
 
