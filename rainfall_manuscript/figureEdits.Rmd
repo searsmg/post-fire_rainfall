@@ -22,10 +22,13 @@ library(ggpubr)
 library(hydroGOF)
 library(ggExtra)
 library(stars)
+library(terra)
+library(R.utils)
+library(cowplot)
 
 ```
 
-# Figure 3
+# Figure 4
 TB MI60 for high vs low
 
 ```{r}
@@ -127,7 +130,7 @@ geom_violin(width=0.8) +
 
 ```
 
-# Figure 4
+# Figure 5
 
 ```{r}
 
@@ -429,7 +432,7 @@ ggsave('./figures/elev_vs_pixel_scatter_Mar2026.png', dpi=800,
 
 
 
-# Figure 5
+# Figure 6
 TB vs pixel
 
 ```{r}
@@ -739,7 +742,7 @@ ggsave('./figures/rqi_pixelTB_Mar2026.png', dpi=800,
 
 ```
 
-# Figure 6
+# Figure 7
 Kappa & KGE
 
 ```{r}
@@ -969,4 +972,209 @@ kgeSummary <- kge_burnOnly %>%
 kgeSummary
 
 ```
+
+# Supp figure - radar height
+
+```{r}
+
+# read in fire boundaries
+et <- st_read('./data/GIS/etf_updatedboundary/etf_boundary.shp') %>%
+  dplyr::select(geometry)
+
+cp <- st_read('./data/GIS/burn_boundaries/co4060910587920200813_20180915_20210907_burn_bndy.shp') %>%
+  dplyr::select(geometry)
+
+# make the et crs same as cp
+et <- st_transform(et, st_crs(cp))
+
+# bind the fires
+fires <- rbind(et, cp)
+
+fires <- st_transform(fires, crs = 4326)
+
+huc8 <- st_read(
+            './data/GIS/huc8line.shp')
+
+################################################################################
+
+min21 <- rast('/Users/megansears/Documents/MRMS_temp/height21_min.tif')
+min21 <- as.data.frame(min21, xy = TRUE) %>%
+  mutate(year = 2021,
+         source = 'Min Height') %>%
+  rename(height = lyr.1) %>%
+  filter(!is.infinite(height))
+
+min22 <- rast('/Users/megansears/Documents/MRMS_temp/height22_min.tif')
+min22 <- as.data.frame(min22, xy = TRUE) %>%
+  mutate(year = 2022,
+         source = 'Min Height') %>%
+  rename(height = lyr.1) %>%
+  filter(!is.infinite(height))
+
+# Min and max SHSR Height
+min23 <- rast('/Users/megansears/Documents/MRMS_temp/height23_min.tif')
+min23 <- as.data.frame(min23, xy = TRUE) %>%
+  mutate(year = 2023,
+         source = 'Min Height') %>%
+  rename(height = lyr.1) %>%
+  filter(!is.infinite(height))
+
+max21 <- rast('/Users/megansears/Documents/MRMS_temp/height21_max.tif')
+max21 <- as.data.frame(max21, xy = TRUE) %>%
+  mutate(year = 2021,
+         source = 'Max Height') %>%
+  rename(height = max)
+
+max22 <- rast('/Users/megansears/Documents/MRMS_temp/height22_max.tif')
+max22 <- as.data.frame(max22, xy = TRUE) %>%
+  mutate(year = 2022,
+         source = 'Max Height') %>%
+  rename(height = max)
+
+max23 <- rast('/Users/megansears/Documents/MRMS_temp/height23_max.tif')
+max23 <- as.data.frame(max23, xy = TRUE) %>%
+  mutate(year = 2023,
+         source = 'Max Height') %>%
+  rename(height = max)
+
+heights <- bind_rows(min21, min22, min23, max21, max22, max23)
+
+x_min <- min(heights$x)
+x_max <- max(heights$x)
+y_min <- min(heights$y)
+y_max <- max(heights$y)
+
+# figure - both min and max
+height_all <- ggplot() +
+  geom_raster(data = heights, 
+              aes(x = x, y = y, fill = height)) +
+  scale_fill_viridis_c(name = "SHSR Height (km)", 
+                       option = "cividis",
+                       direction = 1) +
+  facet_wrap(~source + as.character(year), nrow = 2) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'grey20',
+          lwd = 1) +
+        geom_sf(data = huc8,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+     theme_bw(base_size=20) +
+  theme(axis.title.x = element_blank(),
+    axis.title.y = element_blank()) +
+  theme_bw(base_size = 20) +
+  theme(
+    legend.position = 'bottom',
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black")
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")  # Round to 2 decimal places and add "°W"
+  ) +
+    guides(fill = guide_colorbar(
+    barwidth = 10,  # Adjust width of the colorbar
+    barheight = 1))
+
+height_all
+
+height_min <- ggplot() +
+  geom_raster(data = all_heights %>% filter(source == 'Min Height'), 
+              aes(x = x, y = y, fill = height)) +
+  scale_fill_viridis_c(name = "Min SHSR Height (km)", 
+                       option = "plasma",
+                       direction = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'white',
+          lwd = 1) +
+  geom_sf(data = huc8,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme_bw(base_size = 23) +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", size = 20),
+    legend.position = "bottom",
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")
+  ) +
+  guides(fill = guide_colorbar(
+    barwidth = 10,
+    barheight = 1))
+
+height_min
+
+# save fig
+ggsave('./figures/shsrHeight_min.png', 
+       dpi=600, 
+       width=15, 
+       height = 6)
+
+height_max <- ggplot() +
+  geom_raster(data = all_heights %>% filter(source == 'Max Height'), 
+              aes(x = x, y = y, fill = height)) +
+  scale_fill_viridis_c(name = "Max SHSR Height (km)", 
+                       option = "plasma",
+                       direction = 1) +
+  facet_wrap(~as.character(year), nrow = 1) +
+  geom_sf(data = fires,
+          fill = NA,
+          color = 'white',
+          lwd = 1) +
+  geom_sf(data = huc8,
+          fill = NA,
+          color='white',
+          lwd = 1.2,
+          linetype = 'dotted') +
+  coord_sf(xlim = c(x_min, x_max), ylim = c(y_min, y_max)) +
+  theme_bw(base_size = 23) +
+  theme(
+    panel.background = element_rect(fill = "white"),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "white", color = "black"),
+    strip.text = element_text(color = "black", size = 20),
+    legend.position = "bottom",
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank()
+  ) +
+  scale_x_continuous(
+    breaks = seq(-106.546, -105.096, by = .4), 
+    labels = function(x) paste0(round(x, 1), "°W")
+  ) +
+  guides(fill = guide_colorbar(
+    barwidth = 10,
+    barheight = 1))
+
+height_max
+
+# save fig
+ggsave('./figures/shsrHeight_max.png', 
+       dpi=600, 
+       width=15, 
+       height = 6)
+
+
+```
+
 
