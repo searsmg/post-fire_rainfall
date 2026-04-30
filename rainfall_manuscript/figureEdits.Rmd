@@ -430,14 +430,18 @@ ggsave('./figures/elev_vs_pixel_scatter_Mar2026.png', dpi=800,
 
 ```
 
-
-
 # Figure 6
 TB vs pixel
 
 ```{r}
-
 comp_all <- read_csv('./data/final/mrms/pixel_compare/compare/comp_cpf_etf2.csv')
+
+lar_comp <- read_csv('./data/final/mrms/pixel_compare/compare/larimer_tbpixel_compare2.csv') %>%
+  mutate(fire = 'CPF')
+
+comp_all <- bind_rows(comp_all,
+                      lar_comp)
+
 
 # Create RQI buckets
 comp_all <- comp_all %>%
@@ -472,19 +476,29 @@ spearman_corrs_eventsum <- comp_all %>%
   summarize(spearman_corr = cor(event_sum_mm.y, 
                                 event_sum_mm.x, 
                                 method = "spearman"))
-# West rmse MI60
-et_rmse_mi60 <- comp_all %>%
-  filter(fire == 'ETF') %>% 
+
+# MI60 rmse
+rmse_mi60 <- comp_all %>%
+  group_by(fire) %>% 
   summarize(rmse = rmse(MI60_mmhr.x,
-                        MI60_mmhr.y)) %>%
-  mutate(R_spearman = 0.49) # previously calculated in stat_cor
+                        MI60_mmhr.y))
+
+rmse_mi60
 
 # West rmse event sum
-et_rmse_sum <- comp_all %>%
-  filter(fire == 'ETF') %>% 
+rmse_sum <- comp_all %>%
+  group_by(fire) %>% 
   summarize(rmse = rmse(event_sum_mm.x,
-                        event_sum_mm.y)) %>%
-  mutate(R_spearman = 0.58) # previously calculated in stat_cor
+                        event_sum_mm.y)) 
+
+rmse_sum
+
+rqi_stats <- comp_all %>%
+  group_by(fire) %>%
+  summarize(mean = mean(rqi),
+            sd = sd(rqi))
+
+rqi_stats
 
 ###############################################################################
 
@@ -538,7 +552,7 @@ cp60_dens <- comp_all %>%
     y = MI60_mmhr.y
   )) +
   geom_pointdensity(size = 4,
-                    adjust = 4) +
+                    adjust = 2) +
   scale_color_viridis_c(name = "Density",
                         option = "A") +
                          #guide = guide_colorbar(
@@ -664,7 +678,33 @@ ggsave('./figures/dens_pixelTB_Mar2026.png', dpi=800,
 
 ################################################################################
 ################################################################################
+```
 
+# Figure 7
+
+```{r}
+
+comp_all <- read_csv('./data/final/mrms/pixel_compare/compare/comp_cpf_etf2.csv')
+
+lar_comp <- read_csv('./data/final/mrms/pixel_compare/compare/larimer_tbpixel_compare2.csv') %>%
+  mutate(fire = 'CPF') %>% 
+  drop_na(start_time.x)
+
+comp_all <- bind_rows(comp_all,
+                      lar_comp) 
+
+#%>%
+  # mutate(start_time.x = force_tz(start_time.x, tz = "MST"),
+  #        end_time.x = force_tz(end_time.x, tz = "MST"))
+
+# Create RQI buckets
+comp_all <- comp_all %>%
+  mutate(rqi_bucket = cut(rqi, 
+                          breaks = c(0, .20, .40, .60, .80, 1),
+                          labels = c("0-0.2", "0.2-0.4", "0.4-0.6", "0.6-0.8", "0.8-1.0"), 
+                          include.lowest = TRUE))
+
+################################################################################
 rqi60 <- comp_all %>%
   mutate(fire = recode(fire,
                        "ETF" = "West",
@@ -736,13 +776,205 @@ rqiEvent
 rqi <- plot_grid(rqi60, rqiEvent)
 rqi
 
-ggsave('./figures/rqi_pixelTB_Mar2026.png', dpi=800,
+ggsave('./figures/rqi_pixelTB_Apr2026.png', 
+       dpi=800,
+       bg= 'white',
        height = 6,
-       width=12)
+       width=10)
+
+################################################################################
+
+# Intersect comp_all with ptype
+ptype <- read_csv('/Volumes/MSears_Mac2/ptype.csv') %>%
+  rename(site = catchment,
+         storm_type = p_mmhr) %>%
+  select(-c(ID, doy, hour, min)) %>%
+  drop_na()
+  
+# make names match comp_all
+ptype <- ptype %>%
+  mutate(site = case_when(
+    site == "u_w" ~ "uw",
+    site == "u_m" ~ "um",
+    site == "u_e" ~ "ue",
+    site == "m_w" ~ "mw",
+    site == "m_e" ~ "me",
+    site == "m_m" ~ "mm",
+    site == "HUm2" ~ "hum2",
+    site == "MUb" ~ "mub",
+    site == "LPm" ~ "lpm",
+    TRUE ~ site
+  )) %>%
+  filter(!site %in% c("willowcr_upper", "drowsy", "tunnel", 
+                       "mw_swale_lower", "mw_swale_upper", "upper_benn"))
+
+# join ptype and comp_all
+# mode function
+get_mode <- function(x) {
+  x <- x[!is.na(x) & x != 0]
+  if (length(x) == 0) return(0)  # if all 0 or NA, return 0
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+library(data.table)
+
+# convert to data.table
+ptype_dt <- as.data.table(ptype)
+ptype_dt[, datetime_end := datetime]  # duplicate for interval
+
+comp_dt <- as.data.table(comp_all %>% mutate(row_id = row_number()))
+
+setkey(ptype_dt, site, datetime, datetime_end)
+setkey(comp_dt, site, start_time.x, end_time.x)
+
+storm_summary <- foverlaps(
+  ptype_dt,
+  comp_dt[, .(row_id, site, start_time.x, end_time.x)],
+  by.x = c("site", "datetime", "datetime_end"),
+  by.y = c("site", "start_time.x", "end_time.x"),
+  type = "within",
+  nomatch = 0
+) %>%
+  group_by(row_id) %>%
+  summarise(storm_type = get_mode(storm_type),
+            .groups = "drop")
+
+comp_all <- comp_all %>%
+  mutate(row_id = row_number()) %>%
+  left_join(storm_summary, by = "row_id") %>%
+  select(-row_id)
+
+comp_all <- comp_all %>%
+  mutate(row_id = row_number()) %>%
+  left_join(storm_summary %>% rename(ptype_mode = storm_type), by = "row_id") %>%
+  select(-row_id) %>%
+  mutate(storm_label = case_when(
+    ptype_mode == -3 ~ "no coverage",
+    ptype_mode == 0  ~ "no precipitation",
+    ptype_mode == 1  ~ "warm stratiform rain",
+    ptype_mode == 3  ~ "snow",
+    ptype_mode == 6  ~ "convective rain",
+    ptype_mode == 7  ~ "rain mixed with hail",
+    ptype_mode == 10 ~ "cold stratiform rain",
+    ptype_mode == 91 ~ "tropical/stratiform rain mix",
+    ptype_mode == 96 ~ "tropical/convective rain mix"
+  ))
+
+# few checks
+spot_check <- comp_all %>%
+  filter(storm_type == 0) %>% 
+ # slice(3) %>%
+  select(site, start_time.x, end_time.x, ptype_mode, storm_label)
+
+spot_check
+
+# then check what ptype actually has for those windows
+ptype %>%
+  filter(site == spot_check$site[1],
+         datetime >= spot_check$start_time.x[1],
+         datetime <= spot_check$end_time.x[1]) %>%
+  select(site, datetime, storm_type) %>%
+  print(n = Inf)
+
+# drop no precip bc those are wehre the duration = 0 bc of the 10 min timestep
+# so for ptype it pulls the 10 min timestep datetime and if it didn't fall on that 
+# exact 2 min timestep in ptype if says no precip
+# most of the 0 duration events works bc the 2 min happened to occur on that
+comp_all <- comp_all %>%
+  filter(!storm_type %in% c(0,-3)) %>%
+  drop_na(storm_type)
+
+################################################################################
+
+rqi60 <- comp_all %>%
+  mutate(fire = recode(fire,
+                       "ETF" = "West",
+                       "CPF" = "East")) %>%
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = rqi, 
+    y = (MI60_mmhr.y - MI60_mmhr.x),
+    shape = fire,
+    color = storm_label
+  )) +
+  geom_hline(yintercept = 0, linetype = 'solid', color = 'black') +
+  geom_jitter(size = 3, alpha = 0.6, width = 0.02, height = 0.5) +
+  scale_color_viridis_d(option = "turbo", na.value = "grey70") +
+  #facet_wrap(~fire, ncol = 2) +
+  labs(x = "RQI",
+       y = 'MI60 residual (mm/hr)') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.position = "bottom",
+    legend.title = element_blank()) +
+    guides(color = guide_legend(nrow = 2),
+         shape = guide_legend(nrow = 2))
+
+rqi60
+
+################################################################################
+
+rqi_event <- comp_all %>%
+  mutate(fire = recode(fire,
+                       "ETF" = "West",
+                       "CPF" = "East")) %>%
+  arrange(desc(rqi)) %>%
+  ggplot(aes(
+    x = rqi, 
+    y = (event_sum_mm.y - event_sum_mm.x),
+    shape = fire,
+    color = storm_label
+  )) +
+  geom_hline(yintercept = 0, linetype = 'solid', color = 'black') +
+  geom_jitter(size = 3, alpha = 0.6, width = 0.02, height = 0.5) +
+  scale_color_viridis_d(option = "turbo", na.value = "grey70") +
+  #facet_wrap(~fire, ncol = 2) +
+  labs(x = "RQI",
+       y = 'Event rainfall residual (mm)') +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white"),
+    strip.background = element_blank(),
+    text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    axis.text = element_text(color = "black"),
+    legend.text = element_text(size = 16),
+    legend.position = "none",
+    legend.title = element_blank()) 
+
+rqi_event
+
+# extract legend from rqi60
+shared_legend <- get_legend(rqi60)
+
+# remove legend from rqi60
+rqi60_nolegend <- rqi60 + theme(legend.position = "none")
+
+# combine plots without legend
+rqi_plots <- plot_grid(rqi60_nolegend, rqi_event, ncol = 2)
+
+# add shared legend below
+rqi <- plot_grid(rqi_plots, shared_legend, ncol = 1, rel_heights = c(1, 0.2))
+rqi
+
+ggsave('./figures/rqi_pixelTB_Mar2026_take2.png', 
+       dpi=800,
+       bg= 'white',
+       height = 6,
+       width=10)
 
 ```
 
-# Figure 7
+# Figure 8
 Kappa & KGE
 
 ```{r}
