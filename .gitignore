@@ -13,3 +13,5 @@ intensities_jun11_2023.csv
 rosm.cache
 .DS_Store
 **/.DS_Store
+.positai
+.claude
