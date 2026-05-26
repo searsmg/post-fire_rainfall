@@ -25,10 +25,13 @@ p_load(tidyverse,
        bayesplot, 
        performance,
        beepr,
-       loo)
+       loo)   # if you have conflicted package)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
+
+select <- dplyr::select
+rename <- dplyr::rename
 
 ```
 
@@ -36,8 +39,31 @@ theme_set(theme_bw(base_size = 20))
 
 ```{r}
 
+# adding is pdsi after the fact
+pdsi <- read_csv('./data/final_model_inputs/pdsi.csv') %>%
+  rename(pdsi_date = Date) %>%
+  mutate(pdsi_date = as_date(pdsi_date),
+         site = str_to_lower(site))
+
+# read in response df
 response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
-  select(site,
+  mutate(date = mdy(date))
+
+# add pdsi to response df
+response <- response %>%
+  mutate(
+    pdsi_match = map2(site, date, function(s, d) {
+      pdsi %>%
+        filter(site == s, pdsi_date <= d) %>%
+        slice_max(pdsi_date, n = 1, with_ties = FALSE) %>%
+        dplyr::select(pdsi, pdsi_date)
+    })
+  ) %>%
+  unnest(pdsi_match)
+
+# now prep it for modeling
+response <- response %>%
+  dplyr::select(site,
          sp_cat, # categorical
          fire, # categorical
          stage_rise_cm,
@@ -45,6 +71,7 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          lag2peak_Pstart,
          MI60_mmhr,
          lag_pwd,
+         pdsi,
          terrain_hypso75 = hypso75,
          terrain_hypso25 = hypso25,
          terrain_hypso50 = hypso50,
@@ -73,7 +100,7 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          fire_no,
          mulch_frac) %>%
   mutate(site_number = as.integer(factor(site))) %>% # give each site a number
-  select(-site)
+  dplyr::select(-site)
 
 # prep df for stage rise
 stage <- response %>%
@@ -473,6 +500,88 @@ pwdSummary <- as_draws(pwdModel) %>%
 
 ```
 
+## PDSI
+
+```{r}
+
+pdsiModel <- stan_glmer(
+  stage_rise_cm ~ 
+    MI60_mmhr*pdsi + 
+    fire + 
+    sp_cat + 
+    yearCont +
+    (1 | site_number) + 
+    (1|yearFact),                          
+  data = stage,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(pdsiModel)
+check_model(pdsiModel)
+r2(pdsiModel)
+
+loo_pdsiModel <- loo(pdsiModel, k_threshold = 0.7)
+print(loo_pdsiModel) # k estimates are good
+
+saveRDS(pdsiModel,
+        "./data/bayes_outputs/pdsi_stageRise_bayes.rds")
+
+pdsiPlot <- as_draws(pdsiModel) %>% 
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>%
+  ggplot(., 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+pdsiPlot
+
+
+pdsiSummary <- as_draws(pdsiModel) %>% 
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>% 
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%"))
+
+
+```
 
 # Lag to peak
 
@@ -705,6 +814,85 @@ saveRDS(pwdModel,
 
 ```
 
+## PDSI
+
+```{r}
+
+pdsiModel_l2p <- stan_glmer(
+  lag2peak_halfP ~
+    MI60_mmhr*pdsi +
+    fire +
+    sp_cat +
+    yearCont +
+    (1 | site_number) +
+    (1|yearFact),
+  data = lag,
+  family = Gamma(link = "log"),
+  prior = normal(0, 1),
+  prior_intercept = normal(0, 1),
+  prior_covariance = decov(regularization = 2),
+  chains = 5,
+  cores = 8,
+  iter = 5000,
+  adapt_delta = 0.99,
+  init = 0
+)
+
+summary(pdsiModel_l2p)
+check_model(pdsiModel_l2p)
+r2(pdsiModel_l2p)
+
+loo_pdsiModel_l2p <- loo(pdsiModel_l2p, k_threshold = 0.7)
+print(loo_pdsiModel_l2p)
+
+saveRDS(pdsiModel_l2p,
+        "./data/bayes_outputs/pdsi_l2p_bayes.rds")
+
+pdsiPlot_l2p <- as_draws(pdsiModel_l2p) %>%
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>%
+  ggplot(.,
+         aes(x = value,
+             y = variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)),
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL)
+
+pdsiPlot_l2p
+
+pdsiSummary_l2p <- as_draws(pdsiModel_l2p) %>%
+  data.frame() %>%
+  select(2:7) %>%
+  melt() %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ",
+                                         sprintf("%.1f",
+                                                 percent_positive), "%"))
+
+```
 
 # Archive
 
