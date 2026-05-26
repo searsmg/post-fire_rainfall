@@ -76,6 +76,46 @@ write_csv(elev_join, './data/final_model_inputs/elev_range.csv')
 
 ```
 
+# PDSI 
+
+```{r}
+
+# Pull PDSI from gridMET
+gridmet_pdsi <- getGridMET(AOI = all_sites,
+                           varname = 'pdsi',
+                           startDate = "2021-05-01",
+                           endDate   = "2023-10-30")
+
+gridmet_pdsi <- gridmet_pdsi[[1]] %>%
+  terra::project('EPSG:26913')
+
+# Weighted mean per catchment per day
+calculate_weighted_mean_pdsi <- function(nlyr) {
+  terra::zonal(gridmet_pdsi[[nlyr]], all_sites, weights = TRUE)
+}
+
+weighted_means_pdsi <- map(1:dim(gridmet_pdsi)[3], calculate_weighted_mean_pdsi)
+
+# Tidy up
+tidy_up_pdsi <- function(df, all_sites) {
+  first_header <- names(df)[1]
+  df$date <- sub("^pdsi_", "", first_header)
+  df$site <- all_sites$site
+  names(df)[1] <- "pdsi"
+  return(df)
+}
+
+pdsi <- map(weighted_means_pdsi, ~tidy_up_pdsi(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date)
+
+write_csv(pdsi, './data/final_model_inputs/pdsi.csv')
+
+```
+
 # dNBR
 
 ```{r}
