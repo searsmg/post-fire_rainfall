@@ -35,18 +35,6 @@ library(stars)
 
 ```
 
-The following inputs need to be spatially extracted.
-- dNBR
-- catchemnt area
-- snow persistence
-- % treated (mulched)
-- geology
-- soils?
-- slope?
-
-Already extracted:
-- NDVI (need for lower ETf sites still)
-
 # Bring in catchment boundaries
 
 ```{r}
@@ -73,46 +61,6 @@ elev_max <- clipped_lidar %>%
 elev_join <- left_join(elev, elev_max, by = 'site')
 
 write_csv(elev_join, './data/final_model_inputs/elev_range.csv')
-
-```
-
-# PDSI 
-
-```{r}
-
-# Pull PDSI from gridMET
-gridmet_pdsi <- getGridMET(AOI = all_sites,
-                           varname = 'pdsi',
-                           startDate = "2021-05-01",
-                           endDate   = "2023-10-30")
-
-gridmet_pdsi <- gridmet_pdsi[[1]] %>%
-  terra::project('EPSG:26913')
-
-# Weighted mean per catchment per day
-calculate_weighted_mean_pdsi <- function(nlyr) {
-  terra::zonal(gridmet_pdsi[[nlyr]], all_sites, weights = TRUE)
-}
-
-weighted_means_pdsi <- map(1:dim(gridmet_pdsi)[3], calculate_weighted_mean_pdsi)
-
-# Tidy up
-tidy_up_pdsi <- function(df, all_sites) {
-  first_header <- names(df)[1]
-  df$date <- sub("^pdsi_", "", first_header)
-  df$site <- all_sites$site
-  names(df)[1] <- "pdsi"
-  return(df)
-}
-
-pdsi <- map(weighted_means_pdsi, ~tidy_up_pdsi(.x, all_sites)) %>%
-  bind_rows() %>%
-  mutate(Date = as.Date(date)) %>%
-  addWaterYear() %>%
-  dplyr::select(-date) %>%
-  arrange(Date)
-
-write_csv(pdsi, './data/final_model_inputs/pdsi.csv')
 
 ```
 
@@ -310,7 +258,6 @@ write_csv(mean_sp, './data/final_model_inputs/sp_2000_2019_avg_catchments.csv')
 
 ```
 
-
 # Potential water deficit
 
 PPT-ETo = PWD
@@ -446,6 +393,96 @@ pwd <- left_join(gridmet_p, gridmet_et, by = c('site', 'Date')) %>%
   mutate(lag_pwd = lag(pwd))
 
 write_csv(pwd, './data/final_model_inputs/pwd.csv')
+
+```
+
+# PDSI 
+
+```{r}
+
+# Pull PDSI from gridMET - [[2]] is the continuous PDSI, [[1]] is drought category
+gridmet_pdsi <- getGridMET(AOI = all_sites,
+                           varname = 'pdsi',
+                           startDate = "2021-05-01",
+                           endDate   = "2023-10-30")
+
+gridmet_pdsi <- gridmet_pdsi[[2]] %>%
+  terra::project('EPSG:26913')
+
+# Weighted mean per catchment per day
+calculate_weighted_mean_pdsi <- function(nlyr) {
+  terra::zonal(gridmet_pdsi[[nlyr]], all_sites, weights = TRUE)
+}
+
+weighted_means_pdsi <- map(1:dim(gridmet_pdsi)[3], calculate_weighted_mean_pdsi)
+
+# Tidy up - extract date from layer name regardless of prefix
+tidy_up_pdsi <- function(df, all_sites) {
+  first_header <- names(df)[1]
+  df$date <- regmatches(first_header, regexpr("\\d{4}-\\d{2}-\\d{2}", first_header))
+  df$site <- all_sites$site
+  names(df)[1] <- "pdsi"
+  return(df)
+}
+
+pdsi <- map(weighted_means_pdsi, ~tidy_up_pdsi(.x, all_sites)) %>%
+  bind_rows() %>%
+  mutate(Date = as.Date(date)) %>%
+  addWaterYear() %>%
+  dplyr::select(-date) %>%
+  arrange(Date)
+
+write_csv(pdsi, './data/final_model_inputs/pdsi.csv')
+
+################################################################################
+
+pdsi <- read_csv('./data/final_model_inputs/pdsi.csv')
+
+# quick check
+summary(pdsi$pdsi)
+
+# organize ETF sites so they come after CPF
+end_sites <- c('p1', 'p2', 'hm', 'hum', 'mm_et', 
+               'mpm', 'mub', 'mum', 'lm', 'lpm', 'lum')
+
+# Look at just Jun-Sep
+pdsi_summer <- pdsi %>%
+  mutate(month = as.integer(format(Date, "%m")),
+         year = as.integer(format(Date, "%Y"))) %>%
+  filter(month %in% 6:9)
+
+# organizing by site for plots
+all_sites_vec <- sort(unique(pdsi_summer$site))
+first_sites   <- all_sites_vec[!all_sites_vec %in% end_sites]
+last_sites    <- end_sites[end_sites %in% all_sites_vec]
+site_levels   <- c(first_sites, last_sites)
+
+pdsi_summer$site <- factor(pdsi_summer$site, levels = site_levels)
+
+# PDSI time series for Jun-Sep 2021, 22, 23
+pdsi_summer %>%
+  mutate(month_day = as.Date(format(Date, "2000-%m-%d"))) %>%
+  ggplot(aes(x = month_day, y = pdsi, color = factor(year))) +
+  geom_line(linewidth = 0.6) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'gray40') +
+  facet_wrap(~site) +
+  scale_x_date(date_labels = "%b", date_breaks = "1 month") +
+  scale_color_manual(values = c('#1b7837', '#762a83', '#e08214'), name = 'Year') +
+  labs(x = NULL, y = 'PDSI') +
+  theme(strip.background = element_rect(fill = 'white', color = NA),
+        strip.text = element_text(hjust = 0, size = 12),
+        axis.text.x = element_text(size = 10))
+
+# Summer distribution by year, faceted by site
+ggplot(pdsi_summer, aes(x = factor(year), y = pdsi, fill = factor(year))) +
+  geom_boxplot(color = 'black', linewidth = 0.4, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = 'dashed', color = 'gray40') +
+  facet_wrap(~site, ncol = 4, scales = 'free') +
+  scale_fill_manual(values = c('#1b7837', '#762a83', '#e08214'), name = 'Year') +
+  labs(x = 'Year', y = 'PDSI') +
+  theme(strip.background = element_rect(fill = 'white', color = NA),
+        strip.text = element_text(hjust = 0, size = 8),
+        legend.position = 'none')
 
 ```
 
