@@ -19,7 +19,11 @@ p_load(tidyverse,
        bootSVD, 
        ggfortify, 
        psych,
-       ggeffects)
+       ggeffects,
+       caret,
+       ggcorrplot,
+       knitr,
+       kableExtra)
 
 # Set a basic ggplot theme
 theme_set(theme_bw(base_size = 20))
@@ -30,7 +34,30 @@ theme_set(theme_bw(base_size = 20))
 
 ```{r}
 
+# adding is pdsi after the fact
+pdsi <- read_csv('./data/final_model_inputs/pdsi.csv') %>%
+  rename(pdsi_date = Date) %>%
+  mutate(pdsi_date = as_date(pdsi_date),
+         site = str_to_lower(site))
+
+# read in response df
 response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
+  mutate(date = mdy(date))
+
+# add pdsi to response df
+response <- response %>%
+  mutate(
+    pdsi_match = map2(site, date, function(s, d) {
+      pdsi %>%
+        filter(site == s, pdsi_date <= d) %>%
+        slice_max(pdsi_date, n = 1, with_ties = FALSE) %>%
+        dplyr::select(pdsi, pdsi_date)
+    })
+  ) %>%
+  unnest(pdsi_match)
+
+# select vars
+response <- response %>%
   select(site,
          sp_cat, # categorical
          fire, # categorical
@@ -39,6 +66,7 @@ response <- read_csv('./data/final_model_inputs/events_inputs_v2.csv') %>%
          lag2peak_Pstart,
          MI60_mmhr,
          lag_pwd,
+         pdsi,
          terrain_hypso75 = hypso75,
          terrain_hypso25 = hypso25,
          terrain_hypso50 = hypso50,
@@ -76,6 +104,90 @@ pcaDataIn <- response %>%
          site_number = factor(site_number),
          yearFact = factor(year), # year factor for random effect
          yearCont = year - 2022) # centered year for fixed effect
+
+```
+
+# Correlations
+
+```{r}
+
+# Change category vars to numeric
+response_cor <- response %>%
+  mutate(sp_cat = ifelse(sp_cat == 'high', 1, 0),
+         fire   = ifelse(fire == 'etf', 1, 0))
+
+
+# Cleaner variable names for display
+response_cor_named <- response_cor %>%
+  select(-c(stage_rise_cm, lag2peak_halfP, lag2peak_Pstart,
+            fire_no, site_number)) %>%
+  rename(
+    'Snow zone'        = sp_cat,
+    'Fire'             = fire,
+    'MI60'             = MI60_mmhr,
+    'PWD'              = lag_pwd,
+    'PDSI'             = pdsi,
+    'Year'             = year,
+    'Hypso 75'         = terrain_hypso75,
+    'Hypso 50'         = terrain_hypso50,
+    'Hypso 25'         = terrain_hypso25,
+    'Hypso integral'   = terrain_hypsoint,
+    'Connectivity'     = terrain_connec,
+    'Conn × dNBR'      = terrain_conn_dnbr,
+    'Area'             = area_km2,
+    'RC circle'        = terrain_rc_circle,
+    'Slope > 40'       = terrain_slope40,
+    'Slope > 30'       = terrain_slope30,
+    'Flow length'      = terrain_flowlength,
+    'Valleys/hollows'  = terrain_vall_holl,
+    'Recharge'         = terrain_recharge,
+    'Glacial'          = terrain_glacial,
+    'Elongation'       = terrain_elongation,
+    'Bedrock depth'    = soil_brockdepmin,
+    'Sand'             = soil_sand,
+    'Clay'             = soil_clay,
+    'Ksat'             = soil_ksat,
+    'Avail. water'     = soil_availwaterstor,
+    'dNBR'             = mean_dnbr,
+    'NDVI'             = NDVI,
+    'Snow persistence' = SP_mean,
+    'Mulch'            = mulch_frac
+  )
+
+# Get correlations
+corr_named <- cor(response_cor_named, use = 'pairwise.complete.obs')
+
+# Plot
+ggcorrplot(corr_named,
+           type    = 'lower',
+           method  = 'square',
+           hc.order = TRUE,
+           lab     = FALSE,
+           colors  = c('#2166ac', 'white', '#d6604d'),
+           outline.color = 'white',
+           tl.cex  = 9) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+        axis.text.y = element_text(size = 9),
+        legend.title = element_text(size = 9))
+
+################################################################################
+
+# Find highly correlated vars
+highly_corr_list <- caret::findCorrelation(corr_named, 
+                                           cutoff = 0.7, 
+                                           verbose = FALSE, 
+                                           names = TRUE, 
+                                           exact=TRUE) %>%
+  sort()
+
+highly_corr_list
+
+# Filter correlations to look at only > abs(0.7)
+as.data.frame(as.table(corr_named)) %>%
+  rename(Var1 = Var1, Var2 = Var2, r = Freq) %>%
+  filter(abs(r) > 0.7, Var1 != Var2) %>%
+  mutate(r = round(r, 2)) %>%
+  arrange(desc(abs(r)))
 
 ```
 
