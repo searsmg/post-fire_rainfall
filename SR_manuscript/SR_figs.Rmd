@@ -1368,9 +1368,132 @@ ggsave(
 
 ```
 
+# PDSI
+
+## Stage rise
+
+```{r}
+
+srpdsi <- readRDS(here("./data/bayes_outputs/pdsi_stageRise_bayes.rds"))
+
+var_levels <- c("MI60*pdsi",
+                "pdsi",
+                "MI60")
+
+srpdsi_df <- as_draws(srpdsi) %>% 
+  data.frame() %>%
+  select(2,3,7) %>%
+  melt() %>%
+    mutate(variable = case_match(variable,
+    "MI60_mmhr.pdsi" ~ "MI60*pdsi",
+    "pdsi" ~ "pdsi",
+    "MI60_mmhr" ~ "MI60")) %>%
+   mutate(variable = factor(variable, levels = var_levels))
+
+srpdsi_summary <- srpdsi_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ", 
+                                         sprintf("%.1f", 
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Stage rise')
+
+  
+srpdsiPlot <- ggplot(srpdsi_df, 
+                      aes(x = value,
+                          y=variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)), 
+            .width = c(.66, .95, 1),
+            color='grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1), 
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  #scale_y_discrete(limits = rev(var_levels)) +
+    theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL) 
+
+srpdsiPlot
+
+```
+
+## Lag to peak
+
+```{r}
+
+l2ppdsi <- readRDS(here("./data/bayes_outputs/pdsi_l2p_bayes.rds"))
+
+var_levels <- c("MI60*pdsi",
+                "pdsi",
+                "MI60")
+
+l2ppdsi_df <- as_draws(l2ppdsi) %>%
+  data.frame() %>%
+  select(2,3,7) %>%
+  melt() %>%
+  mutate(variable = case_match(variable,
+    "MI60_mmhr.pdsi" ~ "MI60*pdsi",
+    "pdsi" ~ "pdsi",
+    "MI60_mmhr" ~ "MI60")) %>%
+  mutate(variable = factor(variable, levels = var_levels))
+
+l2ppdsi_summary <- l2ppdsi_df %>%
+  group_by(variable) %>%
+  summarize(mean = mean(value),
+            median = median(value),
+            min = min(value),
+            max = max(value),
+            lower_66 = quantile(value, 0.17),
+            upper_66 = quantile(value, 0.83),
+            lower_95 = quantile(value, 0.025),
+            upper_95 = quantile(value, 0.975),
+            percent_positive = round(mean(value > 0) * 100, 1)) %>%
+  mutate(percent_positive_label = paste0("P>0 = ",
+                                         sprintf("%.1f",
+                                                 percent_positive), "%")) %>%
+  mutate(response = 'Lag to peak')
+
+l2ppdsiPlot <- ggplot(l2ppdsi_df,
+                      aes(x = value,
+                          y = variable)) +
+  geom_vline(xintercept = 0) +
+  stat_slab(aes(fill = after_stat(level)),
+            .width = c(.66, .95, 1),
+            color = 'grey',
+            linewidth = 0.3) +
+  stat_pointinterval(.width = c(.66, .95, 1),
+                     fatten_point = 2.5,
+                     interval_size_domain = c(2,5,10),
+                     color = '#D50032FF') +
+  paletteer::scale_fill_paletteer_d("nbapalettes::kings_city") +
+  theme(legend.position = 'none',
+        strip.background = element_rect(fill = "white", color = NA),
+        strip.text = element_text(hjust = 0),
+        text = element_text(color = "black")) +
+  labs(x = 'Scaled coefficient',
+       y = NULL)
+
+l2ppdsiPlot
+
+```
 
 
-# Archive 
+# Archive
 
 ## Interactions
 
