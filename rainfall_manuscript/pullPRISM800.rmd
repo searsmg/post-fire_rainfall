@@ -20,7 +20,7 @@ library(terra)
 get_prism800 <- function(url, outdir) {
   
   fname_date <- gsub(".*/", "", url) # date from URL
-  var <- "tmin" # ppt # tmean
+  var <- "ppt" # ppt # tmean
   region <- "us" # CONUS
   res <- "800m" # 800 m 
   
@@ -64,19 +64,19 @@ get_prism800 <- function(url, outdir) {
 
 # This is mrms summer 23 data
 # Used for crs and extent later on
-sum_all23 <- rast('~/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
+sum_all23 <- rast('/Volumes/MSears_Mac2/Documents/MRMS/mrms_data/bbox_2fires/summertotal_2023_fil01.tif')
 
 # Folder to save downloads
-outdir <- "~/Documents/PRISM800/tmin21"
+outdir <- "/Volumes/MSears_Mac2/Documents/PRISM800_pixel/p23"
 
 # Date range for function
 dates_tbl <- tibble(
-  date = seq(ymd("2021-09-30"), 
-             ymd("2021-09-30"), 
+  date = seq(ymd("2023-06-01"), 
+             ymd("2023-09-30"), 
              by = "day")) %>%
   mutate(date_str = format(date, 
                            "%Y%m%d"),
-    url = paste0("https://services.nacse.org/prism/data/get/us/800m/tmin/", # "https://services.nacse.org/prism/data/get/us/800m/ppt/"
+    url = paste0("https://services.nacse.org/prism/data/get/us/800m/ppt/", # "https://services.nacse.org/prism/data/get/us/800m/ppt/"
                  date_str))
 
 # Run the function w/ urls
@@ -93,16 +93,16 @@ P_prism_stack <- rast(rasters)
 
 # Project  
 prism_proj <- project(P_prism_stack,
-                      "EPSG:4326") # matches sum_all21
+                      "EPSG:4326") # matches sum_all23
 
 # Crop to mrms summer total for figure
-prismJJAS21 <- crop(prism_proj,
+prismJJAS23 <- crop(prism_proj,
                     sum_all23)
 
-plot(prismJJAS21)
+#plot(prismJJAS21)
 
-# writeRaster(prismJJAS22,
-#             '~/Documents/PRISM800/JJAS22/prism800mJJAS2022.tif')
+writeRaster(prismJJAS23,
+            '/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_ppt_JJAS2023.tif')
 
 ```
 
@@ -126,6 +126,63 @@ tmin21_long <- tmin21 %>%
 
 write_csv(tmin23_long,
           '/Users/megansears/Documents/PRISM800/tmin23_catchments.csv')
+
+```
+
+# Days with tmean < 3°C and precip > 0
+
+```{r}
+
+years <- c(2021, 2022, 2023)
+
+snow_days <- map(years, \(yr) {
+
+  tmean <- rast(str_glue('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_tmean_JJAS{yr}.tif'))
+  ppt   <- rast(str_glue('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_ppt_JJAS{yr}.tif'))
+
+  # pixels where both conditions met on the same day
+  both <- (tmean < 3) & (ppt > 0)
+
+  total_pixels <- global(!is.na(tmean[[1]]), fun = "sum", na.rm = TRUE)[[1]]
+
+  global(both, fun = "sum", na.rm = TRUE) %>%
+    mutate(
+      date          = as.Date(names(tmean), format = "prism_tmean_us_30s_%Y%m%d"),
+      year          = yr,
+      total_pixels  = total_pixels
+    )
+
+}) %>%
+  list_rbind() %>%
+  rename(n_pixels = sum) %>%
+  mutate(pct_pixels = round(n_pixels / total_pixels * 100, 2)) %>%
+  select(date, year, n_pixels, pct_pixels) %>%
+  filter(n_pixels > 0)
+
+snow_days
+
+###########
+
+# verify: 2021-06-01 should have 1266 pixels (6.54%) meeting both conditions
+tmean_v <- rast('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_tmean_JJAS2021.tif')
+ppt_v   <- rast('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_ppt_JJAS2021.tif')
+
+# first layer = 2021-06-01
+tmean_day <- tmean_v[[1]]
+ppt_day   <- ppt_v[[1]]
+
+n_cold     <- global(tmean_day < 3,              fun = "sum", na.rm = TRUE)[[1]]
+n_wet      <- global(ppt_day > 0,               fun = "sum", na.rm = TRUE)[[1]]
+n_both     <- global((tmean_day < 3) & (ppt_day > 0), fun = "sum", na.rm = TRUE)[[1]]
+total_px   <- global(!is.na(tmean_day),          fun = "sum", na.rm = TRUE)[[1]]
+
+message("2021-06-01 verification:")
+message("  tmean < 3 only:      ", n_cold, " pixels (", round(n_cold / total_px * 100, 2), "%)")
+message("  ppt > 0 only:        ", n_wet,  " pixels (", round(n_wet  / total_px * 100, 2), "%)")
+message("  both (expected 1266):", n_both, " pixels (", round(n_both / total_px * 100, 2), "%)")
+
+stopifnot(n_both == 1266)
+message("Verification passed.")
 
 ```
 
