@@ -979,7 +979,15 @@ Kappa & KGE
 
 ```{r}
 
-kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean_updatedMar2026.csv')
+kappa <- read_csv('./data/final/stage_YN_response/kappa_KGE_eventsum_wmean_updatedJun2026.csv') %>%
+  select(-kge_value)
+
+site_index <- tibble(
+  site = c('me', 'mm', 'mw', 'ue', 'um', 'uw', 'bighorn', 'washout', 'dry',
+           'michigan', 'montgomery', 'bl4', 'aspen', 'mt.campus', 'dadd',
+           'p1', 'p2', 'hum', 'hm', 'mum', 'mpm', 'mub', 'mm_et', 'lpm', 'lm', 'lum'),
+  siteIndex = 1:26
+)
 
 # get some summary stats for manuscript
 kappaSummary <- kappa %>%
@@ -1014,7 +1022,7 @@ pBurnKap <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source
                      label.x = 1.4,
                      size = 15) +  # Adjust label position
   theme(
-    legend.position = c(.75, 1.01),
+    legend.position = c(.75, 0.25),
     legend.justification = c(0, 1.1), 
     legend.text = element_text(size = 16),         # Adjust legend text size
     legend.title = element_blank(), 
@@ -1027,15 +1035,17 @@ pBurnKap <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source
     #strip.text = element_blank()
   ) +
   scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  coord_cartesian(ylim = c(-0.5, 1)) +
   facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values',
+  labs(y = 'Event sum kappa values',
        x=NULL)
 
 pBurnKap
 
 ################################################################################
 
-kge <- read_csv('./data/final/stage_YN_response/kge_mi60_wmean_updatedMar2026.csv')
+kge <- read_csv('./data/final/stage_YN_response/kappa_KGE_eventsum_wmean_updatedJun2026.csv') %>%
+  select(-kappa_value)
 
 # get some summary stats for manuscript
 kgeSummary <- kge %>%
@@ -1082,8 +1092,9 @@ pBurnKGE <-ggplot(kge_burnOnly, aes(x = source, y = kge_value, fill = source)) +
     strip.text = element_blank()
   ) +
   scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
+  coord_cartesian(ylim = c(-0.5, 1)) +
   facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 KGE values',
+  labs(y = 'Event sum KGE values',
        x=NULL)
 
 pBurnKGE
@@ -1094,9 +1105,12 @@ combined_plot
 ################################################################################
 
 kappa_flip <- kappa %>%
-  dplyr::select(-1) %>%
+  dplyr::select(-c(1)) %>%
+  filter(converged) %>% 
+  select(-converged) %>% 
   pivot_wider(names_from = 'source',
-              values_from = 'kappa_value')
+              values_from = 'kappa_value') %>%
+  drop_na()
 
 # bring in catchments
 catch <- vect('./data/GIS/catchments_all/catchments_all_lidar.shp')
@@ -1117,7 +1131,10 @@ kappa_elev <- left_join(kappa_flip,
                         by = 'site') %>%
   mutate(fire = if_else(fire == 'cpf',
                         'CPF',
-                        'ETF'))
+                        'ETF')) %>%
+  left_join(site_index, by = 'site')
+
+burnList <- c("hm", "hum", "lm", "lpm", "mm_et", "mpm", "p2", "bl4", "dry", "me", "mm", "mw", "ue", "um", "uw")
 
 kappa_elev <- kappa_elev %>%
   filter(site %in% burnList)
@@ -1141,8 +1158,8 @@ kappa_elev_plot <- ggplot(kappa_elev) +
                   color = "black",
                   point.padding = 1,
                   box.padding = 0.4) +
-  labs(x = 'MRMS MI60 kappa',
-       y = 'TB MI60 kappa',
+  labs(x = 'MRMS event sum kappa',
+       y = 'TB event sum kappa',
        fill = 'Elevation (m)',
        shape = element_blank()) +
   theme_bw(base_size = 20) +
@@ -1183,7 +1200,7 @@ combined_plot2 <- plot_grid(
 
 combined_plot2
 
-ggsave('./figures/kappa_combine2_updatelabels_Mar2026.png',
+ggsave('./figures/kappa_combine2_eventsum_updatelabels_Jun2026.png',
        width=16,
        height=10,
        dpi=600)
