@@ -4552,11 +4552,11 @@ etf_tb, etf_mrms, cpf_tb, cpf_mrms were manually copied from all cross csv and r
 ```{r}
 
 # metric we are looking at
-metric <- 'MI60_mmhr'
+metric <- 'event_sum_mm'
 
 ```
 
-# PRISM "cold" days
+## PRISM "cold" days
 
 ```{r}
 
@@ -4579,7 +4579,6 @@ flag_cold_precip <- function(df) {
 
 ```
 
-
 ## ETF TB
 
 ```{r}
@@ -4592,58 +4591,75 @@ etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
   filter(month %in% c(6:9)) %>%
   flag_cold_precip(.)
 
+# burn <- read_csv('./data/final_model_inputs/inputs1.csv') #%>%
+#   dplyr::select(site, mean_dnbr) %>% 
+#   mutate(site = tolower(site))
+# 
+# etf_tb <- left_join(etf_tb,
+#                     burn,
+#                     by = 'site')
 
 burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  dplyr::select(site, mean_dnbr) %>% 
+  dplyr::select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
   mutate(site = tolower(site))
 
 etf_tb <- left_join(etf_tb,
                     burn,
-                    by = 'site')
+                    by = 'site') %>%
+  mutate(NDVI = case_when(
+    year(date) == 2021 ~ NDVI_2021,
+    year(date) == 2022 ~ NDVI_2022,
+    year(date) == 2023 ~ NDVI_2023
+  )) %>%
+  dplyr::select(-NDVI_2021, -NDVI_2022, -NDVI_2023)
 
 # cumulative potenital water deficit
 pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
   rename(date = Date) %>%
   mutate(date = mdy(date))
 
+# pwd_daymet <- read_csv('./data/final_model_inputs/pwd_daymet.csv') %>%
+#   select(site,
+#          date = Date,
+#          lag_pwd)
+
 # join pwd to etf_tb
+# etf_tb <- left_join(etf_tb,
+#                     pwd,
+#                     by = c('site', 'date'))
+
+# join
 etf_tb <- left_join(etf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-# model1 <- glm(flow~event_sum_mm + mean_dnbr + lag_pwd,
-#               data=etf_tb,
-#               family='binomial')
-# model1
-# 
-# pred1 <- predict(model1,
-#                  type='response')
-# 
-# etf_tb <- etf_tb %>%
-#   mutate(predicted_prob = pred1) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5,
-#                                0, 1))
-# 
-# conf_matrix <- confusionMatrix(factor(etf_tb$predict_use), factor(etf_tb$flow))
-# kappa_value <- conf_matrix$overall["Kappa"]
-# kappa_value
-# conf_matrix
 
-# Group by site and calculate kappa value for each site
-site_kappa_values <- etf_tb %>%
+fit_kappa <- function(df, metric) {
+  conv <- TRUE
+  mod <- withCallingHandlers(
+    glm(reformulate(c(metric, "lag_pwd", "NDVI"), response = "flow"),
+        data = df, family = 'binomial'),
+    warning = function(w) {
+      if (grepl("did not converge", conditionMessage(w))) conv <<- FALSE
+      invokeRestart("muffleWarning")
+    }
+  )
+  pred_prob <- predict(mod, type = 'response')
+  preds <- factor(if_else(pred_prob < 0.5, 0, 1), levels = c(0, 1))
+  tibble(
+    kappa_value = unname(confusionMatrix(preds, factor(df$flow, levels = c(0, 1)))$overall["Kappa"]),
+    kge_value = KGE(sim = pred_prob, obs = df$flow),
+    converged = conv
+  )
+}
+
+et_tb_kappa <- etf_tb %>%
   group_by(site) %>%
-  #filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'), 
-                                  type = 'response')) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-  summarise(kappa_value = confusionMatrix(factor(predict_use), factor(flow))$overall["Kappa"])
-
-
-et_tb_kappa <- site_kappa_values %>%
+  reframe(fit_kappa(pick(everything()), metric)) %>%
   mutate(fire = 'etf',
          source = 'tb')
+
+et_tb_kappa
 
 # site count for 1s
 etf_tb_count <- etf_tb %>%
@@ -4701,47 +4717,31 @@ etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_wmean.csv') %>%
 
 etf_mrms <- left_join(etf_mrms,
                     burn,
-                    by = 'site')
+                    by = 'site') %>%
+  mutate(NDVI = case_when(
+    year(date) == 2021 ~ NDVI_2021,
+    year(date) == 2022 ~ NDVI_2022,
+    year(date) == 2023 ~ NDVI_2023
+  )) %>%
+  dplyr::select(-NDVI_2021, -NDVI_2022, -NDVI_2023)
 
 # join pwd to etf_tb
 etf_mrms <- left_join(etf_mrms,
                     pwd,
                     by = c('site', 'date'))
 
-# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-#               data=etf_mrms,
-#               family='binomial')
-# model1
-# 
-# pred1 <- predict(model1,
-#                  type='response')
-# 
-# etf_mrms <- etf_mrms %>%
-#   mutate(predicted_prob = pred1) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5,
-#                                0, 1))
-# 
-# conf_matrix <- confusionMatrix(factor(etf_mrms$predict_use), factor(etf_mrms$flow))
-# kappa_value <- conf_matrix$overall["Kappa"]
-# kappa_value
+# etf_mrms <- left_join(etf_mrms,
+#                     pwd_daymet,
+#                     by = c('site', 'date'))
 
-# by site
-site_kappa_values <- etf_mrms %>%
+
+et_mrms_kappa <- etf_mrms %>%
   group_by(site) %>%
-  #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
-                                      + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'), 
-                                  type = 'response')) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
-
-
-et_mrms_kappa <- site_kappa_values %>%
+  reframe(fit_kappa(pick(everything()), metric)) %>%
   mutate(fire = 'etf',
          source = 'mrms')
+
+et_mrms_kappa
 
 # site count for 1s
 etf_mrms_count <- etf_mrms %>%
@@ -4776,7 +4776,13 @@ cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
   
 cpf_tb <- left_join(cpf_tb,
                     burn,
-                    by = 'site')
+                    by = 'site') %>%
+  mutate(NDVI = case_when(
+    year(date) == 2021 ~ NDVI_2021,
+    year(date) == 2022 ~ NDVI_2022,
+    year(date) == 2023 ~ NDVI_2023
+  )) %>%
+  dplyr::select(-NDVI_2021, -NDVI_2022, -NDVI_2023)
 
 # cumulative potenital water deficit
 pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
@@ -4792,49 +4798,22 @@ cpf_tb <- left_join(cpf_tb,
                     pwd,
                     by = c('site', 'date'))
 
-# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-#               data=cpf_tb,
-#               family='binomial')
-# model1
-# 
-# pred1 <- predict(model1,
-#                  type='response')
-# 
-# cpf_tb <- cpf_tb %>%
-#   mutate(predicted_prob = pred1) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5,
-#                                0, 1))
-# 
-# conf_matrix <- confusionMatrix(factor(cpf_tb$predict_use), factor(cpf_tb$flow))
-# kappa_value <- conf_matrix$overall["Kappa"]
-# conf_matrix
 
 # by site
-site_kappa_values <- cpf_tb %>%
+cpf_tb_kappa <- cpf_tb %>%
+  drop_na(NDVI) %>%
   group_by(site) %>%
-  #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
-                                      + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'), 
-                                  type = 'response')) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
-
-cp_tb_kappa <- site_kappa_values %>%
+  reframe(fit_kappa(pick(everything()), metric)) %>%
   mutate(fire = 'cpf',
          source = 'tb')
 
-
-site_kappa_values
+cpf_tb_kappa
 
 # site count for 1s
 cpf_tb_count <- cpf_tb %>%
   group_by(site) %>%
   summarize(sum = sum(flow),
             count = n())
-
 ```
 
 ## CPF MRMS
@@ -4927,900 +4906,47 @@ cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_wmean.csv') %>%
   
 cpf_mrms <- left_join(cpf_mrms,
                     burn,
-                    by = 'site')
+                    by = 'site') %>%
+  mutate(NDVI = case_when(
+    year(date) == 2021 ~ NDVI_2021,
+    year(date) == 2022 ~ NDVI_2022,
+    year(date) == 2023 ~ NDVI_2023
+  )) %>%
+  dplyr::select(-NDVI_2021, -NDVI_2022, -NDVI_2023)
 
 # join pwd to cpf_tb
 cpf_mrms <- left_join(cpf_mrms,
-                    pwd,
+                    pwd, # CHECK THIS BEFORE - TESTING WITH DAYMET
                     by = c('site', 'date'))
 
-# model1 <- glm(flow~event_sum_mm + lag_pwd + mean_dnbr,
-#               data=cpf_mrms,
-#               family= binomial(link = "logit"))
-# model1
-# 
-# pred1 <- predict(model1,
-#                  type='response')
-# 
-# cpf_mrms <- cpf_mrms %>%
-#   mutate(predicted_prob = pred1) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5,
-#                                0, 1))
-# 
-# conf_matrix <- confusionMatrix(factor(cpf_mrms$predict_use), factor(cpf_mrms$flow))
-# kappa_value <- conf_matrix$overall["Kappa"]
-# kappa_value
-
-# by site
-site_kappa_values <- cpf_mrms %>%
+cpf_mrms_kappa <- cpf_mrms %>%
+  drop_na(NDVI) %>% 
   group_by(site) %>%
-  #filter(n_distinct(flow) > 1, n() > 5) %>% 
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'), 
-                                  type = 'response')) %>%
-  mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-  summarise(kappa_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-                                          factor(flow, levels = c(0, 1)))$overall["Kappa"])
-
-cp_mrms_kappa <- site_kappa_values %>%
+  reframe(fit_kappa(pick(everything()), metric)) %>%
   mutate(fire = 'cpf',
          source = 'mrms')
 
-
-# me_predict <- site_kappa_values %>%
-#   filter(site == 'me')
+cpf_mrms_kappa
 
 # site count for 1s
 cpf_mrms_count <- cpf_mrms %>%
   group_by(site) %>%
   summarize(sum = sum(flow),
             count = n())
-
-
 ```
 
 ## Join kappa values
-Figure 6
 
 ```{r}
 
 kappa <- bind_rows(et_tb_kappa,
                    et_mrms_kappa,
-                   cp_tb_kappa,
-                   cp_mrms_kappa) %>%
+                   cpf_tb_kappa,
+                   cpf_mrms_kappa) %>%
   mutate(source = toupper(source))
 
 # write the joined kappa to csv so don't need to run above anymore
-write.csv(kappa, './data/final/stage_YN_response/kappa_mi60_wmean_updatedMar2026_TEST.csv')
-
-##########################################################################
-
-kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean_updatedMar2026.csv')
-
-# get some summary stats for manuscript
-kappaSummary <- kappa %>%
-  group_by(fire, source) %>%
-  summarize(mean = mean(kappa_value))
-
-burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  dplyr::select(site, mean_dnbr) %>% 
-  mutate(site = tolower(site))
-
-new_facet_titles <- c(
-  "cpf" = "East",
-  "etf" = "West"
-)
-
-# look at distribution 
-ggplot(kappa, aes(x = kappa_value, fill = source)) +
-  geom_density(alpha = 0.5) +
-  theme_minimal()
-
-##
-
-kappa$fire <- factor(kappa$fire, levels = c("etf", "cpf"))
-
-p1<-ggplot(kappa, aes(x = source, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.9),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = "wilcox.test", 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = .8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = "none",
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    strip.text = element_text(color = "black")) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values', x = NULL)
-##
-
-p1
-
-#ggsave('./figures/eventsum_wmean_kappa_boxplots.png', dpi=600)
-
-kappa_burn <- left_join(kappa, burn, by = 'site') %>%
-  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned'))
-
-kappa_burn$fire <- factor(kappa_burn$fire, levels = c("etf", "cpf"))
-
-p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.8),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = 'wilcox.test', 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = 0.8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = c(.75, 1.01),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
-    legend.title = element_blank(), 
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    strip.text = element_blank()
-  ) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values',
-       x=NULL)
-
-p2
-
-#ggsave('./figures/eventsum_wmean_kappa_burn_boxplots.png', dpi=600)
-
-combined_plot <- plot_grid(p1, p2, ncol = 1)
-combined_plot
-
-# ggsave('./figures/eventsum_wmean_kappa_boxplots_combine.png', 
-#        combined_plot,
-#        dpi=600)
-
-
-################################################################################
-
-# make kappa 1:1 plots
-kappa_flip <- kappa %>%
-  dplyr::select(-1) %>%
-  pivot_wider(names_from = 'source',
-              values_from = 'kappa_value')
-  
-ggplot(kappa_flip) +
-  geom_point(aes(TB, MRMS, color = fire)) +
-  geom_abline(slope = 1, 
-              intercept = 0, 
-              linetype = "dashed", 
-              color = "black")
-
-################################################################################
-
-kappa_burnOnly <- left_join(kappa, burn, by = 'site') %>%
-  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned')) %>%
-  filter(burn_cat == 'burn')
-
-kappa_burnOnly$fire <- factor(kappa_burnOnly$fire, levels = c("etf", "cpf"))
-
-pBurn <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.8),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = 'wilcox.test', 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = 0.8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = c(.75, 1.01),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
-    legend.title = element_blank(), 
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black")
-    #strip.text = element_blank()
-  ) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values',
-       x=NULL)
-
-pBurn
+write.csv(kappa, './data/final/stage_YN_response/kappa_KGE_eventsum_wmean_updatedJun2026.csv')
 
 ```
-
-# KGE
-
-## ETF TB
-
-```{r}
-
-metric <- "MI60_mmhr"
-
-etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
-  drop_na(MI60_mmhr) %>%
-  mutate(date = mdy(date)) %>%
-  mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>%
-  mutate(month = month(date)) %>%
-  filter(month %in% c(6:9))
-
-burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  dplyr::select(site, mean_dnbr) %>% 
-  mutate(site = tolower(site))
-
-etf_tb <- left_join(etf_tb,
-                    burn,
-                    by = 'site')
-
-# cumulative potenital water deficit
-pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
-  rename(date = Date) %>%
-  mutate(date = mdy(date))
-
-# join pwd to etf_tb
-etf_tb <- left_join(etf_tb,
-                    pwd,
-                    by = c('site', 'date'))
-
-# # Group by site and calculate kge value for each site
-# site_kge_values <- etf_tb %>%
-#   group_by(site) %>%
-#   #filter(n_distinct(flow) > 1) %>%  # make sure 0 and 1 are in each group
-#   mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
-#                                       data = pick(everything()), 
-#                                       family = 'binomial'), 
-#                                   type = 'response')) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-#   summarise(kge_value = confusionMatrix(factor(predict_use), factor(flow))$overall["KGE"])
-
-
-site_kge_values <- etf_tb %>%
-  group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'),
-                                  type = 'response')) %>%
-  summarise(
-    kge_value = KGE(predicted_prob, flow))
-
-et_tb_kge <- site_kge_values %>%
-  mutate(fire = 'etf',
-         source = 'tb')
-
-```
-
-## ETF MRMS
-
-```{r}
-
-etf_mrms <- read_csv('./data/final/stage_YN_response/etf_mrms_wmean.csv') %>%
-  mutate(date = mdy(date),
-         start_time = mdy_hm(start_time)) %>%
-  filter(date > ymd('2022-06-20')) %>%
-  mutate(site = if_else(site == 'mm.et', 'mm_et', site)) %>% 
-  mutate(
-    condition = case_when(
-      site == 'hum' &
-        date > ymd('2022-08-04') ~ 'remove',
-      site == 'hm' &
-        date > ymd('2022-08-04') ~ 'remove',
-      site == 'p1' &
-        date > ymd('2022-07-12') &
-        date < ymd('2022-07-21') ~ 'remove',
-      site == 'p1' &
-        date > ymd('2023-07-21') ~ 'remove',
-      site == 'p2' &
-        date > ymd('2022-07-12') &
-        date < ymd('2022-07-21') ~ 'remove',
-      site == 'p2' &
-        date > ymd('2023-07-21') ~ 'remove',
-      site == 'lpm' &
-        date > ymd('2022-10-18') &
-        date < ymd('2023-05-24') ~ 'remove',
-      site == 'lpm' &
-        date > ymd('2023-06-11') ~ 'remove',
-      site == 'lm' &
-        date > ymd('2022-10-18') &
-        date < ymd('2023-05-24') ~ 'remove',
-      site == 'lm' &
-        date > ymd('2023-06-11') ~ 'remove',
-      site == 'lum' &
-        date > ymd('2022-10-18') &
-        date < ymd('2023-05-24') ~ 'remove',
-      site == 'lum' &
-        date > ymd('2023-06-11') ~ 'remove',
-      TRUE ~ 'keep'
-    )
-  ) %>%
-  filter(condition == 'keep')
-
-etf_mrms <- left_join(etf_mrms,
-                    burn,
-                    by = 'site')
-
-# join pwd to etf_tb
-etf_mrms <- left_join(etf_mrms,
-                    pwd,
-                    by = c('site', 'date'))
-
-# by site
-# site_kge_values <- etf_mrms %>%
-#   group_by(site) %>%
-#   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-#   mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
-#                                       + lag_pwd,
-#                                       data = pick(everything()), 
-#                                       family = 'binomial'), 
-#                                   type = 'response')) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-#   summarise(kge_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-#                                           factor(flow, levels = c(0, 1)))$overall["KGE"])
-
-site_kge_values <- etf_mrms %>%
-  group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'),
-                                  type = 'response')) %>%
-  summarise(
-    kge_value = KGE(predicted_prob, flow))
-
-
-et_mrms_kge <- site_kge_values %>%
-  mutate(fire = 'etf',
-         source = 'mrms')
-
-# site count for 1s
-etf_mrms_count <- etf_mrms %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
-
-```
-
-## CPF TB
-
-- Remove Michigan in both bc no stream events
-
-```{r}
-
-cpf_tb <- read_csv('./data/final/stage_YN_response/cpf_tb_wmean.csv') %>%
-  drop_na(MI60_mmhr) %>%
-  mutate(date = mdy(date)) %>%
-  filter(!site %in% c('michigan', 'mich')) %>%
-  mutate(site = if_else(site == 'mont',
-                        'montgomery',
-                        site)) %>%
-  mutate(site = if_else(site == 'mtcamp',
-                        'mtcampus',
-                        site)) %>%
-  filter(!(site == 'bighorn' & date > ymd('2023-10-01'))) %>%
-  filter(!(site == 'dry' & date > ymd('2023-10-01'))) %>%
-  filter(!(site == 'mtcampus' & date < ymd('2021-06-01'))) %>%
-  mutate(month = month(date)) %>%
-  filter(month %in% c(6:9))
-  
-
-cpf_tb <- left_join(cpf_tb,
-                    burn,
-                    by = 'site')
-
-# cumulative potenital water deficit
-pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
-  rename(date = Date) %>%
-  mutate(site = tolower(site)) %>%
-  mutate(date = mdy(date)) %>%
-  mutate(site = ifelse(site == 'mtcamp',
-                       'mtcampus',
-                       site))
-
-# join pwd to cpf_tb
-cpf_tb <- left_join(cpf_tb,
-                    pwd,
-                    by = c('site', 'date'))
-
-# by site
-# site_kge_values <- cpf_tb %>%
-#   group_by(site) %>%
-#   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-#   mutate(predicted_prob = predict(glm(flow ~ .data[[metric]]
-#                                       + lag_pwd,
-#                                       data = pick(everything()), 
-#                                       family = 'binomial'), 
-#                                   type = 'response')) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-#   summarise(kge_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-#                                           factor(flow, levels = c(0, 1)))$overall["KGE"])
-
-site_kge_values <- cpf_tb %>%
-  group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'),
-                                  type = 'response')) %>%
-  summarise(
-    kge_value = KGE(predicted_prob, flow))
-
-cp_tb_kge <- site_kge_values %>%
-  mutate(fire = 'cpf',
-         source = 'tb')
-
-
-site_kge_values
-
-# site count for 1s
-cpf_tb_count <- cpf_tb %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
-
-```
-
-## CPF MRMS
-
-```{r}
-
-cpf_mrms <- read_csv('./data/final/stage_YN_response/cpf_mrms_wmean.csv') %>%
-  filter(!site %in% c('michigan', 'mich')) %>%
-  mutate(site = if_else(site == 'mont',
-                        'montgomery',
-                        site)) %>%
-  mutate(site = if_else(site == 'mtcamp',
-                        'mtcampus',
-                        site)) %>%
-  mutate(date = mdy(date),
-         start_time = mdy_hm(start_time)) %>%
-  mutate(
-    condition = case_when(
-      site == 'aspen' &
-        start_time < ymd_hms('2021-05-18 14:30:00') ~ 'remove',
-      site == 'aspen' &
-        start_time > ymd_hms('2021-06-28 11:56:00') &
-        start_time < ymd_hms('2021-10-7 15:00:00') ~ 'remove',
-      site == 'aspen' &
-        start_time > ymd_hms('2023-09-21 12:45:00') ~ 'remove',
-      site == 'bighorn' &
-        start_time < ymd_hms('2021-05-07 11:20:00') ~ 'remove',
-      site == 'bl4' &
-        start_time < ymd_hms('2021-06-11 13:00:00') ~ 'remove',
-      site == 'bl4' &
-        start_time > ymd_hms('2023-09-04 14:15:00') ~ 'remove',
-      site == 'dadd' &
-        start_time > ymd_hms('2022-05-12 15:00:00') ~ 'remove',
-      site == 'dry' &
-        start_time < ymd_hms('2021-05-18 11:15:00') ~ 'remove',
-      site == 'michigan' &
-        start_time > ymd_hms('2021-10-24 11:15:00') ~ 'remove',
-      site == 'montgomery' &
-        start_time < ymd_hms('2021-06-11 10:00:00') ~ 'remove',
-      site == 'montgomery' &
-        start_time > ymd_hms('2023-09-19 19:00:00') ~ 'remove',
-      site == 'me' &
-        start_time < ymd_hms('2021-07-19 15:45:00') ~ 'remove',
-      site == 'me' &
-        start_time > ymd_hms('2021-10-21 14:00:00') &
-        start_time < ymd_hms('2022-06-16 11:00:00') ~ 'remove',
-      site == 'me' & 
-        start_time > ymd_hms('2023-09-07 15:45:00') ~ 'remove',
-      site == 'mm' &
-        start_time < ymd_hms('2021-09-06 13:30:00') ~ 'remove',
-      site == 'mm' &
-        start_time > ymd_hms('2021-10-12 15:35:00') &
-        start_time < ymd_hms('2022-05-22 10:00:00') ~ 'remove',
-      site == 'mm' &
-        start_time > ymd_hms('2022-06-07 01:25:00') &
-        start_time < ymd_hms('2022-08-10 10:00:00') ~ 'remove',
-      site == 'mm' &
-        start_time > ymd_hms('2022-12-15 19:55:00') &
-        start_time < ymd_hms('2023-06-09 09:15:00') ~ 'remove',
-      site == 'mm' & 
-        start_time > ymd_hms('2023-09-28 13:10:00') ~ 'remove',
-      site == 'mw' &
-        start_time < ymd_hms('2021-08-20 10:50:00') ~ 'remove',
-      site == 'mw' &
-        start_time > ymd_hms('2021-10-14 12:42:00') &
-        start_time < ymd_hms('2022-05-06 12:00:00') ~ 'remove',
-      site == 'mw' &
-        start_time > ymd_hms('2022-07-07 12:10:00') &
-        start_time < ymd_hms('2022-08-03 10:15:00') ~ 'remove',
-      site == 'mw' & 
-        start_time > ymd_hms('2023-09-19 15:05:00') ~ 'remove',
-      site == 'ue' &
-        start_time < ymd_hms('2021-09-06 13:00:00') ~ 'remove',
-      site == 'ue' &
-        start_time > ymd_hms('2021-10-12 13:17:00') &
-        start_time < ymd_hms('2022-05-07 12:00:00') ~ 'remove',
-      site == 'mw' & 
-        start_time > ymd_hms('2023-06-23 11:33:00') ~ 'remove',
-      site == 'um' & 
-        start_time < ymd_hms('2021-07-19 14:00:00') ~ 'remove',
-      site == 'um' & 
-        start_time > ymd_hms('2023-09-07 14:05:00') ~ 'remove', # um stage sensor uses uw tb so have same dates
-      site == 'uw' & 
-        start_time < ymd_hms('2021-07-19 14:00:00') ~ 'remove',
-      site == 'uw' & 
-        start_time > ymd_hms('2023-09-07 14:05:00') ~ 'remove',
-      TRUE ~ 'keep')) %>%
-  filter(condition == 'keep') 
-  
-cpf_mrms <- left_join(cpf_mrms,
-                    burn,
-                    by = 'site')
-
-# join pwd to cpf_tb
-cpf_mrms <- left_join(cpf_mrms,
-                    pwd,
-                    by = c('site', 'date'))
-
-# by site
-# site_kge_values <- cpf_mrms %>%
-#   group_by(site) %>%
-#   #filter(n_distinct(flow) > 1, n() > 5) %>% 
-#   mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd,
-#                                       data = pick(everything()), 
-#                                       family = 'binomial'), 
-#                                   type = 'response')) %>%
-#   mutate(predict_use = if_else(predicted_prob < 0.5, 0, 1)) %>%
-#   summarise(kge_value = confusionMatrix(factor(predict_use, levels = c(0, 1)), 
-#                                           factor(flow, levels = c(0, 1)))$overall["KGE"])
-
-site_kge_values <- cpf_mrms %>%
-  group_by(site) %>%
-  mutate(predicted_prob = predict(glm(flow ~ .data[[metric]] + lag_pwd + mean_dnbr,
-                                      data = pick(everything()), 
-                                      family = 'binomial'),
-                                  type = 'response')) %>%
-  summarise(
-    kge_value = KGE(predicted_prob, flow))
-
-cp_mrms_kge <- site_kge_values %>%
-  mutate(fire = 'cpf',
-         source = 'mrms')
-
-# site count for 1s
-cpf_mrms_count <- cpf_mrms %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
-
-```
-
-## Join kappa values
-
-```{r}
-
-kge <- bind_rows(et_tb_kge,
-                   et_mrms_kge,
-                   cp_tb_kge,
-                   cp_mrms_kge) %>%
-  mutate(source = toupper(source))
-
-# write the joined kge to csv so don't need to run above anymore
-write.csv(kge, './data/final/stage_YN_response/kge_mi60_wmean_updatedMar2026.csv')
-
-##########################################################################
-
-kappa <- read_csv('./data/final/stage_YN_response/kappa_mi60_wmean_updatedMar2026.csv')
-
-# get some summary stats for manuscript
-kappaSummary <- kappa %>%
-  group_by(fire, source) %>%
-  summarize(mean = mean(kappa_value))
-
-burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  dplyr::select(site, mean_dnbr) %>% 
-  mutate(site = tolower(site))
-
-new_facet_titles <- c(
-  "cpf" = "East",
-  "etf" = "West"
-)
-
-# look at distribution 
-ggplot(kappa, aes(x = kappa_value, fill = source)) +
-  geom_density(alpha = 0.5) +
-  theme_minimal()
-
-##
-
-kappa$fire <- factor(kappa$fire, levels = c("etf", "cpf"))
-
-p1<-ggplot(kappa, aes(x = source, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.9),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = "wilcox.test", 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = .8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = "none",
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    strip.text = element_text(color = "black")) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values', x = NULL)
-##
-
-p1
-
-#ggsave('./figures/eventsum_wmean_kappa_boxplots.png', dpi=600)
-
-kappa_burn <- left_join(kappa, burn, by = 'site') %>%
-  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned'))
-
-kappa_burn$fire <- factor(kappa_burn$fire, levels = c("etf", "cpf"))
-
-p2<-ggplot(kappa_burn, aes(x = burn_cat, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.8),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = 'wilcox.test', 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = 0.8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = c(.75, 1.01),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
-    legend.title = element_blank(), 
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black"),
-    strip.text = element_blank()
-  ) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values',
-       x=NULL)
-
-p2
-
-#ggsave('./figures/eventsum_wmean_kappa_burn_boxplots.png', dpi=600)
-
-combined_plot <- plot_grid(p1, p2, ncol = 1)
-combined_plot
-
-# ggsave('./figures/eventsum_wmean_kappa_boxplots_combine.png', 
-#        combined_plot,
-#        dpi=600)
-
-
-################################################################################
-
-# make kappa 1:1 plots
-kappa_flip <- kappa %>%
-  dplyr::select(-1) %>%
-  pivot_wider(names_from = 'source',
-              values_from = 'kappa_value')
-  
-ggplot(kappa_flip) +
-  geom_point(aes(TB, MRMS, color = fire)) +
-  geom_abline(slope = 1, 
-              intercept = 0, 
-              linetype = "dashed", 
-              color = "black")
-
-################################################################################
-
-kappa_burnOnly <- left_join(kappa, burn, by = 'site') %>%
-  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned')) %>%
-  filter(burn_cat == 'burn')
-
-kappa_burnOnly$fire <- factor(kappa_burnOnly$fire, levels = c("etf", "cpf"))
-
-pBurn <-ggplot(kappa_burnOnly, aes(x = source, y = kappa_value, fill = source)) + 
-  #geom_violin(scale='width') +
-  geom_boxplot(position = position_dodge(0.8),
-               outlier.size = 2) +
-  stat_compare_means(aes(group = source),   # Perform t-test between sources within each facet
-                     method = 'wilcox.test', 
-                     label = "p.signif",    # Display significance levels (*, **, ***)
-                     hide.ns = T,        # Hide non-significant results
-                     label.y = 0.8,
-                     label.x = 1.4,
-                     size = 15) +  # Adjust label position
-  theme(
-    legend.position = c(.75, 1.01),
-    legend.justification = c(0, 1.1), 
-    legend.text = element_text(size = 16),         # Adjust legend text size
-    legend.title = element_blank(), 
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    strip.background = element_blank(),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black")
-    #strip.text = element_blank()
-  ) +
-  scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-  facet_wrap(~fire, labeller = labeller(fire = new_facet_titles)) +
-  labs(y = 'MI60 kappa values',
-       x=NULL)
-
-pBurn
-
-```
-
-# Mean elev w/ kappa
-
-Figure 6 pt. 2
-
-```{r}
-
-# bring in catchments
-catch <- vect('./data/GIS/catchments_all/catchments_all_lidar.shp')
-dem <- rast('./data/GIS/dem_10m.tif')
-
-mean_elev <- dem %>%
-  terra::extract(catch, fun = mean, ID = T) %>%
-  mutate(site = catch$site) %>%
-  mutate(site = if_else(site == 'mm',
-                        'mm_et',
-                        site)) %>%
-  mutate(site = tolower(site)) %>%
-  rename(mean_elev_m = 2) %>%
-  dplyr::select(-1)
-
-kappa_elev <- left_join(kappa_flip,
-                        mean_elev,
-                        by = 'site') %>%
-  mutate(fire = if_else(fire == 'cpf',
-                        'CPF',
-                        'ETF'))
-
-kappa_elev_plot <- ggplot(kappa_elev) +
-  geom_point(aes(MRMS, TB, 
-                 shape = fire,
-                 color = mean_elev_m),
-                 size = 5) +
-  geom_abline(slope = 1, 
-              intercept = 0, 
-              linetype = "dashed", 
-              color = "black") +
-  scale_color_gradientn(colours = terrain.colors(15)) +
-  geom_text_repel(aes(x = MRMS, y = TB, label = site),
-                  size = 5,
-                  color = "black") +
-  labs(x = 'MRMS MI60 kappa',
-       y = 'TB MI60 kappa',
-       color = 'Elevation (m)',
-       shape = element_blank()) +
-  theme_bw(base_size = 20) +
-  theme(
-    legend.position = 'bottom',
-    legend.text = element_text(size = 12),
-    legend.title = element_text(size=12),
-    panel.grid = element_blank(),
-    panel.background = element_rect(fill = "white"),
-    text = element_text(color = "black"),
-    axis.title = element_text(color = "black"),
-    axis.text = element_text(color = "black")) +
-  guides(color = guide_colorbar(barwidth = 10))
-
-kappa_elev_plot
-
-ggsave('./figures/kappa_tb_mrms_elevmi60.png',
-       dpi=600)
-
-white_spacer <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "white", color = NA))
-
-# Stack white spacer and kappa plot
-adjusted_kappa <- plot_grid(
-  white_spacer,
-  kappa_elev_plot,
-  ncol = 1,
-  rel_heights = c(0.043, 1)
-)
-
-# Combine horizontally
-combined_plot2 <- plot_grid(
-  combined_plot,
-  adjusted_kappa,
-  ncol = 2,
-  labels = c("a", "b"),
-  label_size = 18
-)
-
-ggsave('./figures/kappa_combine2_updatelabels.png',
-       width=16,
-       height=10,
-       dpi=600)
-
-##
-# by dnbr
-kappa_flip <- left_join(kappa_flip, burn, by = 'site')
-
-ggplot(kappa_flip) +
-  geom_point(aes(MRMS, TB, 
-                 shape = fire,
-                 color=mean_dnbr),
-                 size=5) +
-  geom_abline(slope = 1, 
-              intercept = 0, 
-              linetype = "dashed", 
-              color = "black") +
-   scale_color_continuous(type = "viridis") +
-    geom_text(aes(x = MRMS, y = TB, label = site),
-            size = 5, vjust = -1, hjust = -0.1,
-            color = "black") +
-  labs(x='MRMS MI60',
-       y='TB MI60') +
-  theme_bw(base_size=20)
-
-ggsave('./figures/kappa_tb_mrms_BURNmi60.png',
-       dpi=600)
-
-# by area
-area <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
-  dplyr::select(site, area_km2) %>% 
-  mutate(site = tolower(site))
-
-kappa_flip <- left_join(kappa_flip, area, by = 'site')
-
-area_plot <- kappa_flip %>%
-  filter(!site == 'mtcampus') %>%
-ggplot(.) +
-  geom_point(aes(MRMS, TB, 
-                 shape = fire,
-                 color=area_km2),
-                 size=5) +
-  geom_abline(slope = 1, 
-              intercept = 0, 
-              linetype = "dashed", 
-              color = "black") +
-   scale_color_continuous(type = "viridis") +
-    geom_text(aes(x = MRMS, y = TB, label = site),
-            size = 5, vjust = -1, hjust = -0.1,
-            color = "black") +
-  labs(x='MRMS MI60',
-       y='TB MI60') +
-  theme_bw(base_size=20)
-
-area_plot
-
-ggsave('./figures/kappa_tb_mrms_AREAmi60.png',
-       dpi=600)
-
-```
-
-
-
 
