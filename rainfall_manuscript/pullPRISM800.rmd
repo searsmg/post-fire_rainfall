@@ -145,21 +145,27 @@ snow_days <- map(years, \(yr) {
 
   total_pixels <- global(!is.na(tmean[[1]]), fun = "sum", na.rm = TRUE)[[1]]
 
-  global(both, fun = "sum", na.rm = TRUE) %>%
+  ppt_masked <- mask(ppt, both, maskvalues = 0)
+
+  n_df   <- global(both,       fun = "sum", na.rm = TRUE)
+  min_df <- global(ppt_masked, fun = "min", na.rm = TRUE)
+  max_df <- global(ppt_masked, fun = "max", na.rm = TRUE)
+
+  n_df %>%
     mutate(
-      date          = as.Date(names(tmean), format = "prism_tmean_us_30s_%Y%m%d"),
-      year          = yr,
-      total_pixels  = total_pixels
+      date         = as.Date(names(tmean), format = "prism_tmean_us_30s_%Y%m%d"),
+      year         = yr,
+      total_pixels = total_pixels,
+      ppt_min      = min_df$min,
+      ppt_max      = max_df$max
     )
 
 }) %>%
   list_rbind() %>%
   rename(n_pixels = sum) %>%
   mutate(pct_pixels = round(n_pixels / total_pixels * 100, 2)) %>%
-  select(date, year, n_pixels, pct_pixels) %>%
+  select(date, year, n_pixels, pct_pixels, ppt_min, ppt_max) %>%
   filter(n_pixels > 0)
-
-snow_days
 
 ###########
 
@@ -183,6 +189,58 @@ message("  both (expected 1266):", n_both, " pixels (", round(n_both / total_px 
 
 stopifnot(n_both == 1266)
 message("Verification passed.")
+
+```
+
+
+```{r}
+
+snow_days <- map(years, \(yr) {
+
+  tmean <- rast(str_glue('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_tmean_JJAS{yr}.tif'))
+  ppt   <- rast(str_glue('/Volumes/MSears_Mac2/Documents/PRISM800_pixel/prism800m_ppt_JJAS{yr}.tif'))
+
+  both <- (tmean < 3) & (ppt > 0)
+
+  # mask ppt to only pixels meeting both conditions
+  ppt_masked <- mask(ppt, both, maskvalues = 0)
+
+  total_pixels <- global(!is.na(tmean[[1]]), fun = "sum", na.rm = TRUE)[[1]]
+
+  n_df   <- global(both,       fun = "sum", na.rm = TRUE)
+  min_df <- global(ppt_masked, fun = "min", na.rm = TRUE)
+  max_df <- global(ppt_masked, fun = "max", na.rm = TRUE)
+
+  n_df %>%
+    mutate(
+      date         = as.Date(names(tmean), format = "prism_tmean_us_30s_%Y%m%d"),
+      year         = yr,
+      total_pixels = total_pixels,
+      ppt_min      = min_df$min,
+      ppt_max      = max_df$max
+    )
+
+}) %>%
+  list_rbind() %>%
+  rename(n_pixels = sum) %>%
+  mutate(pct_pixels = round(n_pixels / total_pixels * 100, 2)) %>%
+  select(date, year, n_pixels, pct_pixels, ppt_min, ppt_max) %>%
+  filter(n_pixels > 0)
+
+snow_days %>%
+  select(-year) %>%
+  mutate(
+    ppt_min = round(ppt_min, 2),
+    ppt_max = round(ppt_max, 2)
+  ) %>%
+  knitr::kable(
+    col.names = c("Date",
+                  "Number of pixels with mean air temperature <3 deg C and precipitation > 0 mm",
+                  "Percent of total pixels",
+                  "Min precip (mm)",
+                  "Max precip (mm)"),
+    align = c("l", "r", "r", "r", "r")
+  )
 
 ```
 
