@@ -4552,7 +4552,7 @@ etf_tb, etf_mrms, cpf_tb, cpf_mrms were manually copied from all cross csv and r
 ```{r}
 
 # metric we are looking at
-metric <- 'event_sum_mm'
+metric <- 'MI60_mmhr'
 
 ```
 
@@ -4591,13 +4591,13 @@ etf_tb <- read_csv('./data/final/stage_YN_response/etf_tb_wmean.csv') %>%
   filter(month %in% c(6:9)) %>%
   flag_cold_precip(.)
 
-# burn <- read_csv('./data/final_model_inputs/inputs1.csv') #%>%
-#   dplyr::select(site, mean_dnbr) %>% 
-#   mutate(site = tolower(site))
+# burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+#   dplyr::select(site, mean_dnbr) %>%
+#   mutate(site = tolower(site)) 
 # 
 # etf_tb <- left_join(etf_tb,
 #                     burn,
-#                     by = 'site')
+#                     by = 'site') 
 
 burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
   dplyr::select(site, NDVI_2021, NDVI_2022, NDVI_2023) %>%
@@ -4618,54 +4618,54 @@ pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
   rename(date = Date) %>%
   mutate(date = mdy(date))
 
-# pwd_daymet <- read_csv('./data/final_model_inputs/pwd_daymet.csv') %>%
-#   select(site,
-#          date = Date,
-#          lag_pwd)
+pwd_daymet <- read_csv('./data/final_model_inputs/pwd_daymet.csv') %>%
+  select(site,
+         date = Date,
+         lag_pwd)
 
 # join pwd to etf_tb
+etf_tb <- left_join(etf_tb,
+                    pwd_daymet,
+                    by = c('site', 'date'))
+
+# # join
 # etf_tb <- left_join(etf_tb,
 #                     pwd,
 #                     by = c('site', 'date'))
-
-# join
-etf_tb <- left_join(etf_tb,
-                    pwd,
-                    by = c('site', 'date'))
-
-
-fit_kappa <- function(df, metric) {
-  conv <- TRUE
-  mod <- withCallingHandlers(
-    glm(reformulate(c(metric, "lag_pwd", "NDVI"), response = "flow"),
-        data = df, family = 'binomial'),
-    warning = function(w) {
-      if (grepl("did not converge", conditionMessage(w))) conv <<- FALSE
-      invokeRestart("muffleWarning")
-    }
-  )
-  pred_prob <- predict(mod, type = 'response')
-  preds <- factor(if_else(pred_prob < 0.5, 0, 1), levels = c(0, 1))
-  tibble(
-    kappa_value = unname(confusionMatrix(preds, factor(df$flow, levels = c(0, 1)))$overall["Kappa"]),
-    kge_value = KGE(sim = pred_prob, obs = df$flow),
-    converged = conv
-  )
-}
-
-et_tb_kappa <- etf_tb %>%
-  group_by(site) %>%
-  reframe(fit_kappa(pick(everything()), metric)) %>%
-  mutate(fire = 'etf',
-         source = 'tb')
-
-et_tb_kappa
-
-# site count for 1s
-etf_tb_count <- etf_tb %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
+# 
+# 
+# fit_kappa <- function(df, metric) {
+#   conv <- TRUE
+#   mod <- withCallingHandlers(
+#     glm(reformulate(c(metric, "lag_pwd", "NDVI"), response = "flow"),
+#         data = df, family = 'binomial'),
+#     warning = function(w) {
+#       if (grepl("did not converge", conditionMessage(w))) conv <<- FALSE
+#       invokeRestart("muffleWarning")
+#     }
+#   )
+#   pred_prob <- predict(mod, type = 'response')
+#   preds <- factor(if_else(pred_prob < 0.5, 0, 1), levels = c(0, 1))
+#   tibble(
+#     kappa_value = unname(confusionMatrix(preds, factor(df$flow, levels = c(0, 1)))$overall["Kappa"]),
+#     kge_value = KGE(sim = pred_prob, obs = df$flow),
+#     converged = conv
+#   )
+# }
+# 
+# et_tb_kappa <- etf_tb %>%
+#   #group_by(site) %>%
+#   reframe(fit_kappa(pick(everything()), metric)) %>%
+#   mutate(fire = 'etf',
+#          source = 'tb')
+# 
+# et_tb_kappa
+# 
+# # site count for 1s
+# etf_tb_count <- etf_tb %>%
+#   group_by(site) %>%
+#   summarize(sum = sum(flow),
+#             count = n())
 
 ```
 
@@ -4726,28 +4726,28 @@ etf_mrms <- left_join(etf_mrms,
   dplyr::select(-NDVI_2021, -NDVI_2022, -NDVI_2023)
 
 # join pwd to etf_tb
-etf_mrms <- left_join(etf_mrms,
-                    pwd,
-                    by = c('site', 'date'))
-
 # etf_mrms <- left_join(etf_mrms,
-#                     pwd_daymet,
+#                     pwd,
 #                     by = c('site', 'date'))
 
+etf_mrms <- left_join(etf_mrms,
+                    pwd_daymet,
+                    by = c('site', 'date'))
 
-et_mrms_kappa <- etf_mrms %>%
-  group_by(site) %>%
-  reframe(fit_kappa(pick(everything()), metric)) %>%
-  mutate(fire = 'etf',
-         source = 'mrms')
 
-et_mrms_kappa
-
-# site count for 1s
-etf_mrms_count <- etf_mrms %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
+# et_mrms_kappa <- etf_mrms %>%
+#   group_by(site) %>%
+#   reframe(fit_kappa(pick(everything()), metric)) %>%
+#   mutate(fire = 'etf',
+#          source = 'mrms')
+# 
+# et_mrms_kappa
+# 
+# # site count for 1s
+# etf_mrms_count <- etf_mrms %>%
+#   group_by(site) %>%
+#   summarize(sum = sum(flow),
+#             count = n())
 
 ```
 
@@ -4793,27 +4793,38 @@ pwd <- read_csv('./data/final_model_inputs/pwd.csv') %>%
                        'mtcampus',
                        site))
 
+pwd_daymet <- read_csv('./data/final_model_inputs/pwd_daymet.csv') %>%
+  select(site,
+         date = Date,
+         lag_pwd) %>%
+    mutate(site = tolower(site)) %>%
+  #mutate(date = mdy(date)) %>%
+  mutate(site = ifelse(site == 'mtcamp',
+                       'mtcampus',
+                       site))
+
 # join pwd to cpf_tb
 cpf_tb <- left_join(cpf_tb,
-                    pwd,
+                    pwd_daymet,
                     by = c('site', 'date'))
 
 
-# by site
-cpf_tb_kappa <- cpf_tb %>%
-  drop_na(NDVI) %>%
-  group_by(site) %>%
-  reframe(fit_kappa(pick(everything()), metric)) %>%
-  mutate(fire = 'cpf',
-         source = 'tb')
+# # by site
+# cpf_tb_kappa <- cpf_tb %>%
+#   drop_na(NDVI) %>%
+#   group_by(site) %>%
+#   reframe(fit_kappa(pick(everything()), metric)) %>%
+#   mutate(fire = 'cpf',
+#          source = 'tb')
+# 
+# cpf_tb_kappa
+# 
+# # site count for 1s
+# cpf_tb_count <- cpf_tb %>%
+#   group_by(site) %>%
+#   summarize(sum = sum(flow),
+#             count = n())
 
-cpf_tb_kappa
-
-# site count for 1s
-cpf_tb_count <- cpf_tb %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
 ```
 
 ## CPF MRMS
@@ -4916,37 +4927,151 @@ cpf_mrms <- left_join(cpf_mrms,
 
 # join pwd to cpf_tb
 cpf_mrms <- left_join(cpf_mrms,
-                    pwd, # CHECK THIS BEFORE - TESTING WITH DAYMET
+                    pwd_daymet, # CHECK THIS BEFORE - TESTING WITH DAYMET
                     by = c('site', 'date'))
 
-cpf_mrms_kappa <- cpf_mrms %>%
-  drop_na(NDVI) %>% 
-  group_by(site) %>%
-  reframe(fit_kappa(pick(everything()), metric)) %>%
-  mutate(fire = 'cpf',
-         source = 'mrms')
+# cpf_mrms_kappa <- cpf_mrms %>%
+#   drop_na(NDVI) %>% 
+#   group_by(site) %>%
+#   reframe(fit_kappa(pick(everything()), metric)) %>%
+#   mutate(fire = 'cpf',
+#          source = 'mrms')
+# 
+# cpf_mrms_kappa
+# 
+# # site count for 1s
+# cpf_mrms_count <- cpf_mrms %>%
+#   group_by(site) %>%
+#   summarize(sum = sum(flow),
+#             count = n())
 
-cpf_mrms_kappa
-
-# site count for 1s
-cpf_mrms_count <- cpf_mrms %>%
-  group_by(site) %>%
-  summarize(sum = sum(flow),
-            count = n())
 ```
 
 ## Join kappa values
 
 ```{r}
+# 
+# kappa <- bind_rows(et_tb_kappa,
+#                    et_mrms_kappa,
+#                    cpf_tb_kappa,
+#                    cpf_mrms_kappa) %>%
+#   mutate(source = toupper(source))
+# 
+# # write the joined kappa to csv so don't need to run above anymore
+# write.csv(kappa, './data/final/stage_YN_response/kappa_KGE_eventsum_wmean_PWDDAYMET_updatedJun2026.csv')
+# 
+# kappaSummary
 
-kappa <- bind_rows(et_tb_kappa,
-                   et_mrms_kappa,
-                   cpf_tb_kappa,
-                   cpf_mrms_kappa) %>%
-  mutate(source = toupper(source))
+```
 
-# write the joined kappa to csv so don't need to run above anymore
-write.csv(kappa, './data/final/stage_YN_response/kappa_KGE_eventsum_wmean_updatedJun2026.csv')
+# Pooled models
+
+```{r}
+
+etf_tb <- etf_tb %>%
+  select(flow, MI30_mmhr,
+         MI60_mmhr, event_sum_mm,
+         date, site, source, fire, NDVI,
+         lag_pwd)
+
+etf_mrms <- etf_mrms %>%
+  select(flow, MI30_mmhr,
+         MI60_mmhr, event_sum_mm,
+         date, site, source, fire, NDVI,
+         lag_pwd)
+
+
+cpf_tb <- cpf_tb %>%
+  select(flow, MI30_mmhr,
+         MI60_mmhr, event_sum_mm,
+         date, site, source, fire, NDVI,
+         lag_pwd)
+
+
+cpf_mrms <- cpf_mrms %>%
+  select(flow, MI30_mmhr,
+         MI60_mmhr, event_sum_mm,
+         date, site, source, fire, NDVI,
+         lag_pwd)
+
+full <- bind_rows(etf_tb,
+                  etf_mrms,
+                  cpf_tb,
+                  cpf_mrms)
+
+burn <- read_csv('./data/final_model_inputs/inputs1.csv') %>%
+  dplyr::select(site, mean_dnbr) %>% 
+  mutate(site = tolower(site))
+
+# this is bad naming but it mean NO UNBURN INCLUDED
+full_burn <- left_join(full, burn, by = 'site') %>%
+  mutate(burn_cat = if_else(mean_dnbr > 270, 'burn', 'unburned')) %>%
+  filter(burn_cat == 'burn')
+
+#write.csv(full_burn, './data/final/stage_YN_response/full_burn_formodel.csv')
+write.csv(full_burn, './data/final/stage_YN_response/full_burn_formodel_daymetpwd.csv')
+
+################################################################################
+
+full_burn <- read_csv('./data/final/stage_YN_response/full_burn_formodel_daymetpwd.csv')
+
+metric <- 'MI60_mmhr'
+
+# fit pooled models (keep mod for site-level predictions)
+pooled_models <- full_burn %>%
+  group_by(fire, source) %>%
+  summarise(
+    mod = list(glm(reformulate(c(metric, "lag_pwd", "NDVI"), response = "flow"),
+                   data = pick(everything()), family = 'binomial')),
+    .groups = 'drop'
+  )
+
+# pooled-level kappa and KGE
+pooled_performance <- pooled_models %>%
+  mutate(
+    kappa_value = map_dbl(mod, function(m) {
+      pred_prob <- predict(m, type = 'response')
+      preds <- factor(if_else(pred_prob < 0.5, 0, 1), levels = c(0, 1))
+      unname(confusionMatrix(preds, factor(m$y, levels = c(0, 1)))$overall["Kappa"])
+    }),
+    kge_value = map_dbl(mod, function(m) {
+      KGE(sim = predict(m, type = 'response'), obs = m$y)
+    })
+  ) %>%
+  select(-mod)
+
+pooled_performance
+
+# site-level kappa and KGE using pooled model
+site_kappa <- full_burn %>%
+  group_by(fire, source, site) %>%
+  nest() %>%
+  left_join(pooled_models, by = c('fire', 'source')) %>%
+  mutate(
+    kappa_value = map2_dbl(data, mod, function(site_df, m) {
+      pred_prob <- predict(m, newdata = site_df, type = 'response')
+      preds <- factor(if_else(pred_prob < 0.5, 0, 1), levels = c(0, 1))
+      unname(confusionMatrix(preds, factor(site_df$flow, levels = c(0, 1)))$overall["Kappa"])
+    }),
+    kge_value = map2_dbl(data, mod, function(site_df, m) {
+      KGE(sim = predict(m, newdata = site_df, type = 'response'), obs = site_df$flow)
+    })
+  ) %>%
+  select(-data, -mod)
+
+# site_kappa_summary <- site_kappa %>% 
+#   group_by(fire, source) %>% 
+#   summarize(mean = mean(kappa_value),
+#             .groups = 'drop')
+# 
+# site_kge_summary <- site_kappa %>% 
+#   group_by(fire, source) %>% 
+#   summarize(mean = mean(kge_value),
+#             .groups = 'drop')
+
+print(site_kappa, n=50)
+
+write_csv(site_kappa, './data/final/stage_YN_response/mi60_model_site_Jun2026_daymetpwd.csv')
 
 ```
 
